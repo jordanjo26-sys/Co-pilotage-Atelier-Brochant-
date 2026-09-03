@@ -1,0 +1,35 @@
+{
+  "name": "copilote-brochant-csv-reception",
+  "version": "0.1.0",
+  "description": "Outil de reception et de normalisation des exports CSV (Synec, Stripe, banque) pour le Copilote IA de gestion - Atelier Brochant",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "tsx --test tests/*.test.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "seed:samples": "tsx scripts/seed-samples.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0",
+    "csv-parse": "^5.5.6",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "multer": "^2.0.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^20.16.10",
+    "prisma": "^5.20.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "banque_releve",
+  "label": "Releve de compte bancaire (Banque Populaire ou autre)",
+  "requiredFields": ["date", "libelle"],
+  "fields": {
+    "date": ["date", "date operation", "date valeur", "date comptable"],
+    "libelle": ["libelle", "libelle operation", "description", "operation"],
+    "debit": ["debit", "montant debit"],
+    "credit": ["credit", "montant credit"],
+    "montant": ["montant", "montant operation"]
+  }
+}

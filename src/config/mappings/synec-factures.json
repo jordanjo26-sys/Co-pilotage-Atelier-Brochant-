@@ -1,0 +1,17 @@
+{
+  "type": "synec_factures",
+  "label": "Export factures Synec",
+  "requiredFields": ["reference", "clientNom", "montantTTC"],
+  "fields": {
+    "reference": ["n facture", "numero facture", "reference", "ref facture", "facture n", "num facture", "n de facture"],
+    "clientNom": ["client", "nom client", "raison sociale", "nom du client"],
+    "dateEmission": ["date facture", "date emission", "date"],
+    "dateEcheance": ["date echeance", "echeance", "date d echeance"],
+    "montantTTC": ["montant ttc", "montant", "total ttc", "montant total ttc"],
+    "statut": ["statut", "statut paiement", "etat", "payee non payee", "statut de paiement"],
+    "modePaiement": ["mode de reglement", "mode paiement", "moyen de paiement", "mode de paiement"],
+    "bonCommande": ["bon de commande", "n bon de commande", "reference bc", "numero bon de commande"],
+    "cloture": ["cloture", "dossier cloture", "statut dossier"],
+    "notes": ["notes", "commentaire", "note interne", "notes internes"]
+  }
+}

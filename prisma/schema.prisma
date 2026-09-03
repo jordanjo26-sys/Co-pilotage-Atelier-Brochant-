@@ -1,0 +1,196 @@
+// Modele de donnees - Copilote IA de gestion - Atelier Brochant
+// Reprend la section 15 "Donnees principales a stocker" du cahier des charges,
+// simplifie pour le perimetre "reception et normalisation des CSV" (Phase 0/2).
+//
+// SQLite par defaut pour demarrer sans installation. Pour la production,
+// changer "provider" en "postgresql" et adapter DATABASE_URL (cf. .env.example
+// et section 16 "Architecture technique cible" du cahier des charges).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- Clients & facturation (source : Synec) ---------------------------------
+
+model Client {
+  id        String    @id @default(cuid())
+  nom       String
+  email     String?
+  telephone String?
+  notes     String?
+  factures  Facture[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Facture {
+  id                 String    @id @default(cuid())
+  reference          String    @unique
+  clientId           String?
+  client             Client?   @relation(fields: [clientId], references: [id])
+  clientNom          String
+  dateEmission       DateTime?
+  dateEcheance       DateTime?
+  montantTTC         Float
+  statut             String // "payee" | "impayee" | "cloturee"
+  modePaiement       String?
+  bonCommande        String?
+  delaiAccordeJusqua DateTime? // cf. section 4.3 : delai accorde => suspension des relances
+  financementOney    Boolean   @default(false) // cf. section 4.4
+  clotureSynec       Boolean   @default(false)
+  sourceImportId     String?
+  sourceImport       ImportBatch? @relation(fields: [sourceImportId], references: [id])
+  paiements          Paiement[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+// --- Tresorerie : Stripe & banque (section 5) --------------------------------
+
+model Paiement {
+  id             String    @id @default(cuid())
+  source         String // "stripe" | "banque" | "cheque" | "autre"
+  paymentRef     String    @unique // identifiant Stripe du paiement
+  brut           Float
+  frais          Float     @default(0)
+  net            Float
+  devise         String    @default("EUR")
+  date           DateTime
+  clientEmail    String?
+  // Identifiant de payout Stripe (texte libre, pas de cle etrangere) :
+  // le rapprochement se fait par requete applicative, pas a l'import, car
+  // paiements et payouts peuvent arriver dans un ordre quelconque selon
+  // le fichier CSV depose.
+  payoutRef      String?
+  factureId      String?
+  facture        Facture?  @relation(fields: [factureId], references: [id])
+  sourceImportId String?
+  sourceImport   ImportBatch? @relation(fields: [sourceImportId], references: [id])
+  createdAt      DateTime  @default(now())
+}
+
+model Payout {
+  id                  String    @id @default(cuid())
+  payoutRef           String    @unique // identifiant Stripe du payout
+  date                DateTime
+  montantNet          Float
+  statut              String?
+  // Idem : rapprochement avec MouvementBancaire fait par requete applicative.
+  mouvementBancaireId String?
+  sourceImportId      String?
+  sourceImport        ImportBatch? @relation(fields: [sourceImportId], references: [id])
+  createdAt           DateTime  @default(now())
+}
+
+model MouvementBancaire {
+  id                  String    @id @default(cuid())
+  date                DateTime
+  libelle             String
+  debit               Float     @default(0)
+  credit              Float     @default(0)
+  montant             Float
+  rapprochementStatut String    @default("non_rapproche") // non_rapproche | rapproche | a_verifier
+  hashLigne           String    @unique
+  sourceImportId      String?
+  sourceImport        ImportBatch? @relation(fields: [sourceImportId], references: [id])
+  createdAt           DateTime  @default(now())
+}
+
+// --- Fournisseurs & sous-traitants (section 6) -------------------------------
+
+model Fournisseur {
+  id             String    @id @default(cuid())
+  nom            String    @unique
+  modeReception  String? // "email" | "portail" | "comptant"
+  portailUrl     String?
+  modePaiement   String?
+  prelevementLcr Boolean   @default(false)
+  factures       FactureFournisseur[]
+  documents      DocumentFournisseur[]
+  createdAt      DateTime  @default(now())
+}
+
+model DocumentFournisseur {
+  id             String    @id @default(cuid())
+  fournisseurId  String?
+  fournisseur    Fournisseur? @relation(fields: [fournisseurId], references: [id])
+  type           String // "facture" | "avoir" | "bon_enlevement" | "releve" | "autre"
+  fichierNom     String?
+  numero         String?
+  date           DateTime?
+  montant        Float?
+  statutDext     String    @default("non_envoye") // non_envoye | envoye | archive | a_valider
+  hashFichier    String?   @unique
+  createdAt      DateTime  @default(now())
+}
+
+model FactureFournisseur {
+  id            String    @id @default(cuid())
+  fournisseurId String?
+  fournisseur   Fournisseur? @relation(fields: [fournisseurId], references: [id])
+  reference     String?
+  echeance      DateTime?
+  montant       Float
+  modePaiement  String?
+  statut        String    @default("a_payer") // a_payer | payee
+  sousTraitant  Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+}
+
+// --- Memoire metier, controle et journal (sections 8, 12, 14) ---------------
+
+model Decision {
+  id        String    @id @default(cuid())
+  type      String // "delai_accorde" | "exception" | "financement_oney" | "correction"
+  motif     String?
+  dateDebut DateTime  @default(now())
+  dateFin   DateTime?
+  auteur    String?
+  objetType String?
+  objetId   String?
+  createdAt DateTime  @default(now())
+}
+
+model Anomalie {
+  id             String    @id @default(cuid())
+  type           String
+  gravite        String    @default("moyenne") // faible | moyenne | haute
+  preuves        String? // JSON serialise
+  actionProposee String?
+  statut         String    @default("a_valider") // a_valider | validee | ignoree
+  createdAt      DateTime  @default(now())
+}
+
+model JournalEvenement {
+  id         String   @id @default(cuid())
+  horodatage DateTime @default(now())
+  evenement  String
+  action     String?
+  resultat   String?
+  details    String? // JSON serialise
+}
+
+// --- Reception des fichiers CSV ---------------------------------------------
+
+model ImportBatch {
+  id             String    @id @default(cuid())
+  fichierNom     String
+  typeDetecte    String // synec_factures | stripe_paiements | stripe_payouts | banque_releve | inconnu
+  hashFichier    String    @unique
+  dateImport     DateTime  @default(now())
+  nbLignes       Int       @default(0)
+  nbNouveaux     Int       @default(0)
+  nbDoublons     Int       @default(0)
+  nbErreurs      Int       @default(0)
+  statut         String    @default("ok") // ok | partiel | echec | type_inconnu
+  details        String? // JSON serialise (erreurs, avertissements)
+  factures       Facture[]
+  paiements      Paiement[]
+  payouts        Payout[]
+  mouvements     MouvementBancaire[]
+}

@@ -1,0 +1,18 @@
+{
+  "type": "stripe_paiements",
+  "label": "Export paiements Stripe",
+  "requiredFields": ["paymentRef", "brut", "date"],
+  "fields": {
+    "paymentRef": ["id", "payment id", "charge id", "identifiant"],
+    "brut": ["amount", "montant", "gross", "montant brut"],
+    "frais": ["fee", "frais", "fees"],
+    "net": ["net", "montant net"],
+    "devise": ["currency", "devise"],
+    "date": ["created utc", "created", "date", "date de creation"],
+    "clientEmail": ["customer email", "email client", "email"],
+    "payoutRef": ["payout id", "id payout", "identifiant payout"],
+    "statut": ["status", "statut"],
+    "description": ["description"],
+    "factureRef": ["invoice id", "invoice", "reference facture"]
+  }
+}

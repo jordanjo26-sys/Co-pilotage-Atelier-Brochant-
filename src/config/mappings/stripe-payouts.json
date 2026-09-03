@@ -1,0 +1,12 @@
+{
+  "type": "stripe_payouts",
+  "label": "Export payouts (virements) Stripe",
+  "requiredFields": ["payoutRef", "montantNet", "date"],
+  "fields": {
+    "payoutRef": ["id", "payout id", "identifiant"],
+    "montantNet": ["amount", "net", "montant", "montant net"],
+    "date": ["arrival date", "effective at utc", "date", "date d arrivee"],
+    "statut": ["status", "statut"],
+    "description": ["description", "statement descriptor"]
+  }
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Copilote Brochant — Réception CSV</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Copilote Atelier Brochant</h1>
+    <p class="sous-titre">Outil de réception et de normalisation des exports CSV (Synec, Stripe, banque)</p>
+  </header>
+
+  <main>
+    <section class="carte">
+      <h2>1. Déposer un fichier CSV</h2>
+      <p class="aide">
+        Synec (factures), Stripe (paiements ou payouts), relevé bancaire.
+        Le type est détecté automatiquement à partir des en-têtes de colonnes.
+      </p>
+      <form id="form-import">
+        <input type="file" id="input-fichier" accept=".csv" required />
+        <button type="submit">Importer</button>
+      </form>
+      <div id="resultat-import"></div>
+    </section>
+
+    <section class="carte">
+      <h2>2. Cockpit du jour</h2>
+      <div id="cockpit" class="grille-cockpit"></div>
+    </section>
+
+    <section class="carte">
+      <h2>3. Derniers imports</h2>
+      <table id="table-imports">
+        <thead>
+          <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="carte">
+      <h2>4. Factures impayées</h2>
+      <table id="table-factures">
+        <thead>
+          <tr><th>Référence</th><th>Client</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

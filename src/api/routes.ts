@@ -1,0 +1,81 @@
+import { Router } from "express";
+import multer from "multer";
+import { PrismaClient } from "@prisma/client";
+import { receiveCsv } from "../services/importService";
+import { getDashboardSummary } from "../services/dashboardService";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+export function buildRouter(prisma: PrismaClient): Router {
+  const router = Router();
+
+  // --- Reception des CSV ------------------------------------------------
+
+  router.post("/import", upload.single("fichier"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ erreur: "Aucun fichier recu (champ attendu : 'fichier')." });
+    }
+    try {
+      const summary = await receiveCsv(prisma, req.file.originalname, req.file.buffer);
+      res.status(200).json(summary);
+    } catch (err) {
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.get("/imports", async (_req, res) => {
+    const imports = await prisma.importBatch.findMany({ orderBy: { dateImport: "desc" }, take: 100 });
+    res.json(imports);
+  });
+
+  // --- Consultation des donnees normalisees ------------------------------
+
+  router.get("/factures", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
+    const factures = await prisma.facture.findMany({
+      where: statut ? { statut } : undefined,
+      orderBy: { dateEcheance: "asc" },
+      take: 500,
+    });
+    res.json(factures);
+  });
+
+  router.get("/paiements", async (_req, res) => {
+    const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 500 });
+    res.json(paiements);
+  });
+
+  router.get("/payouts", async (_req, res) => {
+    const payouts = await prisma.payout.findMany({ orderBy: { date: "desc" }, take: 500 });
+    res.json(payouts);
+  });
+
+  // Ventilation d'un payout : quelles factures / paiements le composent.
+  router.get("/payouts/:payoutRef/ventilation", async (req, res) => {
+    const { payoutRef } = req.params;
+    const payout = await prisma.payout.findUnique({ where: { payoutRef } });
+    if (!payout) return res.status(404).json({ erreur: "Payout introuvable." });
+
+    const paiements = await prisma.paiement.findMany({ where: { payoutRef } });
+    const brutTotal = paiements.reduce((s, p) => s + p.brut, 0);
+    const fraisTotal = paiements.reduce((s, p) => s + p.frais, 0);
+
+    res.json({ payout, paiements, brutTotal, fraisTotal, netTotal: brutTotal - fraisTotal });
+  });
+
+  router.get("/mouvements-bancaires", async (_req, res) => {
+    const mouvements = await prisma.mouvementBancaire.findMany({ orderBy: { date: "desc" }, take: 500 });
+    res.json(mouvements);
+  });
+
+  router.get("/journal", async (_req, res) => {
+    const journal = await prisma.journalEvenement.findMany({ orderBy: { horodatage: "desc" }, take: 200 });
+    res.json(journal);
+  });
+
+  router.get("/dashboard/summary", async (_req, res) => {
+    res.json(await getDashboardSummary(prisma));
+  });
+
+  return router;
+}
