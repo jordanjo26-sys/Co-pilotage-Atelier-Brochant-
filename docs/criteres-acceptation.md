@@ -8,7 +8,7 @@ première brique — voir `docs/architecture.md`.
 | Critère (cahier des charges, section 19) | État | Détail |
 |---|---|---|
 | « Le CSV Synec met à jour les factures et permet de calculer le CA de la veille et les impayés » | ✅ Fait, validé sur données réelles | `POST /api/import` + `GET /api/dashboard/summary` ; testé de bout en bout dans `tests/importPipeline.test.ts`, et rejoué sur l'export réel complet (347 factures, 0 erreur) |
-| « Un payout Stripe groupé peut être ventilé jusqu'aux factures et rapproché du mouvement bancaire, frais inclus » | ⚠️ Partiel | La ventilation payout → paiements (brut/frais/net) est faite (`GET /api/payouts/:payoutRef/ventilation`). Le rapprochement automatique payout ↔ mouvement bancaire (par montant/date) n'est **pas encore implémenté** — `MouvementBancaire` et `Payout` sont stockés et reliables, mais le matching reste à écrire (Phase 5, moteur de règles) |
+| « Un payout Stripe groupé peut être ventilé jusqu'aux factures et rapproché du mouvement bancaire, frais inclus » | ⚠️ Partiel | La ventilation payout → paiements (brut/frais/net) est faite (`GET /api/payouts/:payoutRef/ventilation`). Le relevé bancaire réel confirme que les dépôts Stripe sont bien identifiables (libellé « EVI STRIPE TECHNOLOGY EU ») une fois importés, mais le rapprochement **automatique** payout ↔ mouvement bancaire (par montant/date) n'est **pas encore implémenté** — le matching reste à écrire (Phase 5, moteur de règles) |
 | « Une facture / pièce déjà traitée n'est pas renvoyée » | ✅ Fait (pour les CSV) | Empreinte de fichier (SHA-256) + upsert par clé métier (référence facture, id paiement/payout, empreinte de ligne bancaire). L'équivalent pour les pièces Gmail (section 7.3) reste à faire en Phase 1 |
 | « Un bon de commande payé par Stripe est reconnu comme payé ; un bon de commande non payé peut bénéficier du délai de 30 jours » | ⛔ Hors périmètre | Nécessite le moteur de règles (Phase 5) ; le champ `bonCommande` est déjà stocké sur `Facture` pour ne pas bloquer cette phase |
 | « Un dossier Oney accepté n'apparaît pas comme impayé » | ✅ Fait pour l'import CSV | L'export réel encode le financement Oney comme un règlement classique (mode « Virement » + note « Oneybank ») dans la colonne `payments` : `src/importers/synecFactures.ts` le détecte et pose `financementOney=true` avec un statut « payée ». Validé sur l'export réel (1 dossier Oney détecté). Reste hors périmètre : l'agrégation avec la note interne Synec en texte libre citée par le cahier des charges, pour les cas où l'information n'apparaît pas dans `payments` |
@@ -24,7 +24,14 @@ première brique — voir `docs/architecture.md`.
 - Calcul du CA de la veille et des impayés à partir des données reçues.
 - Détection du financement Oney directement dans les règlements Synec.
 - Journal de chaque import (traçabilité, section 14).
-- Connecteur Synec validé sur l'export réel complet (347 factures).
+- Connecteurs Synec validés sur les exports réels complets (347 factures,
+  480 clients).
+- Relevé de compte **PDF** Banque Populaire lu directement (pas besoin de
+  conversion CSV manuelle), validé sur le relevé réel complet (76
+  mouvements, total recalculé identique au total imprimé par la banque).
+- Enrichissement zéro double saisie : une facture retrouve automatiquement
+  son client déjà connu par l'export clients, sans jamais recréer de fiche
+  en double (vérifié sur les 347 factures réelles : 0 client dupliqué).
 
 ## Ce qui reste à construire pour couvrir tout le cahier des charges
 

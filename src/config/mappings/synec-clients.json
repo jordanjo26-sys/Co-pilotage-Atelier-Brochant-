@@ -1,0 +1,19 @@
+{
+  "type": "synec_clients",
+  "label": "Export clients Synec",
+  "requiredFields": ["synecId", "nom"],
+  "fields": {
+    "synecId": ["id"],
+    "nom": ["main name", "nom principal", "nom"],
+    "email": ["mail", "email"],
+    "telephone": ["phone", "telephone"],
+    "type": ["type"],
+    "source": ["client source", "source"],
+    "adresse1": ["address1", "adresse1"],
+    "adresse2": ["address2", "adresse2"],
+    "adresse3": ["address3", "adresse3"],
+    "codePostal": ["postcode", "code postal"],
+    "ville": ["city", "ville"],
+    "pays": ["country", "pays"]
+  }
+}

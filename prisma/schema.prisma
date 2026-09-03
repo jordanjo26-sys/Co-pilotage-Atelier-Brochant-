@@ -19,11 +19,23 @@ datasource db {
 
 model Client {
   id        String    @id @default(cuid())
+  // Identifiant du client dans Synec : permet un import idempotent de
+  // l'export clients, independamment de la correspondance par nom (qui
+  // sert de repli pour les clients crees uniquement via l'import factures).
+  synecId   String?   @unique
   nom       String
   email     String?
   telephone String?
+  type      String? // Particulier | Entreprise | Syndic | SCI | Association...
+  source    String? // GOOGLE | MAPS | PAGESJAUNES | Pas de source...
+  adresse   String?
+  codePostal String?
+  ville     String?
+  pays      String?
   notes     String?
   factures  Facture[]
+  sourceImportId String?
+  sourceImport   ImportBatch? @relation(fields: [sourceImportId], references: [id])
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -209,7 +221,7 @@ model JournalEvenement {
 model ImportBatch {
   id             String    @id @default(cuid())
   fichierNom     String
-  typeDetecte    String // synec_factures | stripe_paiements | stripe_payouts | stripe_solde | banque_releve | inconnu
+  typeDetecte    String // synec_factures | synec_clients | stripe_paiements | stripe_payouts | stripe_solde | banque_releve | banque_releve_pdf | inconnu
   hashFichier    String    @unique
   dateImport     DateTime  @default(now())
   nbLignes       Int       @default(0)
@@ -219,6 +231,7 @@ model ImportBatch {
   statut         String    @default("ok") // ok | partiel | echec | type_inconnu
   details        String? // JSON serialise (erreurs, avertissements)
   factures       Facture[]
+  clients        Client[]
   paiements      Paiement[]
   payouts        Payout[]
   mouvements     MouvementBancaire[]

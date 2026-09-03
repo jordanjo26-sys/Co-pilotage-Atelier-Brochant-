@@ -18,6 +18,11 @@ test("detecte un export de factures Synec", () => {
   assert.equal(result?.mapping.type, "synec_factures");
 });
 
+test("detecte un export de clients Synec", () => {
+  const result = detectSample("synec-clients-exemple.csv");
+  assert.equal(result?.mapping.type, "synec_clients");
+});
+
 test("detecte un export de paiements Stripe", () => {
   const result = detectSample("stripe-paiements-exemple.csv");
   assert.equal(result?.mapping.type, "stripe_paiements");

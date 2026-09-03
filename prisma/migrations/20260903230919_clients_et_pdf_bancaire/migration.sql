@@ -1,12 +1,21 @@
 -- CreateTable
 CREATE TABLE "Client" (
     "id" TEXT NOT NULL PRIMARY KEY,
+    "synecId" TEXT,
     "nom" TEXT NOT NULL,
     "email" TEXT,
     "telephone" TEXT,
+    "type" TEXT,
+    "source" TEXT,
+    "adresse" TEXT,
+    "codePostal" TEXT,
+    "ville" TEXT,
+    "pays" TEXT,
     "notes" TEXT,
+    "sourceImportId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Client_sourceImportId_fkey" FOREIGN KEY ("sourceImportId") REFERENCES "ImportBatch" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -183,6 +192,9 @@ CREATE TABLE "ImportBatch" (
     "statut" TEXT NOT NULL DEFAULT 'ok',
     "details" TEXT
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Client_synecId_key" ON "Client"("synecId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Facture_reference_key" ON "Facture"("reference");

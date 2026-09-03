@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { importSynecFactures, RowImportResult } from "./synecFactures";
+import { importSynecClients } from "./synecClients";
 import { importStripePayments } from "./stripePayments";
 import { importStripePayouts } from "./stripePayouts";
 import { importStripeSolde } from "./stripeSolde";
@@ -19,6 +20,7 @@ type Normalizer = (
  */
 export const NORMALIZERS: Record<string, Normalizer> = {
   synec_factures: importSynecFactures,
+  synec_clients: importSynecClients,
   stripe_paiements: importStripePayments,
   stripe_payouts: importStripePayouts,
   stripe_solde: importStripeSolde,

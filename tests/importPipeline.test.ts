@@ -31,6 +31,14 @@ test("pipeline complet : Synec, Stripe paiements/payouts/solde, banque", async (
   const prisma = new PrismaClient();
   const SAMPLES = path.join(__dirname, "..", "samples");
 
+  const clients = await receiveCsv(
+    prisma,
+    "synec-clients-exemple.csv",
+    fs.readFileSync(path.join(SAMPLES, "synec-clients-exemple.csv"))
+  );
+  assert.equal(clients.typeDetecte, "synec_clients");
+  assert.equal(clients.nbNouveaux, 7);
+
   const synec = await receiveCsv(
     prisma,
     "synec-factures-exemple.csv",
@@ -40,6 +48,16 @@ test("pipeline complet : Synec, Stripe paiements/payouts/solde, banque", async (
   assert.equal(synec.statut, "ok");
   assert.equal(synec.nbNouveaux, 7);
   assert.equal(synec.nbErreurs, 0);
+
+  // Zero double saisie : les factures doivent se rattacher aux clients
+  // deja importes par nom, sans creer de doublon (7 clients import + 0
+  // nouveau cree par les factures, malgre 6 noms de client distincts qui
+  // y apparaissent).
+  const nbClients = await prisma.client.count();
+  assert.equal(nbClients, 7);
+  const clientDupont = await prisma.client.findFirst({ where: { nom: "Dupont Renovation" } });
+  assert.ok(clientDupont?.synecId);
+  assert.equal(clientDupont?.email, "contact@dupont-renovation.example");
 
   // Reimporter le meme fichier : doit etre reconnu comme doublon de fichier.
   const synecRejoue = await receiveCsv(

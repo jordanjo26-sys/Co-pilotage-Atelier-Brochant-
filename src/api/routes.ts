@@ -30,6 +30,11 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   // --- Consultation des donnees normalisees ------------------------------
 
+  router.get("/clients", async (_req, res) => {
+    const clients = await prisma.client.findMany({ orderBy: { nom: "asc" }, take: 1000 });
+    res.json(clients);
+  });
+
   router.get("/factures", async (req, res) => {
     const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
     const factures = await prisma.facture.findMany({

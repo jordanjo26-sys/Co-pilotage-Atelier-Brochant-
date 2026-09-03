@@ -1,0 +1,8 @@
+"id";"date_creation";"user_create";"type";"main_name";"contact_name";"mail";"phone";"client_status";"client_source";"company_name";"firstname";"lastname";"address1";"address2";"address3";"postcode";"city";"country"
+"1";"2026-01-05 10:00:00";"CYRIL";"Entreprise";"Dupont Renovation";"";"contact@dupont-renovation.example";"0600000001";"Pas de statut";"MAPS";"Dupont Renovation";"";"";"3 Rue des Ormes";"";"";"77230";"Moussy-le-Neuf";"France"
+"2";"2026-01-06 11:00:00";"CYRIL";"Entreprise";"Martin SCI";"";"contact@martin-sci.example";"0600000002";"Pas de statut";"GOOGLE";"Martin SCI";"";"";"107 Rue du Lavoir";"";"";"93370";"Montfermeil";"France"
+"3";"2026-01-07 12:00:00";"CYRIL";"Entreprise";"Leroy Immobilier";"";"contact@leroy-immo.example";"";"Pas de statut";"MAPS";"Leroy Immobilier";"";"";"12 Rue de la Gare";"";"";"94140";"Alfortville";"France"
+"4";"2026-01-08 13:00:00";"CYRIL";"Entreprise";"Petit Freres SARL";"";"contact@petit-freres.example";"";"Pas de statut";"Pas de source";"Petit Freres SARL";"";"";"8 Rue Mouffetard";"";"";"75005";"Paris";"France"
+"5";"2026-01-09 14:00:00";"CYRIL";"Particulier";"Client Reglement Partiel";"";"contact@partiel.example";"0600000003";"Pas de statut";"Pas de source";"";"";"Client Reglement Partiel";"5 Avenue des Tilleuls";"";"";"77400";"Lagny sur Marne";"France"
+"6";"2026-01-10 15:00:00";"CYRIL";"Particulier";"Client Financement Oney";"";"contact@oney-demo.example";"0600000004";"Pas de statut";"Pas de source";"";"";"Client Financement Oney";"2 Rue du Marche";"";"";"77400";"Pomponne";"France"
+"7";"2026-01-11 16:00:00";"CYRIL";"Particulier";"Client Sans Facture";"";"contact@sans-facture.example";"";"Pas de statut";"Pas de source";"";"";"Client Sans Facture";"1 Impasse des Lilas";"";"";"77400";"Lagny sur Marne";"France"

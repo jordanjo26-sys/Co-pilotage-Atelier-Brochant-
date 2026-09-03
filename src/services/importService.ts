@@ -2,17 +2,161 @@ import { PrismaClient } from "@prisma/client";
 import { parseCsvBuffer } from "../importers/csvUtils";
 import { detectCsvType } from "../importers/detect";
 import { NORMALIZERS } from "../importers/index";
+import { importBankStatement } from "../importers/bankStatement";
+import { extractPdfText, extractReleveTransactions } from "../importers/bankStatementPdf";
 import { sha256Hex } from "./hash";
-import { ImportSummary } from "../importers/types";
+import { ImportRowError, ImportSummary } from "../importers/types";
 import { logEvenement } from "./journalService";
 
+function isPdfFile(buffer: Buffer, fichierNom: string): boolean {
+  return buffer.subarray(0, 5).toString("latin1") === "%PDF-" || fichierNom.toLowerCase().endsWith(".pdf");
+}
+
 /**
- * Point d'entree unique de la reception d'un fichier CSV : detection du
- * type, controle de doublon au niveau du fichier, dispatch vers le bon
- * normalisateur, puis enregistrement du lot d'import et du journal.
+ * Termine un import (mise a jour du lot, journal, resume renvoye a
+ * l'appelant) une fois les lignes normalisees, quel que soit le format
+ * d'origine (CSV ou PDF).
+ */
+async function finalizeImport(
+  prisma: PrismaClient,
+  fichierNom: string,
+  typeDetecte: string,
+  label: string,
+  batchId: string,
+  nbLignes: number,
+  result: { nbNouveaux: number; nbDoublons: number; erreurs: ImportRowError[] }
+): Promise<ImportSummary> {
+  const { nbNouveaux, nbDoublons, erreurs } = result;
+  const statut: ImportSummary["statut"] =
+    erreurs.length === 0 ? "ok" : nbNouveaux + nbDoublons > 0 ? "partiel" : "echec";
+
+  await prisma.importBatch.update({
+    where: { id: batchId },
+    data: {
+      nbNouveaux,
+      nbDoublons,
+      nbErreurs: erreurs.length,
+      statut,
+      details: erreurs.length > 0 ? JSON.stringify(erreurs) : null,
+    },
+  });
+
+  await logEvenement(prisma, {
+    evenement: "import_csv",
+    action: `Depot de ${fichierNom} (${label})`,
+    resultat: `${nbNouveaux} nouveau(x), ${nbDoublons} doublon(s), ${erreurs.length} erreur(s).`,
+  });
+
+  return {
+    fichierNom,
+    typeDetecte,
+    statut,
+    nbLignes,
+    nbNouveaux,
+    nbDoublons,
+    nbErreurs: erreurs.length,
+    erreurs,
+    importBatchId: batchId,
+  };
+}
+
+/**
+ * Reception d'un relevé de compte au format PDF (Banque Populaire). Le
+ * texte est extrait puis les operations reconnues sont transmises au
+ * normalisateur generique `importBankStatement`, comme si elles venaient
+ * d'un CSV — voir bankStatementPdf.ts pour le detail de l'extraction.
+ */
+async function receivePdfBankStatement(
+  prisma: PrismaClient,
+  fichierNom: string,
+  buffer: Buffer,
+  hashFichier: string
+): Promise<ImportSummary> {
+  let transactions;
+  try {
+    const texte = extractPdfText(buffer);
+    transactions = extractReleveTransactions(texte);
+  } catch (err) {
+    const batch = await prisma.importBatch.create({
+      data: {
+        fichierNom,
+        typeDetecte: "banque_releve_pdf",
+        hashFichier,
+        statut: "echec",
+        nbLignes: 0,
+        details: JSON.stringify([{ ligne: 0, message: (err as Error).message }]),
+      },
+    });
+    await logEvenement(prisma, {
+      evenement: "import_csv",
+      action: `Depot de ${fichierNom}`,
+      resultat: `Echec de lecture du PDF : ${(err as Error).message}`,
+    });
+    return {
+      fichierNom,
+      typeDetecte: "banque_releve_pdf",
+      statut: "echec",
+      nbLignes: 0,
+      nbNouveaux: 0,
+      nbDoublons: 0,
+      nbErreurs: 1,
+      erreurs: [{ ligne: 0, message: (err as Error).message }],
+      importBatchId: batch.id,
+    };
+  }
+
+  if (transactions.length === 0) {
+    // Mise en page non reconnue (PDF different d'un relevé Banque
+    // Populaire) : on trace pour verification manuelle, jamais on ne
+    // devine.
+    const batch = await prisma.importBatch.create({
+      data: { fichierNom, typeDetecte: "inconnu", hashFichier, statut: "type_inconnu", nbLignes: 0 },
+    });
+    await logEvenement(prisma, {
+      evenement: "import_csv",
+      action: `Depot de ${fichierNom}`,
+      resultat: "Aucune operation reconnue dans ce PDF (mise en page non prise en charge).",
+    });
+    return {
+      fichierNom,
+      typeDetecte: "inconnu",
+      statut: "type_inconnu",
+      nbLignes: 0,
+      nbNouveaux: 0,
+      nbDoublons: 0,
+      nbErreurs: 0,
+      erreurs: [],
+      importBatchId: batch.id,
+    };
+  }
+
+  const batch = await prisma.importBatch.create({
+    data: { fichierNom, typeDetecte: "banque_releve_pdf", hashFichier, nbLignes: transactions.length, statut: "ok" },
+  });
+
+  const rows = transactions.map((t) => ({ date: t.date, libelle: t.libelle, montant: t.montant }));
+  const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant" };
+  const result = await importBankStatement(prisma, rows, resolvedColumns, batch.id);
+
+  return finalizeImport(
+    prisma,
+    fichierNom,
+    "banque_releve_pdf",
+    "Relevé bancaire (PDF)",
+    batch.id,
+    transactions.length,
+    result
+  );
+}
+
+/**
+ * Point d'entree unique de la reception d'un fichier (CSV ou PDF) :
+ * detection du type, controle de doublon au niveau du fichier, dispatch
+ * vers le bon normalisateur, puis enregistrement du lot d'import et du
+ * journal.
  *
  * Reprend le pipeline documentaire de la section 7.2 du cahier des charges,
- * adapte aux imports CSV (au lieu des pieces jointes Gmail) : detecter,
+ * adapte aux fichiers CSV/PDF (au lieu des pieces jointes Gmail) : detecter,
  * classifier, controler les doublons, traiter ou mettre en attente si
  * ambigu, journaliser.
  */
@@ -41,6 +185,10 @@ export async function receiveCsv(
       erreurs: [],
       importBatchId: dejaImporte.id,
     };
+  }
+
+  if (isPdfFile(buffer, fichierNom)) {
+    return receivePdfBankStatement(prisma, fichierNom, buffer, hashFichier);
   }
 
   const { headers, normalizedHeaders, rows } = parseCsvBuffer(buffer);
@@ -116,41 +264,7 @@ export async function receiveCsv(
   });
 
   const normalizer = NORMALIZERS[detection.mapping.type];
-  const { nbNouveaux, nbDoublons, erreurs } = await normalizer(
-    prisma,
-    rows,
-    detection.resolvedColumns,
-    batch.id
-  );
+  const result = await normalizer(prisma, rows, detection.resolvedColumns, batch.id);
 
-  const statut: ImportSummary["statut"] = erreurs.length === 0 ? "ok" : nbNouveaux + nbDoublons > 0 ? "partiel" : "echec";
-
-  await prisma.importBatch.update({
-    where: { id: batch.id },
-    data: {
-      nbNouveaux,
-      nbDoublons,
-      nbErreurs: erreurs.length,
-      statut,
-      details: erreurs.length > 0 ? JSON.stringify(erreurs) : null,
-    },
-  });
-
-  await logEvenement(prisma, {
-    evenement: "import_csv",
-    action: `Depot de ${fichierNom} (${detection.mapping.label})`,
-    resultat: `${nbNouveaux} nouveau(x), ${nbDoublons} doublon(s), ${erreurs.length} erreur(s).`,
-  });
-
-  return {
-    fichierNom,
-    typeDetecte: detection.mapping.type,
-    statut,
-    nbLignes: rows.length,
-    nbNouveaux,
-    nbDoublons,
-    nbErreurs: erreurs.length,
-    erreurs,
-    importBatchId: batch.id,
-  };
+  return finalizeImport(prisma, fichierNom, detection.mapping.type, detection.mapping.label, batch.id, rows.length, result);
 }

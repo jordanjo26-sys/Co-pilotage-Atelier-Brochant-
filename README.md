@@ -7,15 +7,17 @@ poser les fondations des phases suivantes (règles métier, cockpit, assistant
 IA). Voir `docs/architecture.md` pour le détail du découpage en phases et
 des choix techniques.
 
-> ⚠️ **État des connecteurs** : les vrais exports **Synec** (factures),
-> **payouts Stripe** et **récapitulatif de solde Stripe** ont été reçus et
-> les connecteurs correspondants sont calés dessus (le format Synec réel
-> s'est révélé très différent de ce qui était supposé au départ — voir
-> `samples/README.md` pour le détail). Les connecteurs **paiements Stripe**
-> et **relevé bancaire** restent construits sur des formats courants
-> (aucun export réel de ces deux types n'a encore été fourni) — à valider
-> dès réception, via le système de correspondance de colonnes **ajustable
-> sans toucher au code** (voir plus bas).
+> ⚠️ **État des connecteurs** : les vrais exports **Synec** (factures et
+> clients), **récapitulatif de solde Stripe** et **relevé de compte Banque
+> Populaire (PDF)** ont été reçus et les connecteurs correspondants sont
+> calés dessus et validés sur données réelles (voir
+> `docs/criteres-acceptation.md`). Le connecteur **paiements Stripe**
+> (export CSV des charges individuelles) reste construit sur un format
+> hypothétique — vous avez indiqué ne pas pouvoir le produire depuis Stripe
+> ; seul le récapitulatif de solde était disponible, et il est déjà géré.
+> À valider dès qu'un export réel sera disponible, via le système de
+> correspondance de colonnes **ajustable sans toucher au code** (voir plus
+> bas).
 
 ## Démarrage rapide
 
@@ -37,14 +39,23 @@ Pour essayer immédiatement sans vos propres fichiers, des CSV d'exemple
 
 | Type détecté | Alimente | Fichier de mapping |
 |---|---|---|
-| `synec_factures` | Factures, clients, statut reconstitué (payée / partiellement payée / impayée) | `src/config/mappings/synec-factures.json` |
+| `synec_factures` | Factures, statut reconstitué (payée / partiellement payée / impayée) | `src/config/mappings/synec-factures.json` |
+| `synec_clients` | Identité, coordonnées et adresse des clients | `src/config/mappings/synec-clients.json` |
 | `stripe_paiements` | Paiements CB, frais, montant net *(format hypothétique, pas encore reçu réellement)* | `src/config/mappings/stripe-payments.json` |
 | `stripe_payouts` | Virements groupés Stripe | `src/config/mappings/stripe-payouts.json` |
 | `stripe_solde` | Récapitulatif de solde Stripe sur une période (repère d'audit) | `src/config/mappings/stripe-solde.json` |
-| `banque_releve` | Mouvements bancaires (Banque Populaire ou autre) *(format hypothétique, pas encore reçu réellement)* | `src/config/mappings/banque-releve.json` |
+| `banque_releve` | Mouvements bancaires, format CSV *(hypothétique, pas encore reçu réellement)* | `src/config/mappings/banque-releve.json` |
+| `banque_releve_pdf` | Mouvements bancaires extraits d'un relevé de compte **PDF** Banque Populaire | `src/importers/bankStatementPdf.ts` (pas de mapping CSV : détection par contenu du fichier) |
 
 Le type est détecté automatiquement à partir des intitulés de colonnes du
-fichier déposé — inutile de le préciser au moment de l'import.
+fichier déposé — inutile de le préciser au moment de l'import. Un fichier
+`.pdf` est reconnu comme relevé bancaire Banque Populaire et traité par un
+extracteur dédié plutôt que par le système de mapping (voir plus bas).
+
+**Dépendance système pour les relevés PDF** : l'extraction utilise
+`pdftotext` (paquet `poppler-utils`), qui doit être installé sur le serveur
+(`apt install poppler-utils` sur Ubuntu/OVHcloud). Sans lui, le dépôt d'un
+PDF échoue avec un message clair l'indiquant.
 
 ## Ajuster le format des CSV
 
@@ -84,6 +95,7 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 |---|---|
 | `POST /api/import` | Dépose un fichier CSV (champ `fichier`), retourne le résumé de l'import |
 | `GET /api/imports` | Historique des imports (type détecté, statut, compteurs) |
+| `GET /api/clients` | Clients normalisés (identité, coordonnées, adresse) |
 | `GET /api/factures?statut=impayee` | Liste des factures normalisées |
 | `GET /api/paiements` | Paiements Stripe normalisés |
 | `GET /api/payouts` | Virements Stripe |
@@ -113,12 +125,21 @@ npm test
 
 Couvre : lecture CSV (BOM, séparateurs, montants FR/US, dates), détection de
 type, reconstitution du statut Synec à partir de la colonne `payments`
-(paiement unique, en plusieurs fois, partiel, financement Oney, avoir), et un
-test de bout en bout qui rejoue le scénario de la section 5 (deux paiements
-Stripe regroupés dans un virement, lui-même rapproché d'un mouvement
-bancaire) sur une base SQLite temporaire. Le connecteur Synec a par ailleurs
-été validé sur l'export réel complet (347 factures, sans erreur) avant
-publication — voir `docs/criteres-acceptation.md`.
+(paiement unique, en plusieurs fois, partiel, financement Oney, avoir),
+extraction des opérations d'un relevé PDF (séparation libellé/référence par
+la mise en page, exclusion de l'annexe SEPA qui doublonnerait les
+mouvements, déduction de l'année sur un passage d'année), et un test de
+bout en bout qui rejoue le scénario de la section 5 (deux paiements Stripe
+regroupés dans un virement, lui-même rapproché d'un mouvement bancaire) sur
+une base SQLite temporaire.
+
+Les connecteurs Synec (factures et clients) et relevé PDF ont par ailleurs
+été validés manuellement sur les fichiers réels complets avant publication
+(347 factures, 480 clients, 76 mouvements bancaires — total recalculé
+identique au total imprimé par la banque) — voir
+`docs/criteres-acceptation.md`. `npm test` ne rejoue pas ce PDF réel (il
+n'est pas commité, cf. section suivante) ; il teste le parseur sur un texte
+fictif reproduisant la même mise en page.
 
 ## Données personnelles
 

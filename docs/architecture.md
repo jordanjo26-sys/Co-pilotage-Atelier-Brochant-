@@ -125,6 +125,45 @@ destinataire du virement — absente d'un export de paiements). Ces deux
 colonnes sont donc marquées obligatoires (`requiredFields`) dans leurs
 mappings respectifs, précisément pour cette raison.
 
+## Lire un relevé bancaire PDF sans dupliquer les mouvements
+
+Le relevé Banque Populaire reçu est un PDF, pas un CSV. `bankStatementPdf.ts`
+extrait le texte via `pdftotext -layout` (poppler-utils, dépendance système
+à installer sur le serveur) puis reconstitue chaque ligne d'opération avec
+une regex ancrée sur la forme `date | libellé (+ référence) | date | date |
+montant`. Deux difficultés propres à ce document ont été résolues :
+
+1. **Annexes redondantes.** Le PDF détaille deux fois les mouvements SEPA :
+   une fois dans le relevé chronologique, une fois dans une annexe de fin de
+   document (« DETAIL DE VOS MOUVEMENTS SEPA », « VIREMENTS SEPA RECUS »).
+   Le texte est donc borné entre le début du relevé chronologique et le
+   début de la première annexe avant toute extraction — jamais lu au-delà.
+2. **Libellé vs référence bancaire.** Rien ne les sépare de façon fiable
+   sinon la mise en page : un grand espace fixe (mise en colonnes) contre un
+   espace simple entre deux mots d'un même libellé. Le texte est donc coupé
+   sur les runs de 2 espaces ou plus (`/\s{2,}/`), jamais sur un critère de
+   contenu (looks-like-a-reference), qui aurait produit de faux positifs sur
+   des noms de tiers tout en majuscules.
+
+Une fois les opérations extraites, elles sont transmises telles quelles
+(mêmes chaînes `"1 200,00 €"`, `"18/02/2026"`) au normalisateur
+`importBankStatement` déjà utilisé pour un relevé CSV : aucune logique de
+rapprochement/dédoublonnage n'est dupliquée entre les deux formats.
+
+Validé sur le relevé réel complet : le total recalculé après import
+correspond exactement au total imprimé par la banque en bas du document.
+
+## Lier factures et clients sans double saisie
+
+L'export clients Synec (`synec_clients`) a un identifiant stable (`id`)
+que l'export factures n'a pas : une facture ne référence son client que
+par son nom (`client_name`). `synecClients.ts` retrouve donc un `Client`
+déjà créé sans `synecId` (par un import de factures antérieur) en cherchant
+par nom, et le complète au lieu d'en recréer un doublon. Dans l'autre sens,
+`synecFactures.ts` continue de chercher un client par nom si aucun import
+clients n'a encore eu lieu. L'ordre d'import des deux fichiers n'a donc pas
+d'importance.
+
 ## Pourquoi SQLite par défaut
 
 Le cahier des charges recommande PostgreSQL pour la cible de production
