@@ -99,6 +99,32 @@ référencer un payout pas encore importé. Le rapprochement se fait par
 requête applicative (`GET /api/payouts/:payoutRef/ventilation`), jamais en
 imposant un ordre d'import.
 
+## Ce que l'export Synec réel a changé
+
+Le premier jet de ce dépôt supposait, faute d'exemple, un export Synec avec
+des colonnes « Statut », « Date d'échéance » et « Mode de règlement ».
+L'export réel reçu ensuite n'a **aucune de ces trois colonnes** : à la place,
+une colonne `payments` empile un ou plusieurs règlements au format
+`date|montant|mode|note` (séparés par ` // ` pour un règlement en plusieurs
+fois). `src/importers/synecFactures.ts` reconstitue à partir de cette seule
+colonne : le statut (payée / partiellement payée / impayée, en comparant la
+somme réglée au montant TTC), le mode de paiement, et le financement Oney
+(détecté via la mention « Oneybank » dans le mode ou la note d'un
+règlement). Ce connecteur a été validé sur l'export réel complet (347
+factures, 0 erreur) avant publication.
+
+## Distinguer les exports Stripe entre eux
+
+Stripe réutilise les mêmes noms de colonnes (`id`, `Amount`,
+`Created (UTC)`) dans son export de paiements et son export de payouts : un
+mapping basé uniquement sur ces colonnes matcherait les deux indifféremment.
+La désambiguïsation repose sur une colonne exclusive à chaque type :
+`Customer Email` pour un paiement (`stripe_paiements`, un payout n'a jamais
+de client), `Destination Name` pour un payout (`stripe_payouts`, la banque
+destinataire du virement — absente d'un export de paiements). Ces deux
+colonnes sont donc marquées obligatoires (`requiredFields`) dans leurs
+mappings respectifs, précisément pour cette raison.
+
 ## Pourquoi SQLite par défaut
 
 Le cahier des charges recommande PostgreSQL pour la cible de production

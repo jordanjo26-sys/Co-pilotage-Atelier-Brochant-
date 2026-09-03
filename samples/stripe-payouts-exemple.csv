@@ -1,2 +1,2 @@
-id,Amount,Arrival Date,Status,Description
-po_1Sdemo01,2037.65,03/09/2026,paid,Virement Stripe groupé
+id,Amount,Created (UTC),Currency,Arrival Date (UTC),Source Type,Status,Type,Method,Balance Transaction,Destination Name,Destination Country,Destination Last 4
+po_1Sdemo01,"2037,65",2026-09-02 18:00,eur,2026-09-03 00:00,card,paid,bank_account,standard,txn_demo01,BANQUE POPULAIRE RIVES DE PARIS,FR,1234

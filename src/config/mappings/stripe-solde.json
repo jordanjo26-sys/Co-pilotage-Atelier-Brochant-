@@ -1,0 +1,11 @@
+{
+  "type": "stripe_solde",
+  "label": "Recapitulatif de solde Stripe (periode)",
+  "requiredFields": ["categorie", "libelle", "montantNet"],
+  "fields": {
+    "categorie": ["category", "categorie"],
+    "libelle": ["description", "libelle"],
+    "montantNet": ["net amount", "montant net", "montant"],
+    "devise": ["currency", "devise"]
+  }
+}

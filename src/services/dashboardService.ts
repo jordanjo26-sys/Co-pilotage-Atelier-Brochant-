@@ -31,11 +31,14 @@ export async function getDashboardSummary(prisma: PrismaClient): Promise<Dashboa
   });
   const caVeille = facturesVeille.reduce((sum, f) => sum + f.montantTTC, 0);
 
+  // "Impaye" couvre aussi les factures partiellement reglees : c'est le
+  // reste a percevoir (montantTTC - montantRegle) qui compte, pas la
+  // presence d'un statut binaire.
   const impayees = await prisma.facture.findMany({
-    where: { statut: "impayee" },
-    select: { montantTTC: true },
+    where: { statut: { in: ["impayee", "partiellement_payee"] } },
+    select: { montantTTC: true, montantRegle: true },
   });
-  const montantImpayes = impayees.reduce((sum, f) => sum + f.montantTTC, 0);
+  const montantImpayes = impayees.reduce((sum, f) => sum + (f.montantTTC - f.montantRegle), 0);
 
   const aValiderImports = await prisma.importBatch.count({
     where: { statut: { in: ["type_inconnu", "partiel", "echec"] } },

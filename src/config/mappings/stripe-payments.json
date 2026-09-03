@@ -1,7 +1,8 @@
 {
   "type": "stripe_paiements",
   "label": "Export paiements Stripe",
-  "requiredFields": ["paymentRef", "brut", "date"],
+  "_note": "clientEmail est volontairement obligatoire : c'est la colonne qui distingue un export de paiements d'un export de payouts (lequel n'a jamais d'e-mail client mais a 'Destination Name'). Si votre export reel de paiements n'a pas de colonne e-mail client, retirer 'clientEmail' de requiredFields ci-dessous.",
+  "requiredFields": ["paymentRef", "brut", "date", "clientEmail"],
   "fields": {
     "paymentRef": ["id", "payment id", "charge id", "identifiant"],
     "brut": ["amount", "montant", "gross", "montant brut"],

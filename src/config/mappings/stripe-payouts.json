@@ -1,12 +1,15 @@
 {
   "type": "stripe_payouts",
   "label": "Export payouts (virements) Stripe",
-  "requiredFields": ["payoutRef", "montantNet", "date"],
+  "_note": "destinationName est le champ qui distingue un export de payouts d'un export de paiements (colonne 'Destination Name', absente d'un export de paiements). Confirme sur l'export reel recu (colonnes : id, Amount, Created (UTC), Currency, Arrival Date (UTC), Source Type, Status, Type, Method, Balance Transaction, Destination Name, Destination Country, Destination Last 4).",
+  "requiredFields": ["payoutRef", "montantNet", "date", "destinationName"],
   "fields": {
     "payoutRef": ["id", "payout id", "identifiant"],
     "montantNet": ["amount", "net", "montant", "montant net"],
-    "date": ["arrival date", "effective at utc", "date", "date d arrivee"],
+    "date": ["arrival date utc", "arrival date", "effective at utc", "date", "date d arrivee"],
     "statut": ["status", "statut"],
-    "description": ["description", "statement descriptor"]
+    "description": ["type", "method", "description", "statement descriptor"],
+    "destinationName": ["destination name"],
+    "balanceTransactionRef": ["balance transaction"]
   }
 }

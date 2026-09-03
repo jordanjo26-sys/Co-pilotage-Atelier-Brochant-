@@ -28,6 +28,11 @@ test("detecte un export de payouts Stripe", () => {
   assert.equal(result?.mapping.type, "stripe_payouts");
 });
 
+test("detecte un recapitulatif de solde Stripe", () => {
+  const result = detectSample("stripe-solde-exemple.csv");
+  assert.equal(result?.mapping.type, "stripe_solde");
+});
+
 test("detecte un releve bancaire", () => {
   const result = detectSample("banque-releve-exemple.csv");
   assert.equal(result?.mapping.type, "banque_releve");

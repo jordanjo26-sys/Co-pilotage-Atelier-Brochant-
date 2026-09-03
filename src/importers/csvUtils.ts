@@ -120,6 +120,7 @@ const DATE_FORMATS = [
   "DD/MM/YY",
   "YYYY-MM-DD",
   "YYYY-MM-DD HH:mm:ss",
+  "YYYY-MM-DD HH:mm",
   "DD-MM-YYYY",
   "MM/DD/YYYY",
   "MMM D, YYYY",
@@ -135,17 +136,36 @@ export function parseFlexibleDate(raw: string | undefined | null): Date | null {
   const s = raw.trim();
   if (s === "") return null;
 
+  // Date sentinelle rencontree dans des exports reels ("0000-00-00 ...")
+  // pour signaler une date manquante : a traiter comme absente, pas comme
+  // une vraie date.
+  if (/^0000-00-00/.test(s)) return null;
+
   // Timestamp Unix (parfois utilise dans les exports Stripe bruts)
   if (/^\d{10}$/.test(s)) {
     return dayjs.unix(Number(s)).toDate();
   }
 
+  let result: Date | null = null;
   for (const format of DATE_FORMATS) {
     const d = dayjs(s, format, true);
-    if (d.isValid()) return d.toDate();
+    if (d.isValid()) {
+      result = d.toDate();
+      break;
+    }
   }
 
-  // Dernier recours : parseur natif (gere les ISO 8601 avec heure/fuseau)
-  const fallback = dayjs(s);
-  return fallback.isValid() ? fallback.toDate() : null;
+  if (!result) {
+    // Dernier recours : parseur natif (gere les ISO 8601 avec heure/fuseau)
+    const fallback = dayjs(s);
+    result = fallback.isValid() ? fallback.toDate() : null;
+  }
+
+  // Garde-fou : une annee hors plage raisonnable trahit un format mal
+  // interprete plutot qu'une vraie date.
+  if (result && (result.getFullYear() < 1970 || result.getFullYear() > 2100)) {
+    return null;
+  }
+
+  return result;
 }

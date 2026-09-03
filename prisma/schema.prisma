@@ -34,10 +34,17 @@ model Facture {
   clientId           String?
   client             Client?   @relation(fields: [clientId], references: [id])
   clientNom          String
+  description        String? // annotation_1 dans l'export Synec reel : nature de l'intervention
   dateEmission       DateTime?
   dateEcheance       DateTime?
+  montantHT          Float?
   montantTTC         Float
-  statut             String // "payee" | "impayee" | "cloturee"
+  // Montant effectivement regle, reconstitue a partir de la colonne
+  // "payments" de l'export Synec reel (une facture peut etre reglee en
+  // plusieurs fois). Permet de calculer un "reste a percevoir" plutot
+  // qu'un simple statut binaire.
+  montantRegle       Float     @default(0)
+  statut             String // "payee" | "partiellement_payee" | "impayee" | "cloturee"
   modePaiement       String?
   bonCommande        String?
   delaiAccordeJusqua DateTime? // cf. section 4.3 : delai accorde => suspension des relances
@@ -75,16 +82,21 @@ model Paiement {
 }
 
 model Payout {
-  id                  String    @id @default(cuid())
-  payoutRef           String    @unique // identifiant Stripe du payout
-  date                DateTime
-  montantNet          Float
-  statut              String?
+  id                     String    @id @default(cuid())
+  payoutRef              String    @unique // identifiant Stripe du payout
+  date                   DateTime
+  montantNet             Float
+  statut                 String?
+  // Nom de la banque destinataire et reference de l'ecriture Stripe
+  // correspondante (colonnes "Destination Name" / "Balance Transaction" de
+  // l'export reel) : utile pour rapprocher visuellement du releve bancaire.
+  destinationName        String?
+  balanceTransactionRef  String?
   // Idem : rapprochement avec MouvementBancaire fait par requete applicative.
-  mouvementBancaireId String?
-  sourceImportId      String?
-  sourceImport        ImportBatch? @relation(fields: [sourceImportId], references: [id])
-  createdAt           DateTime  @default(now())
+  mouvementBancaireId    String?
+  sourceImportId         String?
+  sourceImport           ImportBatch? @relation(fields: [sourceImportId], references: [id])
+  createdAt              DateTime  @default(now())
 }
 
 model MouvementBancaire {
@@ -99,6 +111,23 @@ model MouvementBancaire {
   sourceImportId      String?
   sourceImport        ImportBatch? @relation(fields: [sourceImportId], references: [id])
   createdAt           DateTime  @default(now())
+}
+
+// Ligne d'un recapitulatif de solde Stripe periodique (categorie deja
+// agregee par Stripe : starting_balance, activity_gross, activity_fee,
+// activity, payouts_gross, payouts_fee, payouts, ending_balance...).
+// Sert de repere d'audit : ne remplace pas les paiements/payouts detailles.
+model RecapitulatifSolde {
+  id             String    @id @default(cuid())
+  categorie      String
+  libelle        String
+  montantNet     Float
+  devise         String    @default("EUR")
+  sourceImportId String?
+  sourceImport   ImportBatch? @relation(fields: [sourceImportId], references: [id])
+  createdAt      DateTime  @default(now())
+
+  @@unique([categorie, libelle])
 }
 
 // --- Fournisseurs & sous-traitants (section 6) -------------------------------
@@ -180,7 +209,7 @@ model JournalEvenement {
 model ImportBatch {
   id             String    @id @default(cuid())
   fichierNom     String
-  typeDetecte    String // synec_factures | stripe_paiements | stripe_payouts | banque_releve | inconnu
+  typeDetecte    String // synec_factures | stripe_paiements | stripe_payouts | stripe_solde | banque_releve | inconnu
   hashFichier    String    @unique
   dateImport     DateTime  @default(now())
   nbLignes       Int       @default(0)
@@ -193,4 +222,5 @@ model ImportBatch {
   paiements      Paiement[]
   payouts        Payout[]
   mouvements     MouvementBancaire[]
+  recapitulatifs RecapitulatifSolde[]
 }

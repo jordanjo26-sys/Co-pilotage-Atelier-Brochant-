@@ -45,6 +45,10 @@ export async function importStripePayouts(
         date,
         montantNet,
         statut: resolvedColumns.statut ? row[resolvedColumns.statut] || null : null,
+        destinationName: resolvedColumns.destinationName ? row[resolvedColumns.destinationName] || null : null,
+        balanceTransactionRef: resolvedColumns.balanceTransactionRef
+          ? row[resolvedColumns.balanceTransactionRef] || null
+          : null,
         sourceImportId: importBatchId,
       };
 

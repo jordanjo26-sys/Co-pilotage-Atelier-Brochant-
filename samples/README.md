@@ -1,29 +1,35 @@
 # Fichiers d'exemple
 
-⚠️ **Ces fichiers sont fictifs.** Au moment de la création de cet outil, le
-cahier des charges (.docx) a bien été reçu, mais aucun véritable export CSV
-(Synec, Stripe, banque) n'a été joint au message malgré la mention dans la
-demande. Ces CSV ont donc été construits pour :
-
-1. faire fonctionner et tester le pipeline de réception de bout en bout ;
-2. servir de référence de structure (colonnes attendues) le temps de recevoir
-   les vrais fichiers.
-
-Ils illustrent volontairement la chaîne de preuves de la section 5 du cahier
-des charges : deux règlements Stripe (`stripe-paiements-exemple.csv`) sont
-regroupés dans un seul virement (`stripe-payouts-exemple.csv`), qui atterrit
-comme une seule ligne sur le compte bancaire
-(`banque-releve-exemple.csv`) — exactement le cas "X € client A + Y € client
-B, moins les frais" décrit dans le cahier des charges.
+Ces fichiers ont été **construits pour reproduire la structure exacte des
+exports réels** reçus d'Atelier Brochant (Synec, Stripe payouts, récapitulatif
+de solde Stripe), mais avec des **données entièrement fictives**. Les vrais
+fichiers reçus contiennent des noms, e-mails et téléphones de clients réels
+et ne sont donc jamais commités dans ce dépôt (protection des données
+personnelles, cf. section 17 du cahier des charges).
 
 ## Fichiers
 
-| Fichier | Type détecté | Ce qu'il simule |
+| Fichier | Type détecté | Ce qu'il illustre |
 |---|---|---|
-| `synec-factures-exemple.csv` | `synec_factures` | Export de factures Synec : 2 factures payées hier, 2 factures impayées |
-| `stripe-paiements-exemple.csv` | `stripe_paiements` | 2 paiements CB Stripe regroupés dans le même virement |
-| `stripe-payouts-exemple.csv` | `stripe_payouts` | Le virement Stripe qui regroupe les 2 paiements ci-dessus |
-| `banque-releve-exemple.csv` | `banque_releve` | Le relevé bancaire recevant ce virement, + un prélèvement fournisseur |
+| `synec-factures-exemple.csv` | `synec_factures` | Structure réelle de l'export Synec (colonnes `number`, `client_name`, `amount_with_tax`, `payments`...). Couvre les cas rencontrés dans les vrais fichiers : facture payée en une fois, facture payée en plusieurs fois, facture impayée, règlement partiel, financement Oney, avoir (facture d'annulation à montant négatif) |
+| `stripe-payouts-exemple.csv` | `stripe_payouts` | Structure réelle de l'export payouts Stripe (colonnes `Arrival Date (UTC)`, `Destination Name`...) |
+| `stripe-solde-exemple.csv` | `stripe_solde` | Récapitulatif de solde Stripe sur une période (aucune donnée personnelle dans ce type de fichier — structure identique au fichier réel reçu) |
+| `stripe-paiements-exemple.csv` | `stripe_paiements` | Export paiements Stripe hypothétique (colonnes usuelles Stripe) — **aucun fichier réel de ce type n'a encore été fourni**, à valider dès qu'un export réel sera disponible |
+| `banque-releve-exemple.csv` | `banque_releve` | Relevé bancaire générique — **aucun fichier réel de ce type n'a encore été fourni** |
+
+## Ce que l'export Synec réel a révélé (et qui a changé l'outil)
+
+Le premier jet de cet outil supposait un export Synec avec des colonnes
+« Statut », « Date d'échéance », « Mode de règlement ». L'export réel n'a
+**aucune de ces colonnes** : à la place, une colonne `payments` empile un ou
+plusieurs règlements au format `date|montant|mode|note`, séparés par ` // `
+quand une facture est réglée en plusieurs fois (ex :
+`2025-03-31 15:39:44|500,00 €|Carte| // 2025-03-31 15:39:57|437,43 €|Chèque|`).
+Le statut (payée / partiellement payée / impayée), le mode de règlement et la
+détection Oney sont maintenant **reconstitués** à partir de cette colonne —
+voir `src/importers/synecFactures.ts`. Il n'y a pas non plus de colonne
+échéance ni bon de commande dans l'export reçu : ces champs restent vides
+tant qu'une autre source ne les fournit pas.
 
 ## Comment les essayer
 
@@ -33,16 +39,18 @@ npm run dev
 curl -F "fichier=@samples/synec-factures-exemple.csv" http://localhost:3000/api/import
 curl -F "fichier=@samples/stripe-paiements-exemple.csv" http://localhost:3000/api/import
 curl -F "fichier=@samples/stripe-payouts-exemple.csv" http://localhost:3000/api/import
+curl -F "fichier=@samples/stripe-solde-exemple.csv" http://localhost:3000/api/import
 curl -F "fichier=@samples/banque-releve-exemple.csv" http://localhost:3000/api/import
 ```
 
 Ou plus simplement : ouvrir `http://localhost:3000` et déposer les fichiers un
 par un depuis la page.
 
-## Quand les vrais fichiers seront disponibles
+## Fichiers encore à valider sur données réelles
 
-Envoyer un export réel de chaque système (Synec, Stripe paiements, Stripe
-payouts, relevé Banque Populaire). Il suffira très probablement d'ajuster les
-listes d'alias de colonnes dans `src/config/mappings/*.json` — **aucune
-modification de code n'est nécessaire** pour ça, voir le README principal,
-section "Ajuster le format des CSV".
+Le format `stripe_paiements` (paiements/charges Stripe) et `banque_releve`
+(relevé Banque Populaire) n'ont pas encore été reçus en version réelle. Dès
+qu'un export réel sera fourni, comparer ses en-têtes à
+`src/config/mappings/stripe-payments.json` et `banque-releve.json`, et
+ajuster les listes d'alias si besoin (voir le README principal, section
+« Ajuster le format des CSV »).

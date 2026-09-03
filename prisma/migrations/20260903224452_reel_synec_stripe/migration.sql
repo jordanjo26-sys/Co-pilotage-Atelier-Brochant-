@@ -15,9 +15,12 @@ CREATE TABLE "Facture" (
     "reference" TEXT NOT NULL,
     "clientId" TEXT,
     "clientNom" TEXT NOT NULL,
+    "description" TEXT,
     "dateEmission" DATETIME,
     "dateEcheance" DATETIME,
+    "montantHT" REAL,
     "montantTTC" REAL NOT NULL,
+    "montantRegle" REAL NOT NULL DEFAULT 0,
     "statut" TEXT NOT NULL,
     "modePaiement" TEXT,
     "bonCommande" TEXT,
@@ -57,6 +60,8 @@ CREATE TABLE "Payout" (
     "date" DATETIME NOT NULL,
     "montantNet" REAL NOT NULL,
     "statut" TEXT,
+    "destinationName" TEXT,
+    "balanceTransactionRef" TEXT,
     "mouvementBancaireId" TEXT,
     "sourceImportId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -76,6 +81,18 @@ CREATE TABLE "MouvementBancaire" (
     "sourceImportId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "MouvementBancaire_sourceImportId_fkey" FOREIGN KEY ("sourceImportId") REFERENCES "ImportBatch" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "RecapitulatifSolde" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "categorie" TEXT NOT NULL,
+    "libelle" TEXT NOT NULL,
+    "montantNet" REAL NOT NULL,
+    "devise" TEXT NOT NULL DEFAULT 'EUR',
+    "sourceImportId" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "RecapitulatifSolde_sourceImportId_fkey" FOREIGN KEY ("sourceImportId") REFERENCES "ImportBatch" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -178,6 +195,9 @@ CREATE UNIQUE INDEX "Payout_payoutRef_key" ON "Payout"("payoutRef");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "MouvementBancaire_hashLigne_key" ON "MouvementBancaire"("hashLigne");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RecapitulatifSolde_categorie_libelle_key" ON "RecapitulatifSolde"("categorie", "libelle");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Fournisseur_nom_key" ON "Fournisseur"("nom");

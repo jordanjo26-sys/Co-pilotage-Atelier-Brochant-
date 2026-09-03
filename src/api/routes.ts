@@ -63,6 +63,11 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.json({ payout, paiements, brutTotal, fraisTotal, netTotal: brutTotal - fraisTotal });
   });
 
+  router.get("/recapitulatifs-solde", async (_req, res) => {
+    const recap = await prisma.recapitulatifSolde.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+    res.json(recap);
+  });
+
   router.get("/mouvements-bancaires", async (_req, res) => {
     const mouvements = await prisma.mouvementBancaire.findMany({ orderBy: { date: "desc" }, take: 500 });
     res.json(mouvements);
