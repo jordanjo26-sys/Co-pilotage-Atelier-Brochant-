@@ -164,6 +164,60 @@ par nom, et le complète au lieu d'en recréer un doublon. Dans l'autre sens,
 clients n'a encore eu lieu. L'ordre d'import des deux fichiers n'a donc pas
 d'importance.
 
+## Pipeline Gmail → Dext (section 7)
+
+Reprend le meme principe general que la reception CSV (detecter,
+classifier, deduplic, traiter ou mettre en attente, journaliser), applique
+aux pieces jointes d'une boite Gmail connectee.
+
+**OAuth, jamais de mot de passe** (section 17). `googleAuth.ts` gere
+l'echange du code d'autorisation, puis chiffre le refresh token
+(AES-256-GCM, cle dans `ENCRYPTION_KEY`) avant de le stocker — `cipher.ts`
+est deliberement un module a part, sans dependance au reste de
+l'application, pour que toute donnee qui y transite soit demontrablement
+jamais loggee en clair.
+
+**Polling plutot que push (Pub/Sub).** Gmail propose un mecanisme de
+notification push (Cloud Pub/Sub) pour eviter d'interroger l'API en
+continu, mais il demande une configuration GCP supplementaire
+(topic, souscription, verification de domaine) hors de proportion pour le
+volume d'un artisan/TPE. `scheduler.ts` interroge Gmail toutes les 5
+minutes (configurable) : suffisant pour "traitement evenementiel" au sens
+du cahier des charges sans complexite d'infrastructure additionnelle.
+Migrer vers Pub/Sub plus tard n'impose pas de reecrire `gmailSync.ts` :
+seul le declencheur change.
+
+**Classification deterministe, jamais devinee** (section 14 : "les regles
+metier deterministes priment sur une interpretation libre de l'IA").
+`gmailClassify.ts` est un module pur (aucun appel reseau, aucune donnee
+Prisma) : entierement teste unitairement, il classe une piece jointe en
+facture / avoir / bon d'enlevement / relevé / ambigu par des motifs
+explicites sur le sujet, le corps et le nom de fichier. Le cas "aucun
+motif ne correspond mais c'est un PDF/image" est traite comme facture
+standard plutot qu'ambigu (section 7.4 : beaucoup de fournisseurs
+n'ecrivent jamais le mot "facture") — seul un type manifestement autre
+(mimetype non gere) part au centre de validation.
+
+**Deduplication par empreinte de fichier, pas par Message-ID.** Un meme
+message Gmail peut contenir plusieurs pieces jointes (donc plusieurs
+documents) : le Message-ID sert a la tracabilite
+(`DocumentFournisseur.gmailMessageId`, non unique), mais la veritable cle
+de deduplication est le hash SHA-256 de chaque piece jointe
+(`hashFichier`, unique), identique au mecanisme deja utilise pour les CSV.
+Cela rend `synchroniserGmail` idempotent par construction : la relancer
+plusieurs fois sur les memes e-mails (volontairement une fenetre de
+recherche large de 7 jours a chaque passage, pour ne jamais rater un
+message en cas d'arret prolonge du service) ne retransmet jamais un
+document deja envoye a Dext.
+
+**Transfert par recomposition, pas par "Forward" natif.** Plutot que de
+reconstruire une chaine de reponse/transfert Gmail (fragile pour les pieces
+jointes), `gmailSync.ts` compose un nouvel e-mail (via `nodemailer`
+`MailComposer`, pour un encodage MIME fiable) depuis la boite connectee
+vers l'adresse Dext, avec la piece jointe originale — le resultat pour Dext
+est identique (elle recoit la facture a l'adresse dediee), la mecanique
+est juste plus robuste a implementer et a tester.
+
 ## Pourquoi SQLite par défaut
 
 Le cahier des charges recommande PostgreSQL pour la cible de production

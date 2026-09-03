@@ -3,6 +3,7 @@ import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
 import { getDashboardSummary } from "../services/dashboardService";
+import { synchroniserGmail } from "../services/gmailSync";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -85,6 +86,52 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   router.get("/dashboard/summary", async (_req, res) => {
     res.json(await getDashboardSummary(prisma));
+  });
+
+  // --- Gmail -> Dext (section 7) ------------------------------------------
+
+  router.get("/gmail/status", async (_req, res) => {
+    const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
+    res.json(
+      connexion
+        ? {
+            connecte: true,
+            compteEmail: connexion.compteEmail,
+            derniereSynchro: connexion.derniereSynchro,
+          }
+        : { connecte: false }
+    );
+  });
+
+  // Synchronisation manuelle, en attendant la planification automatique
+  // (cron) sur le serveur de production (section 16).
+  router.post("/gmail/sync", async (_req, res) => {
+    try {
+      const resultat = await synchroniserGmail(prisma);
+      res.json(resultat);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.get("/documents-fournisseurs", async (req, res) => {
+    const type = typeof req.query.type === "string" ? req.query.type : undefined;
+    const documents = await prisma.documentFournisseur.findMany({
+      where: type ? { type } : undefined,
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    });
+    res.json(documents);
+  });
+
+  router.get("/anomalies", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
+    const anomalies = await prisma.anomalie.findMany({
+      where: statut ? { statut } : undefined,
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    res.json(anomalies);
   });
 
   return router;

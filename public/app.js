@@ -51,8 +51,66 @@ async function chargerFacturesImpayees() {
     .join("");
 }
 
+async function chargerStatutGmail() {
+  const res = await fetch("/api/gmail/status");
+  const data = await res.json();
+  const div = document.getElementById("gmail-statut");
+
+  if (!data.connecte) {
+    div.innerHTML = `
+      <p>Aucune boîte Gmail connectée.</p>
+      <a href="/auth/google"><button type="button">Connecter Gmail</button></a>
+    `;
+    return;
+  }
+
+  div.innerHTML = `
+    <p>Connecté : <strong>${data.compteEmail}</strong><br/>
+    Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}</p>
+    <button type="button" id="btn-sync-gmail">Synchroniser maintenant</button>
+    <div id="resultat-sync-gmail"></div>
+  `;
+
+  document.getElementById("btn-sync-gmail").addEventListener("click", async () => {
+    const resultatDiv = document.getElementById("resultat-sync-gmail");
+    resultatDiv.textContent = "Synchronisation en cours…";
+    try {
+      const r = await fetch("/api/gmail/sync", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) {
+        resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${d.erreur}`;
+        return;
+      }
+      resultatDiv.innerHTML = `${d.messagesExamines} message(s) examiné(s), ${d.documentsTraites} document(s) traité(s), ${d.documentsDoublons} doublon(s), ${d.documentsAmbigus} ambigu(s), ${d.erreurs.length} erreur(s).`;
+      await rafraichirTout();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${err.message}`;
+    }
+  });
+}
+
+async function chargerAnomalies() {
+  const res = await fetch("/api/anomalies?statut=a_valider");
+  const anomalies = await res.json();
+  const tbody = document.querySelector("#table-anomalies tbody");
+  tbody.innerHTML = anomalies
+    .map((a) => {
+      let preuves = {};
+      try { preuves = JSON.parse(a.preuves || "{}"); } catch (e) { /* ignore */ }
+      const detail = preuves.fichier ? `${preuves.fichier} (${preuves.expediteur || "?"})` : "—";
+      return `
+    <tr>
+      <td>${fmtDate(a.createdAt)}</td>
+      <td>${a.type}</td>
+      <td>${detail}</td>
+      <td>${a.actionProposee || ""}</td>
+    </tr>`;
+    })
+    .join("");
+}
+
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerAnomalies()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

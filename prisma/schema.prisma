@@ -167,7 +167,33 @@ model DocumentFournisseur {
   montant        Float?
   statutDext     String    @default("non_envoye") // non_envoye | envoye | archive | a_valider
   hashFichier    String?   @unique
+  // Provenance Gmail (section 7 du cahier des charges), conservee pour
+  // tracabilite. Pas de contrainte unique ici : un meme e-mail peut
+  // contenir plusieurs pieces jointes, donc plusieurs documents. La
+  // deduplication reelle (section 7.3) repose sur hashFichier, unique par
+  // piece jointe quel que soit le message qui l'a apportee.
+  gmailMessageId    String?
+  gmailExpediteur   String?
+  gmailObjet        String?
+  dateReceptionMail DateTime?
   createdAt      DateTime  @default(now())
+
+  @@index([gmailMessageId])
+}
+
+// Connexion OAuth a une boite Gmail surveillee (section 7 : pipeline
+// Gmail -> classification -> controle doublon -> Dext). Le jeton de
+// rafraichissement est chiffre au repos (section 17 : "chiffrement des
+// secrets"), jamais stocke en clair.
+model GmailConnexion {
+  id                  String    @id @default(cuid())
+  compteEmail         String    @unique
+  refreshTokenChiffre String
+  scope               String?
+  actif               Boolean   @default(true)
+  connecteLe          DateTime  @default(now())
+  derniereSynchro     DateTime?
+  dernierHistoryId    String?
 }
 
 model FactureFournisseur {

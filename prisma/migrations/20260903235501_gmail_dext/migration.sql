@@ -126,8 +126,24 @@ CREATE TABLE "DocumentFournisseur" (
     "montant" REAL,
     "statutDext" TEXT NOT NULL DEFAULT 'non_envoye',
     "hashFichier" TEXT,
+    "gmailMessageId" TEXT,
+    "gmailExpediteur" TEXT,
+    "gmailObjet" TEXT,
+    "dateReceptionMail" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "DocumentFournisseur_fournisseurId_fkey" FOREIGN KEY ("fournisseurId") REFERENCES "Fournisseur" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "GmailConnexion" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "compteEmail" TEXT NOT NULL,
+    "refreshTokenChiffre" TEXT NOT NULL,
+    "scope" TEXT,
+    "actif" BOOLEAN NOT NULL DEFAULT true,
+    "connecteLe" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "derniereSynchro" DATETIME,
+    "dernierHistoryId" TEXT
 );
 
 -- CreateTable
@@ -216,6 +232,12 @@ CREATE UNIQUE INDEX "Fournisseur_nom_key" ON "Fournisseur"("nom");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "DocumentFournisseur_hashFichier_key" ON "DocumentFournisseur"("hashFichier");
+
+-- CreateIndex
+CREATE INDEX "DocumentFournisseur_gmailMessageId_idx" ON "DocumentFournisseur"("gmailMessageId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "GmailConnexion_compteEmail_key" ON "GmailConnexion"("compteEmail");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ImportBatch_hashFichier_key" ON "ImportBatch"("hashFichier");

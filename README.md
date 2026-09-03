@@ -1,11 +1,20 @@
-# Copilote Atelier Brochant — Outil de réception CSV
+# Copilote Atelier Brochant
 
-Première brique du « Copilote IA de gestion » décrit dans le cahier des
-charges : un outil qui **reçoit, reconnaît et normalise** les exports CSV de
-Synec (factures), Stripe (paiements et virements) et de la banque, pour
-poser les fondations des phases suivantes (règles métier, cockpit, assistant
-IA). Voir `docs/architecture.md` pour le détail du découpage en phases et
-des choix techniques.
+Implémentation progressive du « Copilote IA de gestion » décrit dans le
+cahier des charges. Deux briques sont construites à ce stade :
+
+1. **Réception CSV/PDF** — reçoit, reconnaît et normalise les exports Synec
+   (factures, clients), Stripe (payouts, solde) et le relevé bancaire
+   (PDF), pour poser les fondations des phases suivantes.
+2. **Gmail → Dext** (section 7) — surveille une boîte Gmail connectée,
+   classe chaque pièce jointe reçue (facture, avoir, bon d'enlèvement,
+   relevé fournisseur) et transfère automatiquement les factures standard
+   vers Dext, sans double saisie ni doublon.
+
+Voir `docs/architecture.md` pour le détail du découpage en phases et des
+choix techniques, et `docs/mise-en-service.md` pour la checklist concrète
+(hébergement OVHcloud, connexion Gmail) nécessaire pour que tout tourne en
+continu.
 
 > ⚠️ **État des connecteurs** : les vrais exports **Synec** (factures et
 > clients), **récapitulatif de solde Stripe** et **relevé de compte Banque
@@ -57,6 +66,38 @@ extracteur dédié plutôt que par le système de mapping (voir plus bas).
 (`apt install poppler-utils` sur Ubuntu/OVHcloud). Sans lui, le dépôt d'un
 PDF échoue avec un message clair l'indiquant.
 
+## Gmail → Dext
+
+**Rien n'est connecté par défaut** : il faut une boîte Gmail et des
+identifiants OAuth Google (voir `docs/mise-en-service.md` pour la
+procédure complète, étape par étape). Une fois `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET` et `GOOGLE_REDIRECT_URI` renseignés dans `.env` :
+
+1. Ouvrir `http://localhost:3000/auth/google` (ou l'URL du serveur en
+   production) et autoriser l'accès depuis le compte Gmail de l'entreprise.
+2. Le serveur vérifie ensuite la boîte toutes les 5 minutes
+   (`GMAIL_POLL_INTERVAL_MS`, réglable) — ou cliquer sur "Synchroniser
+   maintenant" dans le cockpit pour déclencher une passe immédiatement.
+3. Chaque pièce jointe reçue (PDF, image) est classée selon des règles
+   déterministes (section 14 : jamais d'interprétation libre) :
+   - **Facture** standard → transférée automatiquement vers l'adresse Dext
+     appropriée (`facturation-brochant@dext.cc` ou `@multiple.dext.cc` s'il
+     y a plusieurs factures dans le même e-mail), conformément à
+     l'« Exception déjà validée » du cahier des charges.
+   - **Avoir**, **bon d'enlèvement**, **relevé de factures fournisseur** →
+     archivés, jamais envoyés à Dext (sections 6.3, 6.4).
+   - Tout le reste (pièce jointe illisible, type non reconnu) → mis en
+     attente dans le centre de validation (`GET /api/anomalies`), jamais
+     deviné.
+4. Chaque décision est déduplicée par empreinte de fichier (section 7.3) et
+   journalisée (`GET /api/journal`) : relancer une synchronisation, même
+   plusieurs fois sur les mêmes e-mails, ne retransmet jamais un document
+   déjà envoyé.
+
+Le jeton Gmail est chiffré au repos (voir `src/services/cipher.ts`,
+`ENCRYPTION_KEY` dans `.env`) — jamais stocké en clair, conformément à la
+section 17 du cahier des charges.
+
 ## Ajuster le format des CSV
 
 Si un de vos fichiers réels n'est pas reconnu (statut `type_inconnu`), ou est
@@ -104,14 +145,21 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 | `GET /api/mouvements-bancaires` | Mouvements bancaires importés |
 | `GET /api/journal` | Journal des événements (section 12) |
 | `GET /api/dashboard/summary` | CA de la veille, impayés, alertes (cockpit, section 9) |
+| `GET /auth/google` | Redirige vers l'écran de consentement Google (connexion Gmail) |
+| `GET /auth/google/callback` | Callback OAuth, enregistre la connexion Gmail |
+| `GET /api/gmail/status` | Compte Gmail connecté et date de dernière synchronisation |
+| `POST /api/gmail/sync` | Déclenche une synchronisation Gmail → Dext immédiate |
+| `GET /api/documents-fournisseurs` | Documents reçus par e-mail (factures transférées, avoirs/bons/relevés archivés) |
+| `GET /api/anomalies?statut=a_valider` | Documents ambigus en attente de classification manuelle |
 
 ## Modèle de données
 
 `prisma/schema.prisma` reprend la section 15 du cahier des charges
 (« Données principales à stocker ») : `Client`, `Facture`, `Paiement`,
 `Payout`, `MouvementBancaire`, `Fournisseur`, `DocumentFournisseur`,
-`FactureFournisseur`, `Decision`, `Anomalie`, `JournalEvenement`, en plus de
-`ImportBatch` qui trace chaque fichier reçu.
+`FactureFournisseur`, `Decision`, `Anomalie`, `JournalEvenement`,
+`GmailConnexion` (jeton OAuth chiffré), en plus de `ImportBatch` qui trace
+chaque fichier reçu.
 
 Base SQLite par défaut (aucune installation requise). Pour la production
 (OVHcloud, section 16), passer à PostgreSQL : changer `provider` dans
@@ -133,6 +181,14 @@ bout en bout qui rejoue le scénario de la section 5 (deux paiements Stripe
 regroupés dans un virement, lui-même rapproché d'un mouvement bancaire) sur
 une base SQLite temporaire.
 
+Couvre aussi la classification Gmail → Dext (facture standard même sans le
+mot « facture », bon d'enlèvement, avoir, relevé, choix de l'adresse Dext
+selon le nombre de factures dans l'e-mail) et le chiffrement du jeton Gmail
+(aller-retour fidèle, intégrité garantie par le tag d'authentification
+GCM). La synchronisation Gmail elle-même (appels réels à l'API Gmail)
+n'est pas testée automatiquement — elle nécessite une vraie connexion
+OAuth, à valider manuellement une fois `docs/mise-en-service.md` suivi.
+
 Les connecteurs Synec (factures et clients) et relevé PDF ont par ailleurs
 été validés manuellement sur les fichiers réels complets avant publication
 (347 factures, 480 clients, 76 mouvements bancaires — total recalculé
@@ -151,8 +207,8 @@ même discipline pour vos propres tests.
 
 ## Prochaines étapes suggérées
 
-Une fois vos vrais fichiers CSV validés avec cet outil :
-1. Phase 1 — Gmail → Dext (première automatisation, section 7).
-2. Phase 4 — Fournisseurs (échéances, prélèvements, sous-traitants).
-3. Phase 5 — Moteur de règles et centre de validation (section 8).
-4. Phase 6 — Cockpit visuel complet (section 9) et e-mail quotidien (section 10).
+1. Suivre `docs/mise-en-service.md` : hébergement OVHcloud + connexion Gmail.
+2. Phase 3 — API Stripe (remplace les exports CSV par une synchronisation continue).
+3. Phase 4 — Fournisseurs (échéances, prélèvements, sous-traitants).
+4. Phase 5 — Moteur de règles, agents et centre de validation complet (section 8, 13).
+5. Phase 6 — Cockpit visuel complet (section 9) et e-mail quotidien (section 10).

@@ -27,12 +27,31 @@
     </section>
 
     <section class="carte">
-      <h2>2. Cockpit du jour</h2>
+      <h2>2. Gmail → Dext</h2>
+      <p class="aide">
+        Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext (section 7 du cahier des charges).
+      </p>
+      <div id="gmail-statut"></div>
+    </section>
+
+    <section class="carte">
+      <h2>3. Cockpit du jour</h2>
       <div id="cockpit" class="grille-cockpit"></div>
     </section>
 
     <section class="carte">
-      <h2>3. Derniers imports</h2>
+      <h2>4. Anomalies à valider</h2>
+      <p class="aide">Documents ambigus reçus par e-mail, en attente de classification manuelle.</p>
+      <table id="table-anomalies">
+        <thead>
+          <tr><th>Date</th><th>Type</th><th>Détail</th><th>Action proposée</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="carte">
+      <h2>5. Derniers imports</h2>
       <table id="table-imports">
         <thead>
           <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
@@ -42,7 +61,7 @@
     </section>
 
     <section class="carte">
-      <h2>4. Factures impayées</h2>
+      <h2>6. Factures impayées</h2>
       <table id="table-factures">
         <thead>
           <tr><th>Référence</th><th>Client</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th></tr>
