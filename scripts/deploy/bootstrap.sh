@@ -54,6 +54,10 @@ chmod 600 "$ENV_FILE"
 echo "== Dependances, build, migrations =="
 cd "$APP_DIR"
 sudo -u "$APP_USER" npm ci
+# npm ci declenche normalement "postinstall" -> "prisma generate", mais on le
+# rejoue explicitement par securite : sans client Prisma genere, le serveur
+# plante immediatement au demarrage (systemd le redemarre en boucle).
+sudo -u "$APP_USER" npx prisma generate
 sudo -u "$APP_USER" npm run build
 sudo -u "$APP_USER" npx prisma migrate deploy
 
@@ -78,3 +82,5 @@ ufw --force enable
 
 echo "== Deploiement termine =="
 systemctl --no-pager status copilote-brochant || true
+echo "== Derniers journaux applicatifs (diagnostic) =="
+journalctl -u copilote-brochant --no-pager -n 100 || true
