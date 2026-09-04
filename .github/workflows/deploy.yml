@@ -29,6 +29,15 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.OVH_HOST }}" >> ~/.ssh/known_hosts
 
+      - name: Neutraliser le message d'accueil (MOTD) du serveur
+        run: |
+          # Un MOTD/banniere affiche a la connexion pollue le flux binaire de
+          # rsync ("protocol version mismatch -- is your shell clean?").
+          # ~/.hushlogin supprime ce message pour l'utilisateur de deploiement.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
+            "touch ~/.hushlogin"
+
       - name: Synchroniser le code vers le serveur
         run: |
           rsync -az --delete \
