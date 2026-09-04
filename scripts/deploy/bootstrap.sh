@@ -6,6 +6,12 @@
 # .github/workflows/deploy.yml apres synchronisation du code par rsync.
 set -euo pipefail
 
+# Identifiants OAuth Google, transmis en argument (jamais commis dans le
+# depot ni ecrits dans les journaux) : voir .github/workflows/deploy.yml,
+# qui les passe depuis les secrets GitHub GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET.
+GOOGLE_CLIENT_ID_ARG="${1:-}"
+GOOGLE_CLIENT_SECRET_ARG="${2:-}"
+
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
 ENV_FILE="$APP_DIR/.env"
@@ -47,10 +53,19 @@ else
 fi
 
 # GOOGLE_REDIRECT_URI depend uniquement du domaine (pas un secret) : on peut
-# le renseigner automatiquement des que le nom de domaine est connu, meme si
-# GOOGLE_CLIENT_ID/SECRET restent a completer manuellement.
+# le renseigner automatiquement des que le nom de domaine est connu.
 if grep -q '^GOOGLE_REDIRECT_URI=$' "$ENV_FILE" 2>/dev/null; then
   sed -i "s#^GOOGLE_REDIRECT_URI=.*#GOOGLE_REDIRECT_URI=https://${DOMAIN}/auth/google/callback#" "$ENV_FILE"
+fi
+
+# Identifiants OAuth Google : mis a jour a chaque deploiement si transmis
+# (permet aussi de les faire tourner plus tard en changeant simplement le
+# secret GitHub, sans toucher au serveur a la main).
+if [ -n "$GOOGLE_CLIENT_ID_ARG" ]; then
+  sed -i "s#^GOOGLE_CLIENT_ID=.*#GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID_ARG}#" "$ENV_FILE"
+fi
+if [ -n "$GOOGLE_CLIENT_SECRET_ARG" ]; then
+  sed -i "s#^GOOGLE_CLIENT_SECRET=.*#GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET_ARG}#" "$ENV_FILE"
 fi
 
 echo "== Base de donnees PostgreSQL =="

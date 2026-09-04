@@ -54,6 +54,9 @@ jobs:
 
       - name: Exécuter le script de déploiement sur le serveur
         run: |
+          # GOOGLE_CLIENT_ID/SECRET sont transmis en arguments positionnels
+          # (jamais commis dans le depot) : GitHub masque automatiquement
+          # ces valeurs dans les journaux car elles proviennent de secrets.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}'"

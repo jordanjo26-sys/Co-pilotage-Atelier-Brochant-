@@ -81,10 +81,20 @@ changer là si jamais le domaine ou l'adresse de contact évoluent.
 5. **Créer un identifiant OAuth** : API et services → Identifiants → Créer
    des identifiants → ID client OAuth → type "Application Web".
    - URI de redirection autorisée : `https://copilotage-brochant.fr/auth/google/callback`
-6. **Transmettre le "ID client" et le "Secret du client"** générés à cette
-   étape (ce sont des identifiants d'application, pas un mot de passe
-   Google — conformes à la règle "jamais de mot de passe" de la section 17
-   du cahier des charges) pour les ajouter au `.env` du serveur.
+6. **Ajouter l'"ID client" et le "Secret du client"** générés à cette étape
+   (ce sont des identifiants d'application, pas un mot de passe Google —
+   conformes à la règle "jamais de mot de passe" de la section 17 du cahier
+   des charges) comme deux nouveaux secrets GitHub, comme pour les accès
+   OVH (**Settings → Secrets and variables → Actions → New repository
+   secret**) :
+
+   | Nom du secret | Valeur |
+   |---|---|
+   | `GOOGLE_CLIENT_ID` | L'"ID client" affiché par Google |
+   | `GOOGLE_CLIENT_SECRET` | Le "Secret du client" affiché par Google |
+
+   Le prochain déploiement (automatique ou déclenché manuellement) les
+   inscrit alors dans le `.env` du serveur — rien à taper à la main dessus.
 7. Une fois ces identifiants en place, ouvrir
    `https://copilotage-brochant.fr/auth/google` dans un navigateur
    **connecté à la boîte Gmail de l'entreprise** et cliquer sur "Autoriser"
