@@ -50,14 +50,16 @@ jamais écraser le fichier `.env` du serveur une fois créé, pour préserver
 les identifiants déjà configurés (base de données, clé de chiffrement,
 Gmail).
 
-## 2. Nom de domaine — à acheter
+## 2. Nom de domaine — fait
 
-Pas encore fait. Manager OVHcloud → **Domaines** → **Commander un
-domaine** ; un `.fr` suffit (~10€/an). Une fois acheté, créer un
-enregistrement DNS de type **A** pointant vers l'IP du serveur, puis
-demander à Claude d'activer HTTPS (certificat Let's Encrypt via `certbot`)
-et de mettre à jour la configuration nginx et `GOOGLE_REDIRECT_URI` en
-conséquence.
+Domaine acheté : **`copilotage-brochant.fr`** (et `www.copilotage-brochant.fr`),
+enregistrements DNS de type **A** pointant vers l'IP du serveur.
+
+Le certificat HTTPS (Let's Encrypt) est obtenu et renouvelé automatiquement
+par `scripts/deploy/bootstrap.sh` à chaque déploiement : rien à faire à la
+main. Le nom de domaine et l'adresse email utilisée pour l'enregistrement
+Let's Encrypt sont en dur dans ce script (`DOMAIN`, `ADMIN_EMAIL`) — à
+changer là si jamais le domaine ou l'adresse de contact évoluent.
 
 ## 3. Connexion Gmail (OAuth) — à faire une fois le déploiement en place
 
@@ -78,17 +80,16 @@ conséquence.
      comme "utilisateur test" dans cet écran — sinon la connexion échouera.
 5. **Créer un identifiant OAuth** : API et services → Identifiants → Créer
    des identifiants → ID client OAuth → type "Application Web".
-   - URI de redirection autorisée : `https://votre-domaine/auth/google/callback`
-     (dépend du domaine choisi à l'étape 2).
+   - URI de redirection autorisée : `https://copilotage-brochant.fr/auth/google/callback`
 6. **Transmettre le "ID client" et le "Secret du client"** générés à cette
    étape (ce sont des identifiants d'application, pas un mot de passe
    Google — conformes à la règle "jamais de mot de passe" de la section 17
    du cahier des charges) pour les ajouter au `.env` du serveur.
 7. Une fois ces identifiants en place, ouvrir
-   `https://votre-domaine/auth/google` dans un navigateur **connecté à la
-   boîte Gmail de l'entreprise** et cliquer sur "Autoriser" — c'est la
-   seule étape que l'utilisateur doit faire lui-même dans l'interface de
-   l'app.
+   `https://copilotage-brochant.fr/auth/google` dans un navigateur
+   **connecté à la boîte Gmail de l'entreprise** et cliquer sur "Autoriser"
+   — c'est la seule étape que l'utilisateur doit faire lui-même dans
+   l'interface de l'app.
 
 ## 4. Dext — rien à faire
 

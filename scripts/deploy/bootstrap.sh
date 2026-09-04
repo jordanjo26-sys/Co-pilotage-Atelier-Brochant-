@@ -9,10 +9,15 @@ set -euo pipefail
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
 ENV_FILE="$APP_DIR/.env"
+DOMAIN="copilotage-brochant.fr"
+WWW_DOMAIN="www.copilotage-brochant.fr"
+ADMIN_EMAIL="jordan.jo26@icloud.com"
+CERTBOT_WEBROOT="$APP_DIR/certbot-webroot"
+CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
 
 echo "== Paquets systeme =="
 apt-get update -y
-apt-get install -y curl git postgresql postgresql-contrib nginx poppler-utils ufw openssl rsync
+apt-get install -y curl git postgresql postgresql-contrib nginx poppler-utils ufw openssl rsync certbot
 
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | grep -oE '^v[0-9]+' | tr -d v)" -lt 20 ]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -36,9 +41,16 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
 EOF
   echo "-- .env cree avec des secrets generes automatiquement (mot de passe base, cle de chiffrement)."
-  echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."
+  echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."
 else
   DB_PASSWORD=$(grep -oP '(?<=copilote:)[^@]+' "$ENV_FILE" | head -1)
+fi
+
+# GOOGLE_REDIRECT_URI depend uniquement du domaine (pas un secret) : on peut
+# le renseigner automatiquement des que le nom de domaine est connu, meme si
+# GOOGLE_CLIENT_ID/SECRET restent a completer manuellement.
+if grep -q '^GOOGLE_REDIRECT_URI=$' "$ENV_FILE" 2>/dev/null; then
+  sed -i "s#^GOOGLE_REDIRECT_URI=.*#GOOGLE_REDIRECT_URI=https://${DOMAIN}/auth/google/callback#" "$ENV_FILE"
 fi
 
 echo "== Base de donnees PostgreSQL =="
@@ -67,12 +79,89 @@ systemctl daemon-reload
 systemctl enable copilote-brochant
 systemctl restart copilote-brochant
 
-echo "== Reverse proxy nginx =="
-cp "$APP_DIR/scripts/deploy/nginx-copilote-brochant.conf" /etc/nginx/sites-available/copilote-brochant
+echo "== Reverse proxy nginx (HTTP, provisoire tant qu'aucun certificat n'existe) =="
+mkdir -p "$CERTBOT_WEBROOT"
+# Conf HTTP minimale : necessaire avant meme d'avoir un certificat, a la fois
+# pour servir l'appli en attendant et pour repondre au defi HTTP de Let's
+# Encrypt (chemin /.well-known/acme-challenge/) lors de la toute premiere
+# demande de certificat ci-dessous.
+cat > /etc/nginx/sites-available/copilote-brochant <<EOF
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${DOMAIN} ${WWW_DOMAIN} _;
+
+    client_max_body_size 25M;
+
+    location /.well-known/acme-challenge/ {
+        root ${CERTBOT_WEBROOT};
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
 ln -sf /etc/nginx/sites-available/copilote-brochant /etc/nginx/sites-enabled/copilote-brochant
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl reload nginx
+
+echo "== Certificat HTTPS (Let's Encrypt) =="
+if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
+  certbot certonly --webroot -w "$CERTBOT_WEBROOT" \
+    -d "$DOMAIN" -d "$WWW_DOMAIN" \
+    --non-interactive --agree-tos -m "$ADMIN_EMAIL" --no-eff-email \
+    || echo "-- Echec de l'obtention du certificat (DNS pas encore propage ?). L'appli reste servie en HTTP, on reessaiera au prochain deploiement."
+else
+  echo "-- Certificat deja present, pas de nouvelle demande (le renouvellement est gere par le timer systemd de certbot)."
+fi
+
+echo "== Reverse proxy nginx (HTTPS si le certificat est disponible) =="
+if [ -f "$CERT_DIR/fullchain.pem" ]; then
+  cat > /etc/nginx/sites-available/copilote-brochant <<EOF
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${DOMAIN} ${WWW_DOMAIN} _;
+
+    location /.well-known/acme-challenge/ {
+        root ${CERTBOT_WEBROOT};
+    }
+
+    location / {
+        return 301 https://${DOMAIN}\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name ${DOMAIN} ${WWW_DOMAIN};
+
+    ssl_certificate ${CERT_DIR}/fullchain.pem;
+    ssl_certificate_key ${CERT_DIR}/privkey.pem;
+
+    client_max_body_size 25M;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+  nginx -t
+  systemctl reload nginx
+fi
 
 echo "== Pare-feu =="
 ufw allow OpenSSH
