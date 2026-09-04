@@ -113,14 +113,24 @@ nginx -t
 systemctl reload nginx
 
 echo "== Certificat HTTPS (Let's Encrypt) =="
-if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
-  certbot certonly --webroot -w "$CERTBOT_WEBROOT" \
-    -d "$DOMAIN" -d "$WWW_DOMAIN" \
-    --non-interactive --agree-tos -m "$ADMIN_EMAIL" --no-eff-email \
-    || echo "-- Echec de l'obtention du certificat (DNS pas encore propage ?). L'appli reste servie en HTTP, on reessaiera au prochain deploiement."
+# www n'est inclus dans le certificat que si son DNS pointe deja vers ce
+# serveur (sinon le defi ACME echouerait pour ce nom et ferait echouer toute
+# la demande, y compris pour le domaine principal). --expand permet
+# d'ajouter www au certificat existant plus tard, des que son DNS sera bon,
+# sans intervention manuelle : ce bloc est rejoue a chaque deploiement et
+# certbot ne fait rien si le certificat couvre deja les bons noms et n'est
+# pas proche de l'expiration (pas de risque de heurter les limites de taux).
+MY_IP=$(curl -fs -4 https://ifconfig.me || true)
+WWW_IP=$(getent hosts "$WWW_DOMAIN" 2>/dev/null | awk '{print $1}' | head -1 || true)
+CERT_DOMAINS=(-d "$DOMAIN")
+if [ -n "$MY_IP" ] && [ "$WWW_IP" = "$MY_IP" ]; then
+  CERT_DOMAINS+=(-d "$WWW_DOMAIN")
 else
-  echo "-- Certificat deja present, pas de nouvelle demande (le renouvellement est gere par le timer systemd de certbot)."
+  echo "-- www.${DOMAIN} ne pointe pas encore vers ce serveur (DNS: ${WWW_IP:-aucun}, attendu: ${MY_IP:-inconnu}) : exclu du certificat pour l'instant."
 fi
+certbot certonly --webroot -w "$CERTBOT_WEBROOT" "${CERT_DOMAINS[@]}" --expand \
+  --non-interactive --agree-tos -m "$ADMIN_EMAIL" --no-eff-email \
+  || echo "-- Echec de l'obtention du certificat (DNS pas encore propage ?). L'appli reste servie en HTTP, on reessaiera au prochain deploiement."
 
 echo "== Reverse proxy nginx (HTTPS si le certificat est disponible) =="
 if [ -f "$CERT_DIR/fullchain.pem" ]; then
