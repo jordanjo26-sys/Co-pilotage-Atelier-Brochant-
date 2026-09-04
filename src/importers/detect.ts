@@ -3,7 +3,12 @@ import path from "node:path";
 import { normalizeHeader } from "./csvUtils";
 import { DetectionResult, MappingConfig } from "./types";
 
-const MAPPINGS_DIR = path.join(__dirname, "..", "config", "mappings");
+// process.cwd() plutot que __dirname : ces JSON ne sont pas des modules
+// importes (tsc ne les copie donc pas dans dist/), il faut les lire depuis
+// leur emplacement source reel (src/config/mappings), present a la fois en
+// developpement (tsx, cwd = racine du projet) et en production (rsync
+// synchronise src/, WorkingDirectory du service systemd = racine du projet).
+const MAPPINGS_DIR = path.join(process.cwd(), "src", "config", "mappings");
 
 let cachedMappings: MappingConfig[] | null = null;
 
