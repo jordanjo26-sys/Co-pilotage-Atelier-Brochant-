@@ -29,14 +29,21 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.OVH_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Neutraliser le message d'accueil (MOTD) du serveur
+      - name: Préparer le serveur (MOTD, dossier applicatif)
         run: |
           # Un MOTD/banniere affiche a la connexion pollue le flux binaire de
           # rsync ("protocol version mismatch -- is your shell clean?").
           # ~/.hushlogin supprime ce message pour l'utilisateur de deploiement.
+          #
+          # L'utilisateur SSH (OVH_USER, ex. "ubuntu" sur les images Ubuntu
+          # cloud OVH) n'est pas root : /opt/copilote-brochant est prepare et
+          # confie a cet utilisateur via sudo pour que rsync (execute sans
+          # sudo, car sudo casserait le flux binaire de rsync) puisse y
+          # ecrire. bootstrap.sh est ensuite execute avec sudo, car il
+          # installe des paquets systeme et cree un utilisateur applicatif.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "touch ~/.hushlogin"
+            "touch ~/.hushlogin && sudo mkdir -p /opt/copilote-brochant && sudo chown -R \$(whoami):\$(whoami) /opt/copilote-brochant"
 
       - name: Synchroniser le code vers le serveur
         run: |
@@ -49,4 +56,4 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh"

@@ -30,7 +30,7 @@ Trois secrets doivent être ajoutés sur le dépôt GitHub :
 | Nom du secret | Valeur |
 |---|---|
 | `OVH_HOST` | L'adresse IP publique du serveur (ex. `137.74.133.193`) |
-| `OVH_USER` | `root` (ou l'utilisateur choisi pour la connexion SSH) |
+| `OVH_USER` | `ubuntu` — les images Ubuntu cloud OVH désactivent la connexion SSH directe en `root` ; il faut se connecter en `ubuntu` puis passer par `sudo` (déjà géré par le workflow) |
 | `OVH_SSH_PRIVATE_KEY` | La clé **privée** correspondant à la clé publique `brochant-deploy` déjà autorisée sur le serveur |
 
 La clé privée a été générée dans cette session (jamais envoyée par un autre
