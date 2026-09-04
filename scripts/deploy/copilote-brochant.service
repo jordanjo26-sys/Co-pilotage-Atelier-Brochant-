@@ -1,19 +1,20 @@
 [Unit]
 Description=Copilote Atelier Brochant
 After=network.target postgresql.service
+# Redemarrage systematique si le processus reste indisponible plus de
+# 5 minutes cumulees (section 16 : "socle 24/7"). Ces deux cles vont dans
+# [Unit], pas [Service] (sinon systemd les ignore silencieusement).
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple
 User=copilote
 WorkingDirectory=/opt/copilote-brochant
 EnvironmentFile=/opt/copilote-brochant/.env
-ExecStart=/usr/bin/node /opt/copilote-brochant/dist/server.js
+ExecStart=/usr/bin/node /opt/copilote-brochant/dist/src/server.js
 Restart=on-failure
 RestartSec=5
-# Redemarrage systematique si le processus reste indisponible plus de
-# 5 minutes cumulees (section 16 : "socle 24/7").
-StartLimitIntervalSec=300
-StartLimitBurst=10
 
 [Install]
 WantedBy=multi-user.target
