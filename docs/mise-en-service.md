@@ -1,35 +1,65 @@
 # Mise en service — hébergement OVHcloud et connexion Gmail
 
 Ce document liste, dans l'ordre, tout ce qui doit être fait **côté humain**
-(compte, paiement, clic de consentement) pour que le pipeline Gmail → Dext
-(section 7 du cahier des charges) tourne en continu sur un serveur réel.
-Rien de ceci ne peut être fait à votre place : ce sont des actions liées à
-votre identité ou à vos comptes (OVHcloud, Google).
+(compte, paiement, clic de consentement, secrets à transmettre) pour que le
+pipeline Gmail → Dext (section 7 du cahier des charges) tourne en continu
+sur un serveur réel. Rien de ceci ne peut être fait à la place de
+l'utilisateur : ce sont des actions liées à son identité ou à ses comptes
+(OVHcloud, Google, GitHub).
 
-## 1. Serveur OVHcloud
+## 1. Serveur OVHcloud — fait
 
-1. Créer un compte OVHcloud si vous n'en avez pas, puis commander un
-   **VPS** (pas besoin d'un serveur dédié pour démarrer) :
-   - Gamme "VPS Value" ou "VPS Essential" suffit largement pour un artisan/TPE.
-   - Image système : **Ubuntu 22.04 LTS** (ou plus récent), conforme à la
-     section 16 du cahier des charges.
-   - Région : Europe (Gravelines ou Strasbourg, au choix).
-2. Une fois le VPS actif, récupérer :
-   - son adresse IP publique,
-   - l'accès root (mot de passe initial reçu par e-mail, ou clé SSH si vous
-     en avez configuré une à la commande).
-3. **Me transmettre l'IP et l'accès SSH** (idéalement une clé SSH plutôt
-   qu'un mot de passe — je peux vous indiquer comment en générer une) pour
-   que je configure le serveur : Node.js, PostgreSQL, la base du dépôt, un
-   reverse proxy (nginx) avec certificat HTTPS (Let's Encrypt), et le
-   service applicatif en tâche de fond (systemd), qui redémarre tout seul
-   en cas de coupure.
-4. Un nom de domaine ou sous-domaine (ex. `copilote.atelier-brochant.fr`)
-   pointant vers cette IP est recommandé mais pas obligatoire pour démarrer
-   (on peut commencer sur l'IP brute avec un certificat auto-signé, puis
-   ajouter le domaine ensuite).
+Une instance **OVHcloud Public Cloud** (projet "Co-pilote Atelier
+Brochant", modèle `d2-4`, région Gravelines) a été créée, avec la clé SSH
+dédiée `brochant-deploy` autorisée dessus.
 
-## 2. Connexion Gmail (OAuth)
+> ⚠️ Contrainte technique découverte en cours de route : l'environnement
+> qui exécute Claude Code ne peut sortir qu'en HTTPS (via un proxy), jamais
+> en connexion SSH directe. Il est donc **impossible de se connecter
+> directement au serveur depuis cette session** pour le configurer. La
+> solution retenue : passer par **GitHub Actions**, qui tourne sur
+> l'infrastructure de GitHub (sans cette restriction) pour synchroniser le
+> code et exécuter le script de déploiement (`scripts/deploy/bootstrap.sh`,
+> idempotent) sur le serveur via SSH. Voir section 1 bis ci-dessous.
+
+## 1 bis. Déploiement automatisé (GitHub Actions) — à configurer
+
+Trois secrets doivent être ajoutés sur le dépôt GitHub :
+**Settings → Secrets and variables → Actions → New repository secret**.
+
+| Nom du secret | Valeur |
+|---|---|
+| `OVH_HOST` | L'adresse IP publique du serveur (ex. `137.74.133.193`) |
+| `OVH_USER` | `root` (ou l'utilisateur choisi pour la connexion SSH) |
+| `OVH_SSH_PRIVATE_KEY` | La clé **privée** correspondant à la clé publique `brochant-deploy` déjà autorisée sur le serveur |
+
+La clé privée a été générée dans cette session (jamais envoyée par un autre
+canal) : demander à Claude de vous la communiquer pour l'ajouter dans
+GitHub, ou de créer une nouvelle paire si la session a changé entre-temps.
+
+Une fois ces trois secrets renseignés, le déploiement se déclenche :
+- **automatiquement** à chaque fusion sur la branche `main` ;
+- **manuellement** à tout moment depuis l'onglet **Actions** du dépôt
+  GitHub → workflow "Déploiement OVHcloud" → **Run workflow** (ou en le
+  demandant à Claude, qui peut le déclencher directement).
+
+Le workflow (`.github/workflows/deploy.yml`) synchronise le code sur le
+serveur puis exécute `scripts/deploy/bootstrap.sh`, qui installe/actualise
+tout ce qu'il faut (Node.js, PostgreSQL, nginx, service systemd) — sans
+jamais écraser le fichier `.env` du serveur une fois créé, pour préserver
+les identifiants déjà configurés (base de données, clé de chiffrement,
+Gmail).
+
+## 2. Nom de domaine — à acheter
+
+Pas encore fait. Manager OVHcloud → **Domaines** → **Commander un
+domaine** ; un `.fr` suffit (~10€/an). Une fois acheté, créer un
+enregistrement DNS de type **A** pointant vers l'IP du serveur, puis
+demander à Claude d'activer HTTPS (certificat Let's Encrypt via `certbot`)
+et de mettre à jour la configuration nginx et `GOOGLE_REDIRECT_URI` en
+conséquence.
+
+## 3. Connexion Gmail (OAuth) — à faire une fois le déploiement en place
 
 1. Aller sur [Google Cloud Console](https://console.cloud.google.com/) avec
    le compte Google qui gère l'adresse Gmail professionnelle d'Atelier
@@ -49,27 +79,25 @@ votre identité ou à vos comptes (OVHcloud, Google).
 5. **Créer un identifiant OAuth** : API et services → Identifiants → Créer
    des identifiants → ID client OAuth → type "Application Web".
    - URI de redirection autorisée : `https://votre-domaine/auth/google/callback`
-     (ou `http://localhost:3000/auth/google/callback` pour tester en local
-     avant le déploiement définitif).
-6. **Me transmettre le "ID client" et le "Secret du client"** générés à
-   cette étape (ce sont des identifiants d'application, pas votre mot de
-   passe Google — conformes à la règle "jamais de mot de passe" de la
-   section 17 du cahier des charges).
-7. Une fois ces identifiants renseignés dans le `.env` du serveur
-   (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`),
-   ouvrir `https://votre-domaine/auth/google` dans un navigateur **connecté
-   à la boîte Gmail de l'entreprise** et cliquer sur "Autoriser" — c'est la
-   seule étape que vous devez faire vous-même dans l'interface de l'app.
+     (dépend du domaine choisi à l'étape 2).
+6. **Transmettre le "ID client" et le "Secret du client"** générés à cette
+   étape (ce sont des identifiants d'application, pas un mot de passe
+   Google — conformes à la règle "jamais de mot de passe" de la section 17
+   du cahier des charges) pour les ajouter au `.env` du serveur.
+7. Une fois ces identifiants en place, ouvrir
+   `https://votre-domaine/auth/google` dans un navigateur **connecté à la
+   boîte Gmail de l'entreprise** et cliquer sur "Autoriser" — c'est la
+   seule étape que l'utilisateur doit faire lui-même dans l'interface de
+   l'app.
 
-## 3. Dext
+## 4. Dext — rien à faire
 
-Rien à configurer côté Dext pour la V1 : les adresses de réception
-(`facturation-brochant@dext.cc` et `facturation-brochant@multiple.dext.cc`,
-déjà indiquées dans le cahier des charges) sont directement utilisées par
-le connecteur Gmail → Dext. Vérifier simplement qu'elles sont toujours
-actives dans votre compte Dext.
+Les adresses de réception (`facturation-brochant@dext.cc` et
+`facturation-brochant@multiple.dext.cc`, déjà indiquées dans le cahier des
+charges) sont directement utilisées par le connecteur Gmail → Dext.
+Vérifier simplement qu'elles sont toujours actives dans le compte Dext.
 
-## 4. Stripe (pour plus tard)
+## 5. Stripe (pour plus tard)
 
 Quand vous serez prêt : Tableau de bord Stripe → Développeurs → Clés API →
 créer une **clé restreinte** avec un accès en lecture seule sur les
@@ -84,6 +112,6 @@ secrète complète du compte.
   bons d'enlèvement et relevés, et met les cas ambigus en attente dans le
   centre de validation (`GET /api/anomalies`) — voir
   `docs/architecture.md` pour le détail du pipeline.
-- Rien de ceci ne fonctionne tant que les étapes 1 et 2 ci-dessus n'ont pas
-  été faites : sans serveur permanent, personne ne vérifie Gmail entre deux
-  sessions de travail ; sans connexion OAuth, il n'y a rien à vérifier.
+- Rien de ceci ne fonctionne tant que le déploiement (section 1 bis) et la
+  connexion OAuth (section 3) n'ont pas été faits : sans serveur permanent
+  et connecté, personne ne vérifie Gmail entre deux sessions de travail.

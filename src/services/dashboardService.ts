@@ -19,9 +19,13 @@ function startOfDay(d: Date): Date {
  * Construit le resume du cockpit quotidien (section 9.1) a partir des
  * donnees deja recues par imports CSV : CA de la veille et impayes, comme
  * demande explicitement par le critere d'acceptation V1 correspondant.
+ *
+ * `maintenant` est injectable (par defaut l'heure reelle) pour que les
+ * tests fixent une date de reference independante du jour ou ils sont
+ * rejoues, plutot que de dependre de l'horloge systeme au moment du test.
  */
-export async function getDashboardSummary(prisma: PrismaClient): Promise<DashboardSummary> {
-  const today = startOfDay(new Date());
+export async function getDashboardSummary(prisma: PrismaClient, maintenant: Date = new Date()): Promise<DashboardSummary> {
+  const today = startOfDay(maintenant);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
 

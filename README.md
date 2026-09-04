@@ -30,10 +30,23 @@ continu.
 
 ## Démarrage rapide
 
+Nécessite un serveur **PostgreSQL** accessible (local ou distant) — voir
+`docs/mise-en-service.md` pour l'installer sur Ubuntu/OVHcloud, ou en local
+pour développer :
+
+```bash
+sudo apt install postgresql          # si pas déjà installé
+sudo -u postgres psql -c "CREATE DATABASE copilote_brochant;"
+sudo -u postgres psql -c "CREATE USER copilote WITH PASSWORD 'changez-moi';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE copilote_brochant TO copilote;"
+sudo -u postgres psql -d copilote_brochant -c "GRANT ALL ON SCHEMA public TO copilote;"
+sudo -u postgres psql -c "ALTER USER copilote CREATEDB;"  # necessaire pour "prisma migrate dev"
+```
+
 ```bash
 npm install
-cp .env.example .env
-npx prisma migrate dev   # applique les migrations et crée la base SQLite locale
+cp .env.example .env   # adapter DATABASE_URL a votre installation PostgreSQL
+npx prisma migrate dev   # applique les migrations
 npm run dev
 ```
 
@@ -161,9 +174,9 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 `GmailConnexion` (jeton OAuth chiffré), en plus de `ImportBatch` qui trace
 chaque fichier reçu.
 
-Base SQLite par défaut (aucune installation requise). Pour la production
-(OVHcloud, section 16), passer à PostgreSQL : changer `provider` dans
-`prisma/schema.prisma` et `DATABASE_URL` dans `.env`.
+PostgreSQL partout (section 16), y compris en développement local, pour ne
+jamais tester sur un moteur différent de la production — voir « Démarrage
+rapide » ci-dessus pour l'installer.
 
 ## Tests
 
@@ -179,7 +192,8 @@ la mise en page, exclusion de l'annexe SEPA qui doublonnerait les
 mouvements, déduction de l'année sur un passage d'année), et un test de
 bout en bout qui rejoue le scénario de la section 5 (deux paiements Stripe
 regroupés dans un virement, lui-même rapproché d'un mouvement bancaire) sur
-une base SQLite temporaire.
+une base PostgreSQL de test dédiée (`TEST_DATABASE_URL`, recréée à chaque
+lancement — voir `.env.example`).
 
 Couvre aussi la classification Gmail → Dext (facture standard même sans le
 mot « facture », bon d'enlèvement, avoir, relevé, choix de l'adresse Dext

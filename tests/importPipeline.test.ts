@@ -1,25 +1,37 @@
-import { test, before, after } from "node:test";
+import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import dotenv from "dotenv";
 
-const TMP_DB = path.join(__dirname, "tmp-test.db");
-process.env.DATABASE_URL = `file:${TMP_DB}`;
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
-// Reconstruit le schema SQLite de test avant d'importer PrismaClient / le
-// service d'import (qui instancient PrismaClient au chargement du module).
+// Base PostgreSQL dediee aux tests : jamais la meme base que DATABASE_URL,
+// pour ne jamais risquer d'ecraser des donnees de developpement. A defaut de
+// TEST_DATABASE_URL explicite, on derive le nom de DATABASE_URL en y
+// ajoutant le suffixe "_test".
+const testDatabaseUrl =
+  process.env.TEST_DATABASE_URL ||
+  (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+
+if (!testDatabaseUrl) {
+  throw new Error(
+    "TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example pour configurer une base PostgreSQL de test."
+  );
+}
+process.env.DATABASE_URL = testDatabaseUrl;
+
+// Reconstruit le schema (force-reset) avant d'importer PrismaClient / le
+// service d'import (qui instancient PrismaClient au chargement du module) :
+// chaque lancement de la suite repart d'une base vide, quel que soit son
+// etat apres une execution precedente interrompue.
 before(() => {
-  if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB);
-  execSync("npx prisma db push --skip-generate", {
+  execSync("npx prisma db push --force-reset --skip-generate", {
     cwd: path.join(__dirname, ".."),
     env: process.env,
     stdio: "pipe",
   });
-});
-
-after(() => {
-  if (fs.existsSync(TMP_DB)) fs.unlinkSync(TMP_DB);
 });
 
 test("pipeline complet : Synec, Stripe paiements/payouts/solde, banque", async () => {
@@ -133,7 +145,10 @@ test("pipeline complet : Synec, Stripe paiements/payouts/solde, banque", async (
 
   // CA veille + impayes (critere d'acceptation V1). Le reste a percevoir
   // d'une facture partiellement payee doit compter, pas son montant total.
-  const summary = await getDashboardSummary(prisma);
+  // Date de reference fixee explicitement (le 3 septembre 2026, en heure
+  // locale comme les dates du fixture) : le test reste valide quel que
+  // soit le jour ou il est rejoue, independamment de l'horloge systeme.
+  const summary = await getDashboardSummary(prisma, new Date(2026, 8, 3, 12, 0, 0));
   assert.ok(Math.abs(summary.caVeille - 2050) < 0.01);
   assert.equal(summary.impayes.nombre, 3);
   assert.ok(Math.abs(summary.impayes.montantTotal - 3640) < 0.01);

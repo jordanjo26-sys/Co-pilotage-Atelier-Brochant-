@@ -1,0 +1,43 @@
+name: Déploiement OVHcloud
+
+# Volontairement manuel (workflow_dispatch) pendant la phase de mise en
+# route, en plus du declenchement automatique sur push vers "main" une fois
+# la branche stabilisee et fusionnee. Un declenchement manuel permet de
+# rejouer un deploiement precis (branche ou commit) a la demande.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branche ou commit a deployer (vide = branche par defaut)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Configurer la clé SSH de déploiement
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.OVH_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.OVH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Synchroniser le code vers le serveur
+        run: |
+          rsync -az --delete \
+            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
+            ./ "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:/opt/copilote-brochant/"
+
+      - name: Exécuter le script de déploiement sur le serveur
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
+            "bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh"

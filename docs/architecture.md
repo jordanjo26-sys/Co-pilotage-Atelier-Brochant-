@@ -218,11 +218,35 @@ vers l'adresse Dext, avec la piece jointe originale — le resultat pour Dext
 est identique (elle recoit la facture a l'adresse dediee), la mecanique
 est juste plus robuste a implementer et a tester.
 
-## Pourquoi SQLite par défaut
+## Déploiement via GitHub Actions, pas en direct
 
-Le cahier des charges recommande PostgreSQL pour la cible de production
-(section 16). Pour cette première brique, SQLite est utilisé par défaut afin
-que l'outil tourne immédiatement sans installer de serveur de base de
-données. Le changement vers PostgreSQL se fait uniquement dans
-`prisma/schema.prisma` (`provider = "postgresql"`) et `.env`
-(`DATABASE_URL`) — le reste du code ne dépend pas du moteur choisi.
+L'environnement d'exécution de Claude Code ne peut sortir qu'en HTTPS (via
+un proxy applicatif) : aucune connexion SSH brute n'est possible depuis
+cette session vers un serveur externe. Le déploiement passe donc par
+**GitHub Actions** (`.github/workflows/deploy.yml`), qui tourne sur
+l'infrastructure de GitHub sans cette restriction :
+
+1. Synchronise le code vers `/opt/copilote-brochant` sur le serveur (rsync
+   par SSH, en excluant `.git`, `node_modules`, `dist`, `.env`).
+2. Execute `scripts/deploy/bootstrap.sh` sur le serveur, qui installe/met a
+   jour Node.js, PostgreSQL, nginx, cree la base et le fichier `.env` s'ils
+   n'existent pas encore (sans jamais les ecraser sinon), compile, applique
+   les migrations, et (re)demarre le service systemd.
+
+Le script est **idempotent** par construction : chaque etape verifie
+l'etat existant avant d'agir, si bien qu'il peut etre rejoue a chaque
+deploiement (premier comme centieme) sans effet de bord. C'est aussi ce qui
+permet de le declencher manuellement (`workflow_dispatch`) a la demande
+pendant la mise au point, avant de le brancher sur chaque fusion sur
+`main` une fois stabilise.
+
+## PostgreSQL partout, y compris en local
+
+Les toutes premières versions de ce dépôt utilisaient SQLite par défaut
+pour demarrer sans installation. Depuis le premier déploiement réel
+(OVHcloud), le projet est passé entièrement à **PostgreSQL** (section 16
+du cahier des charges), y compris pour le développement local et les
+tests : ne jamais valider le code sur un moteur différent de celui de
+production évite une classe entière de bugs "ça marchait en local".
+`docs/mise-en-service.md` explique l'installation sur le serveur ; le
+README, l'installation locale pour développer.

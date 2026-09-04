@@ -1,17 +1,16 @@
 // Modele de donnees - Copilote IA de gestion - Atelier Brochant
-// Reprend la section 15 "Donnees principales a stocker" du cahier des charges,
-// simplifie pour le perimetre "reception et normalisation des CSV" (Phase 0/2).
+// Reprend la section 15 "Donnees principales a stocker" du cahier des charges.
 //
-// SQLite par defaut pour demarrer sans installation. Pour la production,
-// changer "provider" en "postgresql" et adapter DATABASE_URL (cf. .env.example
-// et section 16 "Architecture technique cible" du cahier des charges).
+// PostgreSQL (section 16 : "Architecture technique cible"), y compris en
+// developpement local, pour ne jamais tester sur un moteur different de la
+// production. Voir README.md pour l'installation locale de PostgreSQL.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
