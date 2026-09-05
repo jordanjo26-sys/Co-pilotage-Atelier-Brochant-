@@ -72,10 +72,13 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
   // Fenetre de recherche volontairement large (7 jours) : la deduplication
   // par hash de piece jointe rend le re-balayage de messages deja traites
   // sans consequence, et evite de manquer un message en cas d'arret
-  // prolonge du service entre deux synchronisations.
+  // prolonge du service entre deux synchronisations. On exclut d'office les
+  // e-mails de Dext lui-meme (accuses de reception, recapitulatif
+  // quotidien) : ce sont des notifications sortantes de Dext, jamais des
+  // documents fournisseurs a router.
   const liste = await gmail.users.messages.list({
     userId: "me",
-    q: "has:attachment newer_than:7d",
+    q: "has:attachment newer_than:7d -from:dext.cc",
     maxResults: 50,
   });
 
@@ -91,6 +94,11 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
       const sujet = extraireEntete(headers, "Subject");
       const expediteur = extraireEntete(headers, "From");
       const dateReception = msg.data.internalDate ? new Date(Number(msg.data.internalDate)) : null;
+
+      // Filet de securite en plus du "-from:dext.cc" de la recherche
+      // (au cas ou Dext changerait un jour de sous-domaine d'envoi) :
+      // jamais retraiter un e-mail dont l'expediteur est Dext.
+      if (expediteur.toLowerCase().includes("dext.cc")) continue;
 
       const piecesBrutes = extrairePiecesJointes(msg.data.payload);
       if (piecesBrutes.length === 0) continue; // rien a router pour ce message
@@ -163,8 +171,8 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
               resultat: `Transferee automatiquement vers ${adresseDext} (cas standard, section "exception deja validee").`,
             });
           } else {
-            // avoir | bon_enlevement | releve : jamais envoyes a Dext,
-            // archives pour controle (sections 6.3, 6.4).
+            // avoir | bon_enlevement | releve | devis : jamais envoyes a
+            // Dext, archives pour controle (sections 6.3, 6.4).
             await prisma.documentFournisseur.create({
               data: {
                 type,

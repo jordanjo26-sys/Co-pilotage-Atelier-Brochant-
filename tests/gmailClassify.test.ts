@@ -41,6 +41,12 @@ test("classifie un avoir", () => {
   assert.equal(type, "avoir");
 });
 
+test("classifie un devis, jamais une facture ni un cas ambigu", () => {
+  const e = email({ sujet: "Votre devis pour la salle de bain" });
+  const type = classifierPieceJointe(e, { nomFichier: "devis_042.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "devis");
+});
+
 test("une piece jointe qui n'est pas un document (mimetype non gere) est ambigue", () => {
   const e = email({ sujet: "Facture" });
   const type = classifierPieceJointe(e, { nomFichier: "logo.svg", mimeType: "image/svg+xml" });

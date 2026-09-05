@@ -7,7 +7,7 @@
  * au centre de validation plutot que d'etre devine (section 7.2, 14).
  */
 
-export type TypeDocument = "facture" | "avoir" | "bon_enlevement" | "releve" | "ambigu";
+export type TypeDocument = "facture" | "avoir" | "bon_enlevement" | "releve" | "devis" | "ambigu";
 
 export interface PieceJointe {
   nomFichier: string;
@@ -27,6 +27,7 @@ const MOTIF_BON_ENLEVEMENT = /bon[\s.-]*d['\s]*enl[eè]vement|bon[\s.-]*de[\s.-]
 const MOTIF_RELEVE = /relev[eé][\s.-]*(de[\s.-]*)?factures?|relev[eé][\s.-]*fournisseur|statement[\s.-]*of[\s.-]*account/i;
 const MOTIF_AVOIR = /\bavoir\b|note[\s.-]*de[\s.-]*cr[eé]dit|credit[\s.-]*note/i;
 const MOTIF_FACTURE = /\bfacture\b|\binvoice\b|\bfattura\b/i;
+const MOTIF_DEVIS = /\bdevis\b|\bquote\b|\bquotation\b|\bestimate\b/i;
 
 function estPieceDocument(piece: PieceJointe): boolean {
   return MIME_TYPES_DOCUMENT.includes(piece.mimeType.toLowerCase());
@@ -47,6 +48,11 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   if (MOTIF_RELEVE.test(texte)) return "releve";
   if (MOTIF_AVOIR.test(texte)) return "avoir";
   if (MOTIF_FACTURE.test(texte)) return "facture";
+  // Un devis n'est ni une facture ni un cas ambigu : type connu et
+  // reconnaissable, jamais transmis a Dext, jamais mis en attente de
+  // validation (evite d'encombrer le centre de validation a chaque devis
+  // recu d'un fournisseur).
+  if (MOTIF_DEVIS.test(texte)) return "devis";
 
   // Correctif suite a un incident reel (envois errones vers Dext, rejetes
   // en masse) : la recherche Gmail (has:attachment newer_than:7d) balaie
