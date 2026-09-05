@@ -26,6 +26,13 @@ CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
 # pour reactiver l'envoi automatique.
 DEXT_AUTO_FORWARD="false"
 
+echo "== Fuseau horaire =="
+# Les images cloud sont generalement en UTC par defaut : sans ce reglage,
+# les calculs "aujourd'hui / hier" du tableau de bord et l'heure d'envoi du
+# recapitulatif quotidien (DAILY_RECAP_HOUR) seraient decales par rapport
+# a la journee de travail reelle en France.
+timedatectl set-timezone Europe/Paris
+
 echo "== Paquets systeme =="
 apt-get update -y
 apt-get install -y curl git postgresql postgresql-contrib nginx poppler-utils ufw openssl rsync certbot
@@ -51,6 +58,7 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
 DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}
+DAILY_RECAP_HOUR=19
 EOF
   echo "-- .env cree avec des secrets generes automatiquement (mot de passe base, cle de chiffrement)."
   echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."

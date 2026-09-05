@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
 import { getDashboardSummary } from "../services/dashboardService";
 import { synchroniserGmail } from "../services/gmailSync";
+import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -109,6 +110,24 @@ export function buildRouter(prisma: PrismaClient): Router {
     try {
       const resultat = await synchroniserGmail(prisma);
       res.json(resultat);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Apercu du contenu sans envoyer d'e-mail (verification manuelle).
+  router.get("/recap/apercu", async (_req, res) => {
+    const contenu = await construireRecapQuotidien(prisma);
+    res.type("text/plain").send(contenu);
+  });
+
+  // Declenchement manuel de l'envoi (test, ou rattrapage si le serveur
+  // etait indisponible a l'heure prevue) : en plus de l'envoi automatique
+  // quotidien planifie (voir scheduler.ts).
+  router.post("/recap/envoyer", async (_req, res) => {
+    try {
+      await envoyerRecapQuotidien(prisma);
+      res.json({ envoye: true });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }

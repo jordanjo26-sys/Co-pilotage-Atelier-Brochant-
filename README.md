@@ -91,25 +91,50 @@ procédure complète, étape par étape). Une fois `GOOGLE_CLIENT_ID`,
 2. Le serveur vérifie ensuite la boîte toutes les 5 minutes
    (`GMAIL_POLL_INTERVAL_MS`, réglable) — ou cliquer sur "Synchroniser
    maintenant" dans le cockpit pour déclencher une passe immédiatement.
-3. Chaque pièce jointe reçue (PDF, image) est classée selon des règles
-   déterministes (section 14 : jamais d'interprétation libre) :
-   - **Facture** standard → transférée automatiquement vers l'adresse Dext
-     appropriée (`facturation-brochant@dext.cc` ou `@multiple.dext.cc` s'il
-     y a plusieurs factures dans le même e-mail), conformément à
-     l'« Exception déjà validée » du cahier des charges.
-   - **Avoir**, **bon d'enlèvement**, **relevé de factures fournisseur** →
-     archivés, jamais envoyés à Dext (sections 6.3, 6.4).
+3. Chaque pièce jointe reçue est classée selon des règles déterministes
+   (section 14 : jamais d'interprétation libre) :
+   - **Facture** standard (uniquement au format PDF — une image dans le
+     même e-mail, ex. logo de signature, reste ambiguë) → transférée
+     vers l'adresse Dext appropriée (`facturation-brochant@dext.cc` ou
+     `@multiple.dext.cc` s'il y a plusieurs factures dans le même
+     e-mail), *sauf* si `DEXT_AUTO_FORWARD=false` (voir ci-dessous).
+   - **Avoir**, **bon d'enlèvement**, **relevé de factures fournisseur**,
+     **devis / offre de prix** → archivés, jamais envoyés à Dext
+     (sections 6.3, 6.4).
    - Tout le reste (pièce jointe illisible, type non reconnu) → mis en
      attente dans le centre de validation (`GET /api/anomalies`), jamais
      deviné.
+   - Les e-mails provenant de Dext lui-même (accusés, récapitulatifs) sont
+     exclus d'office de l'analyse.
 4. Chaque décision est déduplicée par empreinte de fichier (section 7.3) et
    journalisée (`GET /api/journal`) : relancer une synchronisation, même
    plusieurs fois sur les mêmes e-mails, ne retransmet jamais un document
    déjà envoyé.
 
+**Pause du transfert automatique (`DEXT_AUTO_FORWARD=false`)** : les
+factures reconnues ne sont alors plus envoyées à Dext — elles sont
+étiquetées dans Gmail sous `Copilote/Factures à transférer/<Mois Année>`
+(créé automatiquement) et enregistrées avec le statut `a_valider`, pour un
+envoi manuel groupé (par ex. en fin de mois, le temps d'observer le
+comportement du système). Par défaut (variable absente), le transfert est
+actif.
+
 Le jeton Gmail est chiffré au repos (voir `src/services/cipher.ts`,
 `ENCRYPTION_KEY` dans `.env`) — jamais stocké en clair, conformément à la
 section 17 du cahier des charges.
+
+## Récapitulatif quotidien par e-mail
+
+Chaque jour à `DAILY_RECAP_HOUR` (19h par défaut, heure locale du serveur),
+un e-mail est envoyé à la boîte Gmail connectée elle-même avec : le CA de
+la veille et les impayés (mêmes chiffres que `GET /api/dashboard/summary`),
+les documents reçus dans la journée par type, et les points nécessitant une
+validation manuelle. Rien à configurer côté destinataire — c'est déjà
+l'adresse consultée par l'utilisateur.
+
+- `GET /api/recap/apercu` : aperçu du contenu (texte), sans envoyer d'e-mail.
+- `POST /api/recap/envoyer` : déclenche l'envoi immédiatement (test, ou
+  rattrapage si le serveur était indisponible à l'heure prévue).
 
 ## Ajuster le format des CSV
 
@@ -164,6 +189,8 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 | `POST /api/gmail/sync` | Déclenche une synchronisation Gmail → Dext immédiate |
 | `GET /api/documents-fournisseurs` | Documents reçus par e-mail (factures transférées, avoirs/bons/relevés archivés) |
 | `GET /api/anomalies?statut=a_valider` | Documents ambigus en attente de classification manuelle |
+| `GET /api/recap/apercu` | Aperçu (texte) du récapitulatif quotidien, sans envoyer d'e-mail |
+| `POST /api/recap/envoyer` | Envoie immédiatement le récapitulatif quotidien à la boîte Gmail connectée |
 
 ## Modèle de données
 
