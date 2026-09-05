@@ -47,6 +47,18 @@ test("classifie un devis, jamais une facture ni un cas ambigu", () => {
   assert.equal(type, "devis");
 });
 
+test("classifie une offre de prix comme un devis", () => {
+  const e = email({ sujet: "Offre de prix - materiel plomberie" });
+  const type = classifierPieceJointe(e, { nomFichier: "offre.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "devis");
+});
+
+test("une image dans un e-mail de facture n'est jamais transmise comme facture (ex. logo de signature)", () => {
+  const e = email({ sujet: "Votre facture n°2026-014" });
+  const type = classifierPieceJointe(e, { nomFichier: "signature.png", mimeType: "image/png" });
+  assert.equal(type, "ambigu");
+});
+
 test("une piece jointe qui n'est pas un document (mimetype non gere) est ambigue", () => {
   const e = email({ sujet: "Facture" });
   const type = classifierPieceJointe(e, { nomFichier: "logo.svg", mimeType: "image/svg+xml" });

@@ -27,10 +27,14 @@ const MOTIF_BON_ENLEVEMENT = /bon[\s.-]*d['\s]*enl[eè]vement|bon[\s.-]*de[\s.-]
 const MOTIF_RELEVE = /relev[eé][\s.-]*(de[\s.-]*)?factures?|relev[eé][\s.-]*fournisseur|statement[\s.-]*of[\s.-]*account/i;
 const MOTIF_AVOIR = /\bavoir\b|note[\s.-]*de[\s.-]*cr[eé]dit|credit[\s.-]*note/i;
 const MOTIF_FACTURE = /\bfacture\b|\binvoice\b|\bfattura\b/i;
-const MOTIF_DEVIS = /\bdevis\b|\bquote\b|\bquotation\b|\bestimate\b/i;
+const MOTIF_DEVIS = /\bdevis\b|offre[\s.-]*de[\s.-]*prix|offre[\s.-]*commerciale|\bquote\b|\bquotation\b|\bestimate\b/i;
 
 function estPieceDocument(piece: PieceJointe): boolean {
   return MIME_TYPES_DOCUMENT.includes(piece.mimeType.toLowerCase());
+}
+
+function estPdf(piece: PieceJointe): boolean {
+  return piece.mimeType.toLowerCase() === "application/pdf";
 }
 
 /**
@@ -47,7 +51,13 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   if (MOTIF_BON_ENLEVEMENT.test(texte)) return "bon_enlevement";
   if (MOTIF_RELEVE.test(texte)) return "releve";
   if (MOTIF_AVOIR.test(texte)) return "avoir";
-  if (MOTIF_FACTURE.test(texte)) return "facture";
+  // Une facture n'est jamais transmise a Dext si ce n'est pas un PDF : un
+  // e-mail de facture contient souvent d'autres pieces jointes (logo de
+  // signature en .jpg/.png par ex.) qui partagent le meme contexte
+  // (le mot "facture" dans le sujet) mais ne sont pas la facture elle-meme.
+  // Seul le PDF est retenu comme facture ; une image dans ce contexte reste
+  // ambigue plutot que d'etre presumee etre la facture.
+  if (MOTIF_FACTURE.test(texte) && estPdf(piece)) return "facture";
   // Un devis n'est ni une facture ni un cas ambigu : type connu et
   // reconnaissable, jamais transmis a Dext, jamais mis en attente de
   // validation (evite d'encombrer le centre de validation a chaque devis
