@@ -48,13 +48,14 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   if (MOTIF_AVOIR.test(texte)) return "avoir";
   if (MOTIF_FACTURE.test(texte)) return "facture";
 
-  // Cas standard section 7.4 : beaucoup de fournisseurs envoient une
-  // facture en piece jointe sans jamais employer le mot "facture" dans le
-  // sujet ou le corps. Un document (PDF/image) unique sans autre indice
-  // negatif est traite comme facture standard plutot que comme ambigu,
-  // pour ne pas noyer le centre de validation de faux positifs — mais
-  // seulement si rien n'indique un des autres types.
-  return "facture";
+  // Correctif suite a un incident reel (envois errones vers Dext, rejetes
+  // en masse) : la recherche Gmail (has:attachment newer_than:7d) balaie
+  // TOUTE la boite mail, pas seulement les fournisseurs — un PDF/image
+  // quelconque sans le mot "facture" ne doit donc jamais partir vers Dext
+  // par defaut. Conforme au principe enonce plus haut : ce qui ne
+  // correspond a aucune regle connue devient ambigu (centre de
+  // validation), jamais une facture presumee.
+  return "ambigu";
 }
 
 /**

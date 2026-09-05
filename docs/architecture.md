@@ -193,10 +193,18 @@ metier deterministes priment sur une interpretation libre de l'IA").
 Prisma) : entierement teste unitairement, il classe une piece jointe en
 facture / avoir / bon d'enlevement / relevé / ambigu par des motifs
 explicites sur le sujet, le corps et le nom de fichier. Le cas "aucun
-motif ne correspond mais c'est un PDF/image" est traite comme facture
-standard plutot qu'ambigu (section 7.4 : beaucoup de fournisseurs
-n'ecrivent jamais le mot "facture") — seul un type manifestement autre
-(mimetype non gere) part au centre de validation.
+motif ne correspond" part au centre de validation (ambigu), jamais vers
+Dext automatiquement.
+
+> ⚠️ Historique : une premiere version traitait ce cas comme "facture
+> standard" par defaut (l'hypothese etant que beaucoup de fournisseurs
+> n'ecrivent jamais le mot "facture"). En conditions reelles, la
+> recherche Gmail (`has:attachment newer_than:7d`) balaie toute la
+> boite mail et pas seulement les fournisseurs : ce comportement a
+> provoque l'envoi automatique de documents non-factures vers Dext
+> (rejetes en nombre). Corrige pour se conformer au principe de la
+> section 14 : ce qui n'est pas reconnu de maniere certaine ne part
+> jamais automatiquement, il attend une validation humaine.
 
 **Deduplication par empreinte de fichier, pas par Message-ID.** Un meme
 message Gmail peut contenir plusieurs pieces jointes (donc plusieurs

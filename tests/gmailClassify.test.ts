@@ -17,10 +17,10 @@ test("classifie une facture standard (mot-cle dans le sujet)", () => {
   assert.equal(type, "facture");
 });
 
-test("classifie une facture standard meme sans le mot 'facture' (cas courant, section 7.4)", () => {
+test("un document sans aucun mot-cle reconnu est ambigu, jamais presume facture (correctif incident Dext)", () => {
   const e = email({ sujet: "Votre commande chez Central Plomberie", extraitCorps: "Merci pour votre achat." });
   const type = classifierPieceJointe(e, { nomFichier: "scan0042.pdf", mimeType: "application/pdf" });
-  assert.equal(type, "facture");
+  assert.equal(type, "ambigu");
 });
 
 test("classifie un bon d'enlevement, jamais une facture", () => {
