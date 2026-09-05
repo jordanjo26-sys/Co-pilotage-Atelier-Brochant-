@@ -43,11 +43,60 @@ function extraireEntete(headers: gmail_v1.Schema$MessagePartHeader[] | undefined
 }
 
 /**
+ * Interrupteur de securite (section 16 : prudence en cas de doute) :
+ * transfert automatique des factures vers Dext desactivable sans toucher
+ * au code, via la variable d'environnement DEXT_AUTO_FORWARD. Quand
+ * desactive (valeur "false"), les factures sont etiquetees dans Gmail par
+ * mois de reception plutot que transmises, pour un envoi manuel groupe en
+ * fin de mois le temps d'observer le comportement du systeme.
+ */
+function transfertAutomatiqueActif(): boolean {
+  return process.env.DEXT_AUTO_FORWARD !== "false";
+}
+
+/** Nom du libelle Gmail (hierarchique) pour le mois de reception donne. */
+function nomEtiquetteFacturesDuMois(date: Date): string {
+  const moisAnnee = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(date);
+  const capitalise = moisAnnee.charAt(0).toUpperCase() + moisAnnee.slice(1);
+  return `Copilote/Factures a transferer/${capitalise}`;
+}
+
+/**
+ * Retrouve un libelle Gmail existant par son nom ou le cree s'il n'existe
+ * pas encore (les libelles imbriques du type "Parent/Enfant" sont crees
+ * automatiquement par l'API sans que le parent doive prealablement
+ * exister). Met en cache le resultat pour la duree d'une synchronisation,
+ * un meme libelle (le mois en cours) etant reutilise pour tous les
+ * messages traites lors du meme passage.
+ */
+async function obtenirOuCreerLabel(gmail: gmail_v1.Gmail, nom: string, cache: Map<string, string>): Promise<string> {
+  const enCache = cache.get(nom);
+  if (enCache) return enCache;
+
+  const liste = await gmail.users.labels.list({ userId: "me" });
+  const existant = liste.data.labels?.find((l) => l.name === nom);
+  if (existant?.id) {
+    cache.set(nom, existant.id);
+    return existant.id;
+  }
+
+  const cree = await gmail.users.labels.create({
+    userId: "me",
+    requestBody: { name: nom, labelListVisibility: "labelShow", messageListVisibility: "show" },
+  });
+  const id = cree.data.id;
+  if (!id) throw new Error(`Echec de creation du libelle Gmail "${nom}"`);
+  cache.set(nom, id);
+  return id;
+}
+
+/**
  * Synchronise la boite Gmail connectee : detecte les nouveaux e-mails avec
  * pieces jointes, les classifie, ecarte les doublons deja connus, transfere
- * les factures standard vers Dext, archive bons d'enlevement et releves, et
- * met en attente de validation les documents ambigus. Reprend le pipeline
- * de la section 7.2 du cahier des charges.
+ * les factures standard vers Dext (sauf pause via DEXT_AUTO_FORWARD, voir
+ * plus bas), archive bons d'enlevement, releves et devis, et met en
+ * attente de validation les documents ambigus. Reprend le pipeline de la
+ * section 7.2 du cahier des charges.
  *
  * Idempotent par construction (deduplication sur le hash de chaque piece
  * jointe) : peut etre appelee autant de fois que necessaire, par exemple
@@ -83,6 +132,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
   });
 
   const messages = liste.data.messages || [];
+  const cacheLabels = new Map<string, string>();
 
   for (const ref of messages) {
     if (!ref.id) continue;
@@ -150,7 +200,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
 
           const numero = extraireNumeroFacture(`${sujet} ${piece.nomFichier}`);
 
-          if (type === "facture") {
+          if (type === "facture" && transfertAutomatiqueActif()) {
             await envoyerVersDext(gmail, { destinataire: adresseDext, nomFichier: piece.nomFichier, mimeType: piece.mimeType, donnees, sujetOrigine: sujet });
             await prisma.documentFournisseur.create({
               data: {
@@ -169,6 +219,31 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
               evenement: "gmail_document",
               action: `Facture recue de ${expediteur} : ${piece.nomFichier}`,
               resultat: `Transferee automatiquement vers ${adresseDext} (cas standard, section "exception deja validee").`,
+            });
+          } else if (type === "facture") {
+            // Transfert automatique en pause (DEXT_AUTO_FORWARD=false) :
+            // on etiquette dans Gmail par mois de reception pour un envoi
+            // manuel groupe en fin de mois, plutot que de transmettre.
+            const nomLabel = nomEtiquetteFacturesDuMois(dateReception || new Date());
+            const labelId = await obtenirOuCreerLabel(gmail, nomLabel, cacheLabels);
+            await gmail.users.messages.modify({ userId: "me", id: ref.id, requestBody: { addLabelIds: [labelId] } });
+            await prisma.documentFournisseur.create({
+              data: {
+                type: "facture",
+                fichierNom: piece.nomFichier,
+                numero,
+                hashFichier,
+                statutDext: "a_valider",
+                gmailMessageId: ref.id,
+                gmailExpediteur: expediteur,
+                gmailObjet: sujet,
+                dateReceptionMail: dateReception,
+              },
+            });
+            await logEvenement(prisma, {
+              evenement: "gmail_document",
+              action: `Facture recue de ${expediteur} : ${piece.nomFichier}`,
+              resultat: `Transfert automatique en pause : etiquetee "${nomLabel}" dans Gmail pour envoi manuel en fin de mois.`,
             });
           } else {
             // avoir | bon_enlevement | releve | devis : jamais envoyes a

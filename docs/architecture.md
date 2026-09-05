@@ -218,6 +218,17 @@ recherche large de 7 jours a chaque passage, pour ne jamais rater un
 message en cas d'arret prolonge du service) ne retransmet jamais un
 document deja envoye a Dext.
 
+**Interrupteur `DEXT_AUTO_FORWARD`.** A la suite de l'incident ci-dessus,
+l'utilisateur a demande une periode d'observation avant de refaire
+confiance a l'envoi automatique. Mis a `false` (dans `scripts/deploy/bootstrap.sh`,
+controle par le code — pas un secret), les factures reconnues ne sont plus
+transmises a Dext : elles sont etiquetees dans Gmail sous
+`Copilote/Factures a transferer/<Mois Annee>` (libelle cree automatiquement
+au premier document du mois) et enregistrees avec `statutDext: "a_valider"`,
+pour un envoi manuel groupe en fin de mois. Pour reactiver le transfert
+automatique une fois la confiance retablie : repasser `DEXT_AUTO_FORWARD`
+a `"true"` dans `bootstrap.sh` puis redeployer.
+
 **Transfert par recomposition, pas par "Forward" natif.** Plutot que de
 reconstruire une chaine de reponse/transfert Gmail (fragile pour les pieces
 jointes), `gmailSync.ts` compose un nouvel e-mail (via `nodemailer`

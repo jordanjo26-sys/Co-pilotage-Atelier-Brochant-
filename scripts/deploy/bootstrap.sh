@@ -20,6 +20,11 @@ WWW_DOMAIN="www.copilotage-brochant.fr"
 ADMIN_EMAIL="jordan.jo26@icloud.com"
 CERTBOT_WEBROOT="$APP_DIR/certbot-webroot"
 CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
+# Transfert automatique des factures vers Dext : "false" = en pause (mis en
+# place a la demande de l'utilisateur le temps d'observer prudemment le
+# systeme sur le mois de septembre) — repasser a "true" ici puis redeployer
+# pour reactiver l'envoi automatique.
+DEXT_AUTO_FORWARD="false"
 
 echo "== Paquets systeme =="
 apt-get update -y
@@ -45,6 +50,7 @@ ENCRYPTION_KEY=${ENCRYPTION_KEY}
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
+DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}
 EOF
   echo "-- .env cree avec des secrets generes automatiquement (mot de passe base, cle de chiffrement)."
   echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."
@@ -56,6 +62,16 @@ fi
 # le renseigner automatiquement des que le nom de domaine est connu.
 if grep -q '^GOOGLE_REDIRECT_URI=$' "$ENV_FILE" 2>/dev/null; then
   sed -i "s#^GOOGLE_REDIRECT_URI=.*#GOOGLE_REDIRECT_URI=https://${DOMAIN}/auth/google/callback#" "$ENV_FILE"
+fi
+
+# Interrupteur de transfert automatique vers Dext (pas un secret, controle
+# depuis ce script) : "false" pour observer prudemment le systeme avant de
+# reactiver l'envoi automatique. Mis a jour a chaque deploiement pour
+# refleter la valeur voulue ici, meme sur un .env deja existant.
+if grep -q '^DEXT_AUTO_FORWARD=' "$ENV_FILE" 2>/dev/null; then
+  sed -i "s#^DEXT_AUTO_FORWARD=.*#DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}#" "$ENV_FILE"
+else
+  echo "DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}" >> "$ENV_FILE"
 fi
 
 # Identifiants OAuth Google : mis a jour a chaque deploiement si transmis
