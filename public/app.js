@@ -89,6 +89,16 @@ async function chargerStatutGmail() {
   });
 }
 
+async function ignorerAnomalie(id) {
+  await fetch(`/api/anomalies/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ statut: "ignoree" }),
+  });
+  await chargerAnomalies();
+}
+window.ignorerAnomalie = ignorerAnomalie;
+
 async function chargerAnomalies() {
   const res = await fetch("/api/anomalies?statut=a_valider");
   const anomalies = await res.json();
@@ -104,6 +114,7 @@ async function chargerAnomalies() {
       <td>${a.type}</td>
       <td>${detail}</td>
       <td>${a.actionProposee || ""}</td>
+      <td><button type="button" onclick="ignorerAnomalie('${a.id}')">Ignorer</button></td>
     </tr>`;
     })
     .join("");

@@ -18,13 +18,23 @@ interface PieceJointeExtraite extends PieceJointe {
   attachmentId: string;
 }
 
-/** Aplatit recursivement les parts MIME pour en extraire les pieces jointes. */
+/**
+ * Aplatit recursivement les parts MIME pour en extraire les pieces jointes.
+ * Exclut les ressources integrees au corps du message (logo de signature,
+ * icones de reseaux sociaux, images de tracking...) : elles portent
+ * techniquement un nom de fichier et un attachmentId comme une vraie piece
+ * jointe, mais aussi un en-tete Content-ID qui sert a les referencer depuis
+ * le HTML du message (`<img src="cid:...">`). Ce marqueur, universel dans
+ * les clients mail, est le signal le plus fiable pour les distinguer d'un
+ * vrai document envoye par l'expediteur.
+ */
 function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | undefined): PieceJointeExtraite[] {
   if (!payload) return [];
   const pieces: PieceJointeExtraite[] = [];
 
   function visiter(part: gmail_v1.Schema$MessagePart) {
-    if (part.filename && part.body?.attachmentId) {
+    const estIntegree = Boolean(extraireEntete(part.headers, "Content-ID"));
+    if (part.filename && part.body?.attachmentId && !estIntegree) {
       pieces.push({
         nomFichier: part.filename,
         mimeType: part.mimeType || "application/octet-stream",

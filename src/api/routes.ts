@@ -153,5 +153,36 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.json(anomalies);
   });
 
+  const STATUTS_ANOMALIE_VALIDES = ["a_valider", "validee", "ignoree"];
+
+  // Traitement manuel d'une anomalie (section 7.2 : le centre de validation
+  // sert justement a decider a la main des cas non reconnus automatiquement).
+  // Jamais de suppression : le statut "ignoree" garde une trace, contrairement
+  // a une suppression silencieuse.
+  router.patch("/anomalies/:id", async (req, res) => {
+    const { statut } = req.body || {};
+    if (typeof statut !== "string" || !STATUTS_ANOMALIE_VALIDES.includes(statut)) {
+      return res.status(400).json({ erreur: `statut invalide, attendu l'un de : ${STATUTS_ANOMALIE_VALIDES.join(", ")}` });
+    }
+    try {
+      const anomalie = await prisma.anomalie.update({ where: { id: req.params.id }, data: { statut } });
+      res.json(anomalie);
+    } catch (err) {
+      res.status(404).json({ erreur: "Anomalie introuvable." });
+    }
+  });
+
+  // Traitement en masse (ex. nettoyer un lot d'images de signature capturees
+  // par erreur avant un correctif de classification) : filtre optionnel par
+  // type, ne touche que les anomalies actuellement "a_valider".
+  router.post("/anomalies/ignorer-en-masse", async (req, res) => {
+    const type = typeof req.body?.type === "string" ? req.body.type : undefined;
+    const resultat = await prisma.anomalie.updateMany({
+      where: { statut: "a_valider", ...(type ? { type } : {}) },
+      data: { statut: "ignoree" },
+    });
+    res.json({ nombreIgnore: resultat.count });
+  });
+
   return router;
 }
