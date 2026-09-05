@@ -172,13 +172,18 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
-  // Traitement en masse (ex. nettoyer un lot d'images de signature capturees
-  // par erreur avant un correctif de classification) : filtre optionnel par
-  // type, ne touche que les anomalies actuellement "a_valider".
+  // Traitement en masse : soit une selection precise (ids, ex. cases cochees
+  // dans l'interface), soit un filtre par type (ex. nettoyer un lot genere
+  // par un bug de classification desormais corrige). Ne touche que les
+  // anomalies actuellement "a_valider".
   router.post("/anomalies/ignorer-en-masse", async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === "string") : undefined;
     const type = typeof req.body?.type === "string" ? req.body.type : undefined;
+    if (!ids && !type) {
+      return res.status(400).json({ erreur: "Fournir soit 'ids' (tableau), soit 'type'." });
+    }
     const resultat = await prisma.anomalie.updateMany({
-      where: { statut: "a_valider", ...(type ? { type } : {}) },
+      where: { statut: "a_valider", ...(ids ? { id: { in: ids } } : {}), ...(type ? { type } : {}) },
       data: { statut: "ignoree" },
     });
     res.json({ nombreIgnore: resultat.count });
