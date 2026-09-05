@@ -12,6 +12,7 @@
   --line-strong: #CBD3E3;
   --brand-blue: #3E72CE;
   --brand-teal: #2FAE8E;
+  --brand-violet: #6650B8;
   --good: #1C8F63;
   --good-soft: #DCF1E7;
   --warning: #B9791E;
@@ -33,6 +34,7 @@
     --line-strong: #2E4269;
     --brand-blue: #6C9BEE;
     --brand-teal: #4FCBA8;
+    --brand-violet: #9683DE;
     --good: #3FBE8B;
     --good-soft: #113828;
     --warning: #E0A83D;
@@ -53,6 +55,7 @@
   --line-strong: #2E4269;
   --brand-blue: #6C9BEE;
   --brand-teal: #4FCBA8;
+  --brand-violet: #9683DE;
   --good: #3FBE8B;
   --good-soft: #113828;
   --warning: #E0A83D;
@@ -74,12 +77,18 @@ body {
 h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Manrope", sans-serif; }
 
 header {
-  padding: 18px 16px 14px;
-  border-bottom: 1px solid var(--line);
+  padding: 16px 16px 15px;
   background: var(--surface);
+  border-bottom: 3px solid transparent;
+  border-image: linear-gradient(90deg, var(--brand-blue), var(--brand-teal), var(--brand-violet)) 1;
+  box-shadow: var(--shadow);
 }
-header h1 { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
-.sous-titre { margin: 3px 0 0; color: var(--ink-muted); font-size: 12.5px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand img { height: 42px; width: auto; flex: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.08)); }
+header h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+.sous-titre { margin: 2px 0 0; color: var(--ink-muted); font-size: 12px; }
+
+.pied { text-align: center; padding: 6px 16px 32px; font-size: 11px; color: var(--ink-muted); }
 
 main {
   padding: 14px 12px 48px;
@@ -92,10 +101,16 @@ main {
 .carte {
   background: var(--surface);
   border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
   border-radius: 14px;
   padding: 16px;
   box-shadow: var(--shadow);
 }
+.carte.accent-bleu { border-left-color: var(--brand-blue); }
+.carte.accent-teal { border-left-color: var(--brand-teal); }
+.carte.accent-ambre { border-left-color: var(--warning); }
+.carte.accent-critique { border-left-color: var(--critical); }
+.carte.accent-neutre { border-left-color: var(--line-strong); }
 .carte h2 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
 .aide { color: var(--ink-muted); font-size: 12.5px; margin: 0 0 10px; line-height: 1.5; }
 
@@ -171,6 +186,16 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-radius: 12px;
   padding: 12px 14px;
 }
+.tuile-icone {
+  width: 30px; height: 30px;
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 8px;
+  background: color-mix(in srgb, var(--brand-blue) 16%, transparent);
+  color: var(--brand-blue);
+}
+.tuile-icone svg { width: 16px; height: 16px; }
+.tuile.alerte .tuile-icone { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
 .tuile .valeur { font-size: 21px; font-weight: 800; color: var(--ink); font-family: "Manrope", sans-serif; line-height: 1.1; }
 .tuile .label { font-size: 11px; color: var(--ink-muted); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 .tuile.alerte .valeur { color: var(--critical); }

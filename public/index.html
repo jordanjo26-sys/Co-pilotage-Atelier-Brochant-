@@ -4,21 +4,27 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
+  <link rel="icon" href="/logo.png" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header>
-    <h1>Copilote Atelier Brochant</h1>
-    <p class="sous-titre">Réception CSV, Gmail → Dext et cockpit du jour</p>
+    <div class="brand">
+      <img src="/logo.png" alt="Atelier Brochant" />
+      <div>
+        <h1>Copilote Atelier Brochant</h1>
+        <p class="sous-titre">Réception CSV, Gmail → Dext et cockpit du jour</p>
+      </div>
+    </div>
   </header>
 
   <main>
-    <section class="carte">
+    <section class="carte accent-bleu">
       <h2>Cockpit du jour</h2>
       <div id="cockpit" class="grille-cockpit"></div>
     </section>
 
-    <section class="carte">
+    <section class="carte accent-ambre">
       <h2>Anomalies à valider</h2>
       <p class="aide">Documents ambigus reçus par e-mail, en attente de classification manuelle.</p>
       <div id="barre-actions-anomalies" class="barre-actions-masse" hidden>
@@ -29,13 +35,13 @@
       <div id="liste-anomalies"></div>
     </section>
 
-    <section class="carte">
+    <section class="carte accent-teal">
       <h2>Gmail → Dext</h2>
       <p class="aide">Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext.</p>
       <div id="gmail-statut"></div>
     </section>
 
-    <section class="carte">
+    <section class="carte accent-bleu">
       <h2>Déposer un fichier CSV</h2>
       <p class="aide">
         Synec (factures), Stripe (paiements ou payouts), relevé bancaire.
@@ -48,7 +54,7 @@
       <div id="resultat-import"></div>
     </section>
 
-    <section class="carte">
+    <section class="carte accent-critique">
       <h2>Factures impayées</h2>
       <div class="table-scroll">
         <table id="table-factures">
@@ -60,7 +66,7 @@
       </div>
     </section>
 
-    <section class="carte">
+    <section class="carte accent-neutre">
       <h2>Derniers imports</h2>
       <div class="table-scroll">
         <table id="table-imports">
@@ -72,6 +78,8 @@
       </div>
     </section>
   </main>
+
+  <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
   <script src="/app.js"></script>
 </body>
