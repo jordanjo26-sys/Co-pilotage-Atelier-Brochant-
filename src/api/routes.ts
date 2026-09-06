@@ -7,6 +7,7 @@ import { synchroniserGmail } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
+import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { getGmailClient } from "../services/googleAuth";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -149,6 +150,24 @@ export function buildRouter(prisma: PrismaClient): Router {
     try {
       await envoyerBilanSante(prisma);
       res.json({ envoye: true });
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // --- Relances (section 4.3, Phase 5 "moteur de regles") -----------------
+  // Le moteur determine QUI relancer et A QUEL PALIER ; l'envoi reste un
+  // geste humain volontaire (voir src/services/relances.ts), jamais
+  // declenche automatiquement par le planificateur.
+
+  router.get("/relances", async (_req, res) => {
+    res.json(await listerFacturesARelancer(prisma));
+  });
+
+  router.post("/relances/:factureId/envoyer", async (req, res) => {
+    try {
+      const envoyee = await envoyerRelance(prisma, req.params.factureId);
+      res.json({ envoyee: true, ...envoyee });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }

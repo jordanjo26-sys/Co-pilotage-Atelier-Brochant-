@@ -1,9 +1,10 @@
 # Critères d'acceptation V1 (section 19 du cahier des charges) — état
 
 Les critères concernant la réception CSV/PDF et le pipeline Gmail → Dext
-relèvent du périmètre de ce dépôt. Les autres (relances, moteur de règles
-complet, cockpit visuel complet, assistant IA...) restent hors périmètre —
-voir `docs/architecture.md`.
+relèvent du périmètre de ce dépôt. Les autres (moteur de règles complet,
+cockpit visuel complet...) restent hors périmètre — voir
+`docs/architecture.md`. Une première version des relances (section 4.3) et
+de l'assistant IA (Morgane) a depuis été ajoutée.
 
 | Critère (cahier des charges, section 19) | État | Détail |
 |---|---|---|

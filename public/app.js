@@ -261,6 +261,70 @@ document.getElementById("form-morgane").addEventListener("submit", async (e) => 
   }
 });
 
+// --- Relances -----------------------------------------------------------
+
+const LIBELLE_PALIER_CLASSE = { rappel: "neutre", relance: "ambre", mise_en_demeure: "critique" };
+
+async function envoyerRelance(factureId, bouton) {
+  const texteInitial = bouton.textContent;
+  bouton.disabled = true;
+  bouton.textContent = "Envoi…";
+  try {
+    const res = await fetch(`/api/relances/${factureId}/envoyer`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      bouton.textContent = "Erreur";
+      alert(data.erreur || "Echec de l'envoi.");
+      bouton.disabled = false;
+      bouton.textContent = texteInitial;
+      return;
+    }
+    await chargerRelances();
+  } catch (err) {
+    bouton.disabled = false;
+    bouton.textContent = texteInitial;
+    alert(err.message);
+  }
+}
+window.envoyerRelance = envoyerRelance;
+
+async function chargerRelances() {
+  const res = await fetch("/api/relances");
+  const relances = await res.json();
+  const liste = document.getElementById("liste-relances");
+
+  if (relances.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune relance à envoyer pour le moment.</p>`;
+    return;
+  }
+
+  liste.innerHTML = relances
+    .map((r) => {
+      const classePalier = LIBELLE_PALIER_CLASSE[r.palier.id] || "neutre";
+      const boutonEnvoi = r.clientEmail
+        ? `<button type="button" class="ghost" onclick="envoyerRelance('${r.factureId}', this)">Envoyer</button>`
+        : `<span class="aide-inline">E-mail client inconnu</span>`;
+      return `
+    <div class="relance-carte">
+      <div class="relance-entete">
+        <span class="badge badge-palier-${classePalier}">${echapper(r.palier.libelle)}</span>
+        <span class="relance-retard">${r.joursRetard} j de retard</span>
+      </div>
+      <div class="relance-corps">
+        <div class="relance-client">${echapper(r.clientNom)} — ${echapper(r.reference)}</div>
+        <div class="anomalie-meta">${fmtMontant(r.resteAPercevoir)} restant · échéance ${fmtDate(r.dateEcheance)}</div>
+      </div>
+      <details class="relance-details">
+        <summary>Voir le texte proposé</summary>
+        <p><strong>${echapper(r.objet)}</strong></p>
+        <p>${echapper(r.corps)}</p>
+      </details>
+      <div class="relance-actions">${boutonEnvoi}</div>
+    </div>`;
+    })
+    .join("");
+}
+
 // --- Bilan de sante ---------------------------------------------------------
 
 document.getElementById("btn-generer-bilan").addEventListener("click", async () => {
@@ -295,7 +359,7 @@ document.getElementById("btn-envoyer-bilan").addEventListener("click", async (e)
 });
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerAnomalies()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerAnomalies(), chargerRelances()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

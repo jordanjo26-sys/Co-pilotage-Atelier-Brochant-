@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=4" />
+  <link rel="stylesheet" href="/styles.css?v=5" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -76,6 +76,12 @@
       <div id="resultat-import"></div>
     </section>
 
+    <section class="carte accent-ambre">
+      <h2>Relances à envoyer</h2>
+      <p class="aide">Factures ayant atteint un nouveau palier de retard (rappel, relance, mise en demeure). L'envoi reste toujours un geste volontaire, facture par facture — rien n'est envoyé automatiquement.</p>
+      <div id="liste-relances"></div>
+    </section>
+
     <section class="carte accent-critique">
       <h2>Factures impayées</h2>
       <div class="table-scroll">
@@ -103,6 +109,6 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=3"></script>
+  <script src="/app.js?v=4"></script>
 </body>
 </html>

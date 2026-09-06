@@ -4,6 +4,7 @@ import { getDashboardSummary } from "./dashboardService";
 import { construireBilanSante, envoyerBilanSante } from "./bilanSante";
 import { construireRecapQuotidien, envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserGmail } from "./gmailSync";
+import { listerFacturesARelancer, envoyerRelance } from "./relances";
 import { logEvenement } from "./journalService";
 
 /**
@@ -86,6 +87,22 @@ const OUTILS: Anthropic.Tool[] = [
     description: "Envoie immediatement par e-mail la note de bilan de sante de l'entreprise.",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "lister_factures_a_relancer",
+    description:
+      "Liste les factures impayees ayant atteint un nouveau palier de retard (rappel/relance/mise en demeure) non encore relance, avec le texte de relance propose. N'inclut jamais une facture sous delai accorde.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "envoyer_relance",
+    description:
+      "Envoie par e-mail la relance proposee pour une facture precise (voir lister_factures_a_relancer pour l'id). N'utiliser que si l'utilisateur a clairement demande de relancer CETTE facture — ne jamais relancer en masse de sa propre initiative.",
+    input_schema: {
+      type: "object",
+      properties: { factureId: { type: "string", description: "Identifiant de la facture (voir lister_factures_a_relancer)." } },
+      required: ["factureId"],
+    },
+  },
 ];
 
 async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown): Promise<unknown> {
@@ -162,6 +179,19 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "lister_factures_a_relancer":
+      return listerFacturesARelancer(prisma);
+
+    case "envoyer_relance": {
+      const factureId = params.factureId;
+      if (typeof factureId !== "string") return { erreur: "factureId manquant" };
+      try {
+        return { ok: true, relance: await envoyerRelance(prisma, factureId) };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
     default:
       return { erreur: `Outil inconnu : ${nom}` };
   }
@@ -176,9 +206,12 @@ d'anomalies...) doit venir d'un appel a un outil ; si tu n'as pas encore \
 l'information, appelle l'outil correspondant avant de repondre.
 - Tu peux executer des actions concretes (ignorer une anomalie, lancer une \
 synchronisation Gmail, envoyer le recapitulatif ou le bilan de sante par \
-e-mail) uniquement quand l'utilisateur te le demande explicitement pour \
-cette action precise. Ne prends jamais d'initiative sur une action qui \
-modifie des donnees sans demande claire.
+e-mail, envoyer une relance a un client precis) uniquement quand \
+l'utilisateur te le demande explicitement pour cette action precise. Ne \
+prends jamais d'initiative sur une action qui modifie des donnees ou qui \
+contacte un tiers (client, fournisseur) sans demande claire — une relance \
+en particulier ne se declenche jamais en masse de ta propre initiative, \
+seulement facture par facture sur demande.
 - Si une question sort de ton perimetre (donnees Stripe detaillees, actions \
 non couvertes par tes outils), dis-le simplement plutot que d'inventer une \
 reponse.

@@ -321,6 +321,24 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .bouton-lien:hover { background: var(--surface); border-color: var(--brand-blue); }
 
+/* ---------- Relances ---------- */
+.relance-carte {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.relance-carte:first-of-type { border-top: none; padding-top: 0; }
+.relance-entete { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.relance-retard { font-size: 11.5px; color: var(--ink-muted); font-weight: 600; }
+.relance-client { font-size: 13px; font-weight: 600; color: var(--ink); }
+.relance-details { margin-top: 6px; font-size: 12.5px; color: var(--ink-2); }
+.relance-details summary { cursor: pointer; color: var(--brand-blue); font-weight: 600; font-size: 12.5px; }
+.relance-details p { margin: 6px 0 0; white-space: pre-wrap; }
+.relance-actions { margin-top: 8px; }
+.aide-inline { font-size: 12px; color: var(--ink-muted); font-style: italic; }
+.badge-palier-neutre { background: var(--surface-2); color: var(--ink-muted); }
+.badge-palier-ambre { background: var(--warning-soft); color: var(--warning); }
+.badge-palier-critique { background: var(--critical-soft); color: var(--critical); }
+
 /* ---------- Tables (imports, factures) ---------- */
 .table-scroll { overflow-x: auto; margin: 0 -16px; padding: 0 16px; }
 table {

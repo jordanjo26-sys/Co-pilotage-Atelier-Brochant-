@@ -207,6 +207,37 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 (`date|montant|mode|note`, séparés par ` // `). Voir
 `src/importers/synecFactures.ts` et `samples/README.md` pour le détail.
 
+## Relances de factures impayées
+
+Moteur de règles (section 4.3 du cahier des charges, Phase 5) qui détermine
+automatiquement **qui** relancer et **à quel palier**, selon le retard par
+rapport à l'échéance :
+
+| Palier | Retard |
+|---|---|
+| Rappel amical | 7 jours |
+| Relance formelle | 15 jours |
+| Mise en demeure | 30 jours |
+
+- Une facture sous **délai accordé** (`delaiAccordeJusqua` dans le futur)
+  n'est jamais relancée tant que ce délai court (section 4.3).
+- Un palier déjà envoyé n'est jamais renvoyé (table `Relance`) ; une facture
+  ne réapparaît que lorsqu'elle atteint un **nouveau** palier.
+- **L'envoi reste toujours un geste humain volontaire, facture par
+  facture** — jamais déclenché automatiquement par le planificateur.
+  Contacter un client sur un impayé a un impact sur la relation
+  commerciale plus sensible qu'un routage interne de document : le moteur
+  propose, il n'envoie jamais de lui-même (même philosophie que
+  `DEXT_AUTO_FORWARD` après l'incident Dext, en encore plus prudent).
+
+Le texte de relance est généré automatiquement (ton croissant selon le
+palier) et modifiable avant envoi le cas échéant en le retapant dans son
+propre client mail — dans l'application, le bouton "Envoyer" utilise le
+texte proposé tel quel, via la boîte Gmail connectée.
+
+- `GET /api/relances` : liste des factures à relancer avec le texte proposé.
+- `POST /api/relances/:factureId/envoyer` : envoie la relance pour cette facture précise.
+
 ## API
 
 | Route | Description |
@@ -236,6 +267,8 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 | `GET /api/bilan-sante/apercu` | Aperçu (texte) du bilan de santé, sans envoyer d'e-mail |
 | `POST /api/bilan-sante/envoyer` | Envoie immédiatement le bilan de santé à la boîte Gmail connectée |
 | `POST /api/morgane/message` | Envoie un message à Morgane (assistante IA), retourne sa réponse |
+| `GET /api/relances` | Factures ayant atteint un nouveau palier de retard, avec texte de relance proposé |
+| `POST /api/relances/:factureId/envoyer` | Envoie la relance proposée pour cette facture |
 
 ## Modèle de données
 

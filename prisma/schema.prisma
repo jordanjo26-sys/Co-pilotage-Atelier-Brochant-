@@ -64,8 +64,22 @@ model Facture {
   sourceImportId     String?
   sourceImport       ImportBatch? @relation(fields: [sourceImportId], references: [id])
   paiements          Paiement[]
+  relances           Relance[]
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+}
+
+// Trace des relances envoyees pour une facture impayee (section 4.3 : le
+// moteur de regles determine QUAND relancer, l'envoi effectif reste un
+// geste humain volontaire - voir src/services/relances.ts). Sert aussi de
+// garde-fou anti-doublon : un palier deja envoye n'est jamais renvoye.
+model Relance {
+  id           String   @id @default(cuid())
+  factureId    String
+  facture      Facture  @relation(fields: [factureId], references: [id])
+  palier       String // "rappel" | "relance" | "mise_en_demeure" (voir PALIERS_RELANCE)
+  destinataire String // e-mail utilise au moment de l'envoi (trace meme si le client change d'adresse plus tard)
+  createdAt    DateTime @default(now())
 }
 
 // --- Tresorerie : Stripe & banque (section 5) --------------------------------
