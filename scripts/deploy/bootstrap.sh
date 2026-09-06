@@ -198,6 +198,12 @@ server {
 
     client_max_body_size 25M;
 
+    # En-tetes de securite de base (l'appli elle-meme ne les fixe pas).
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;

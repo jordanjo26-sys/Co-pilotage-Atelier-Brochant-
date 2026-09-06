@@ -77,11 +77,22 @@ body {
 h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Manrope", sans-serif; }
 
 header {
+  position: relative;
   padding: 16px 16px 15px;
   background: var(--surface);
-  border-bottom: 3px solid transparent;
-  border-image: linear-gradient(90deg, var(--brand-blue), var(--brand-teal), var(--brand-violet)) 1;
   box-shadow: var(--shadow);
+}
+/* Bande degradee en pseudo-element plutot qu'en border-image : garantit une
+   largeur bord a bord fiable (border-image avec un gradient CSS s'est avere
+   ne pas toujours couvrir toute la largeur sur mobile). */
+header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand-blue), var(--brand-teal), var(--brand-violet));
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand img { height: 42px; width: auto; flex: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.08)); }
