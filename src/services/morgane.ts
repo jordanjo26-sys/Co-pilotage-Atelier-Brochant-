@@ -5,6 +5,7 @@ import { construireBilanSante, envoyerBilanSante } from "./bilanSante";
 import { construireRecapQuotidien, envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserGmail } from "./gmailSync";
 import { listerFacturesARelancer, envoyerRelance } from "./relances";
+import { listerFournisseurs } from "./fournisseurs";
 import { logEvenement } from "./journalService";
 
 /**
@@ -94,6 +95,12 @@ const OUTILS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "lister_fournisseurs",
+    description:
+      "Liste les fournisseurs connus (fiches derivees automatiquement des documents recus par e-mail) avec leur activite : nombre de documents, nombre de factures, documents en attente, date du dernier document recu.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "envoyer_relance",
     description:
       "Envoie par e-mail la relance proposee pour une facture precise (voir lister_factures_a_relancer pour l'id). N'utiliser que si l'utilisateur a clairement demande de relancer CETTE facture — ne jamais relancer en masse de sa propre initiative.",
@@ -178,6 +185,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         return { erreur: (err as Error).message };
       }
     }
+
+    case "lister_fournisseurs":
+      return listerFournisseurs(prisma);
 
     case "lister_factures_a_relancer":
       return listerFacturesARelancer(prisma);

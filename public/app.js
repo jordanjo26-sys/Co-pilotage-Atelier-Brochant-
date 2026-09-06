@@ -261,6 +261,33 @@ document.getElementById("form-morgane").addEventListener("submit", async (e) => 
   }
 });
 
+// --- Fournisseurs ---------------------------------------------------------
+
+async function chargerFournisseurs() {
+  const res = await fetch("/api/fournisseurs");
+  const fournisseurs = await res.json();
+  const liste = document.getElementById("liste-fournisseurs");
+
+  if (fournisseurs.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucun fournisseur identifié pour le moment.</p>`;
+    return;
+  }
+
+  liste.innerHTML = fournisseurs
+    .map(
+      (f) => `
+    <div class="fournisseur-carte">
+      <div class="fournisseur-nom">${echapper(f.nom)}</div>
+      <div class="anomalie-meta">
+        ${f.nbFactures} facture(s) · ${f.nbDocuments} document(s) au total
+        ${f.nbEnAttente > 0 ? ` · <strong>${f.nbEnAttente} en attente</strong>` : ""}
+        ${f.dernierDocumentLe ? ` · dernier reçu le ${fmtDate(f.dernierDocumentLe)}` : ""}
+      </div>
+    </div>`
+    )
+    .join("");
+}
+
 // --- Relances -----------------------------------------------------------
 
 const LIBELLE_PALIER_CLASSE = { rappel: "neutre", relance: "ambre", mise_en_demeure: "critique" };
@@ -359,7 +386,7 @@ document.getElementById("btn-envoyer-bilan").addEventListener("click", async (e)
 });
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerAnomalies(), chargerRelances()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerAnomalies(), chargerRelances(), chargerFournisseurs()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

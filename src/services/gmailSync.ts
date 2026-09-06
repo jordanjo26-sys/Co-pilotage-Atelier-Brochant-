@@ -5,6 +5,7 @@ import { getGmailClient } from "./googleAuth";
 import { classifierPieceJointe, choisirAdresseDext, extraireNumeroFacture, EmailAClassifier, PieceJointe } from "./gmailClassify";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
+import { resoudreFournisseur } from "./fournisseurs";
 
 export interface ResultatSyncGmail {
   messagesExamines: number;
@@ -152,6 +153,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
 
   const messages = liste.data.messages || [];
   const cacheLabels = new Map<string, string>();
+  const cacheFournisseurs = new Map<string, string>();
 
   for (const ref of messages) {
     if (!ref.id) continue;
@@ -182,6 +184,9 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
       const classifications = piecesBrutes.map((p) => ({ piece: p, type: classifierPieceJointe(emailContexte, p) }));
       const nbFactures = classifications.filter((c) => c.type === "facture").length;
       const adresseDext = choisirAdresseDext(nbFactures);
+      // Une seule fiche fournisseur par expediteur (section 6) : resolue une
+      // fois par message, reutilisee pour chacune de ses pieces jointes.
+      const fournisseurId = await resoudreFournisseur(prisma, expediteur, cacheFournisseurs);
 
       for (const { piece, type } of classifications) {
         try {
@@ -220,6 +225,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             await prisma.documentFournisseur.create({
               data: {
                 type: "ambigu",
+                fournisseurId,
                 fichierNom: piece.nomFichier,
                 numero,
                 hashFichier,
@@ -255,6 +261,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             await prisma.documentFournisseur.create({
               data: {
                 type: "facture",
+                fournisseurId,
                 fichierNom: piece.nomFichier,
                 numero,
                 hashFichier,
@@ -280,6 +287,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             await prisma.documentFournisseur.create({
               data: {
                 type: "facture",
+                fournisseurId,
                 fichierNom: piece.nomFichier,
                 numero,
                 hashFichier,
@@ -301,6 +309,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             await prisma.documentFournisseur.create({
               data: {
                 type,
+                fournisseurId,
                 fichierNom: piece.nomFichier,
                 numero,
                 hashFichier,

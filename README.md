@@ -207,6 +207,26 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 (`date|montant|mode|note`, séparés par ` // `). Voir
 `src/importers/synecFactures.ts` et `samples/README.md` pour le détail.
 
+## Fiche Fournisseurs
+
+Aucun import dédié n'existe pour les fournisseurs (contrairement aux
+clients, qui arrivent par l'export Synec) : les fiches sont **dérivées
+automatiquement** de l'expéditeur des documents reçus par e-mail
+(`src/services/fournisseurs.ts`) — un fournisseur par expéditeur, créé au
+premier document reçu :
+
+- Nom affiché dans l'e-mail (`"Cedeo Paris" <contact@cedeo.fr>`) utilisé en
+  priorité, sinon dérivé du domaine (`point-p.fr` → « Point P »).
+- Pour une messagerie grand public (gmail.com, outlook.com...) sans nom
+  affiché, l'adresse elle-même sert de nom plutôt que d'inventer une raison
+  sociale à partir du domaine.
+- Chaque document reçu ensuite du même expéditeur rejoint automatiquement
+  la même fiche (nombre de documents, de factures, de documents en attente,
+  date du dernier document reçu).
+
+- `GET /api/fournisseurs` : liste avec résumé d'activité.
+- `GET /api/fournisseurs/:id` : détail d'un fournisseur et historique complet de ses documents.
+
 ## Relances de factures impayées
 
 Moteur de règles (section 4.3 du cahier des charges, Phase 5) qui détermine
@@ -267,6 +287,8 @@ texte proposé tel quel, via la boîte Gmail connectée.
 | `GET /api/bilan-sante/apercu` | Aperçu (texte) du bilan de santé, sans envoyer d'e-mail |
 | `POST /api/bilan-sante/envoyer` | Envoie immédiatement le bilan de santé à la boîte Gmail connectée |
 | `POST /api/morgane/message` | Envoie un message à Morgane (assistante IA), retourne sa réponse |
+| `GET /api/fournisseurs` | Fournisseurs (fiches dérivées automatiquement) avec résumé d'activité |
+| `GET /api/fournisseurs/:id` | Détail d'un fournisseur et historique de ses documents |
 | `GET /api/relances` | Factures ayant atteint un nouveau palier de retard, avec texte de relance proposé |
 | `POST /api/relances/:factureId/envoyer` | Envoie la relance proposée pour cette facture |
 

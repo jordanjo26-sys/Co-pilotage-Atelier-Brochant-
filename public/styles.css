@@ -321,6 +321,11 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .bouton-lien:hover { background: var(--surface); border-color: var(--brand-blue); }
 
+/* ---------- Fournisseurs ---------- */
+.fournisseur-carte { padding: 8px 0; border-top: 1px solid var(--line); }
+.fournisseur-carte:first-of-type { border-top: none; padding-top: 0; }
+.fournisseur-nom { font-size: 13px; font-weight: 600; color: var(--ink); }
+
 /* ---------- Relances ---------- */
 .relance-carte {
   padding: 10px 0;

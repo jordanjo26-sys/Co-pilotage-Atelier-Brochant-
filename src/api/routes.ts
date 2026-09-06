@@ -8,6 +8,7 @@ import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dai
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
+import { listerFournisseurs, obtenirFournisseur } from "../services/fournisseurs";
 import { getGmailClient } from "../services/googleAuth";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -171,6 +172,21 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
+  });
+
+  // --- Fournisseurs (section 6, Phase 4) -----------------------------------
+  // Aucun import dedie (contrairement aux clients) : les fiches sont
+  // derivees automatiquement de l'expediteur des documents recus par Gmail
+  // (voir src/services/fournisseurs.ts).
+
+  router.get("/fournisseurs", async (_req, res) => {
+    res.json(await listerFournisseurs(prisma));
+  });
+
+  router.get("/fournisseurs/:id", async (req, res) => {
+    const fournisseur = await obtenirFournisseur(prisma, req.params.id);
+    if (!fournisseur) return res.status(404).json({ erreur: "Fournisseur introuvable." });
+    res.json(fournisseur);
   });
 
   router.get("/documents-fournisseurs", async (req, res) => {
