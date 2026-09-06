@@ -5,7 +5,8 @@ import { getGmailClient } from "./googleAuth";
 import { classifierPieceJointe, choisirAdresseDext, extraireNumeroFacture, EmailAClassifier, PieceJointe } from "./gmailClassify";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
-import { resoudreFournisseur } from "./fournisseurs";
+import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
+import { controlerReleveFournisseur } from "./controleReleves";
 
 export interface ResultatSyncGmail {
   messagesExamines: number;
@@ -325,6 +326,14 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
               action: `${type} recu de ${expediteur} : ${piece.nomFichier}`,
               resultat: "Archive pour controle, non transmis a Dext.",
             });
+
+            if (type === "releve") {
+              await controlerReleveFournisseur(prisma, {
+                fournisseurId,
+                fournisseurNom: extraireIdentiteExpediteur(expediteur).nom,
+                fichierNom: piece.nomFichier,
+              });
+            }
           }
 
           resultat.documentsTraites++;

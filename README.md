@@ -273,6 +273,23 @@ données sans être renseignés.
   `GET /api/payouts/:payoutRef/ventilation`. Morgane peut aussi vérifier
   l'état du rapprochement sur demande.
 
+## Contrôle du relevé fournisseur (section 6.3)
+
+Premier niveau de contrôle, volontairement simple : sans exemple réel de
+relevé fournisseur pour concevoir un vrai rapprochement ligne par ligne
+(chaque fournisseur a sa propre mise en page PDF — extraire son contenu à
+l'aveugle reviendrait à deviner un format, contraire à la section 14),
+`src/services/controleReleves.ts` vérifie une chose fiable avec les
+données déjà en base : **un relevé reçu d'un fournisseur dont on ne
+connaît encore aucune facture** est le signe qu'on a probablement manqué
+des e-mails de factures — signalé comme anomalie plutôt qu'ignoré
+silencieusement. Un seul signalement par fournisseur tant qu'il reste en
+attente (pas de doublon à chaque nouveau relevé).
+
+Le vrai contrôle ligne par ligne (chaque facture citée dans le relevé
+vérifiée avec son montant) reste à construire, sur la base d'un relevé
+réel quand il sera fourni.
+
 ## Fiche Fournisseurs
 
 Aucun import dédié n'existe pour les fournisseurs (contrairement aux
