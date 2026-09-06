@@ -101,6 +101,27 @@ changer là si jamais le domaine ou l'adresse de contact évoluent.
    — c'est la seule étape que l'utilisateur doit faire lui-même dans
    l'interface de l'app.
 
+## 3 bis. Protection du site par mot de passe — à configurer
+
+L'application n'a pas de compte utilisateur : sans cette protection,
+n'importe qui connaissant l'adresse `copilotage-brochant.fr` peut consulter
+les données financières et déclencher des actions (import, synchronisation
+Gmail…). Une protection par mot de passe partagé (HTTP Basic Auth au niveau
+de nginx, avant même d'atteindre l'application) comble ce manque.
+
+Ajouter deux secrets GitHub (même écran que ci-dessus) :
+
+| Nom du secret | Valeur |
+|---|---|
+| `SITE_AUTH_USER` | L'identifiant à utiliser (ex. `brochant`) |
+| `SITE_AUTH_PASSWORD` | Le mot de passe associé — choisissez-en un solide, il sera demandé par le navigateur à chaque nouvel appareil |
+
+Au prochain déploiement, un navigateur qui ouvre `copilotage-brochant.fr`
+demandera cet identifiant/mot de passe avant d'afficher quoi que ce soit
+(fenêtre native du navigateur, pas un formulaire du site). Tant que ces deux
+secrets ne sont pas créés, le site reste accessible sans mot de passe comme
+aujourd'hui — le déploiement ne casse rien en leur absence.
+
 ## 4. Dext — rien à faire
 
 Les adresses de réception (`facturation-brochant@dext.cc` et

@@ -11,6 +11,13 @@ set -euo pipefail
 # qui les passe depuis les secrets GitHub GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET.
 GOOGLE_CLIENT_ID_ARG="${1:-}"
 GOOGLE_CLIENT_SECRET_ARG="${2:-}"
+# Identifiant/mot de passe de protection du site (HTTP Basic Auth cote
+# nginx) : transmis de la meme facon, depuis les secrets GitHub
+# SITE_AUTH_USER/SITE_AUTH_PASSWORD. Si absents (variable vide), la
+# protection n'est pas (re)configuree — utile pour ne pas casser un
+# deploiement si ces secrets ne sont pas encore crees.
+SITE_AUTH_USER_ARG="${3:-}"
+SITE_AUTH_PASSWORD_ARG="${4:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -151,6 +158,23 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl reload nginx
 
+echo "== Protection d'acces (HTTP Basic Auth) =="
+# Le site n'a pas d'authentification propre (pas de compte utilisateur) et
+# expose des donnees financieres : une protection par mot de passe partage
+# au niveau de nginx couvre ce manque en attendant une vraie authentification
+# applicative. Ne fait rien si les secrets ne sont pas fournis (ex. avant
+# leur creation dans GitHub), et ne desactive pas une protection deja en
+# place dans ce cas (le fichier .htpasswd existant est conserve tel quel).
+if [ -n "$SITE_AUTH_USER_ARG" ] && [ -n "$SITE_AUTH_PASSWORD_ARG" ]; then
+  HASH=$(openssl passwd -apr1 "$SITE_AUTH_PASSWORD_ARG")
+  printf '%s:%s\n' "$SITE_AUTH_USER_ARG" "$HASH" > /etc/nginx/.htpasswd
+  chmod 640 /etc/nginx/.htpasswd
+  chown root:www-data /etc/nginx/.htpasswd
+  echo "-- Protection par mot de passe (re)configuree."
+else
+  echo "-- SITE_AUTH_USER/SITE_AUTH_PASSWORD non fournis : protection non modifiee."
+fi
+
 echo "== Certificat HTTPS (Let's Encrypt) =="
 # www n'est inclus dans le certificat que si son DNS pointe deja vers ce
 # serveur (sinon le defi ACME echouerait pour ce nom et ferait echouer toute
@@ -172,6 +196,12 @@ certbot certonly --webroot -w "$CERTBOT_WEBROOT" "${CERT_DOMAINS[@]}" --expand \
   || echo "-- Echec de l'obtention du certificat (DNS pas encore propage ?). L'appli reste servie en HTTP, on reessaiera au prochain deploiement."
 
 echo "== Reverse proxy nginx (HTTPS si le certificat est disponible) =="
+AUTH_BASIC_CONF=""
+if [ -f /etc/nginx/.htpasswd ]; then
+  AUTH_BASIC_CONF="
+    auth_basic \"Zone protegee\";
+    auth_basic_user_file /etc/nginx/.htpasswd;"
+fi
 if [ -f "$CERT_DIR/fullchain.pem" ]; then
   cat > /etc/nginx/sites-available/copilote-brochant <<EOF
 server {
@@ -203,6 +233,7 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+${AUTH_BASIC_CONF}
 
     location / {
         proxy_pass http://127.0.0.1:3000;
