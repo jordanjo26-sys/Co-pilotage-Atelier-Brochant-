@@ -10,6 +10,7 @@ import { repondreMorgane, MessageMorgane } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur } from "../services/fournisseurs";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
+import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe } from "../services/stripeSync";
 import { getGmailClient } from "../services/googleAuth";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -84,6 +85,20 @@ export function buildRouter(prisma: PrismaClient): Router {
   // fichier pour redeclencher le calcul.
   router.post("/rapprochement-bancaire/executer", async (_req, res) => {
     res.json(await executerRapprochementBancaire(prisma));
+  });
+
+  // --- Stripe : synchronisation directe par API (remplace l'import CSV) ---
+
+  router.get("/stripe/status", async (_req, res) => {
+    res.json({ connecte: stripeEstConnecte(), derniereSynchro: await derniereSynchroStripe(prisma) });
+  });
+
+  router.post("/stripe/sync", async (_req, res) => {
+    try {
+      res.json(await synchroniserStripe(prisma));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {

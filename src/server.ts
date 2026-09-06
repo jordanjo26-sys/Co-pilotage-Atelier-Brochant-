@@ -4,7 +4,7 @@ import express from "express";
 import { prisma } from "./db/client";
 import { buildRouter } from "./api/routes";
 import { buildAuthRouter } from "./api/authRoutes";
-import { demarrerSurveillanceGmail, demarrerRecapQuotidien } from "./services/scheduler";
+import { demarrerSurveillanceGmail, demarrerRecapQuotidien, demarrerSurveillanceStripe } from "./services/scheduler";
 
 dotenv.config();
 
@@ -27,6 +27,7 @@ app.listen(PORT, () => {
 
 demarrerSurveillanceGmail(prisma);
 demarrerRecapQuotidien(prisma);
+demarrerSurveillanceStripe(prisma);
 
 process.on("SIGINT", async () => {
   await prisma.$disconnect();

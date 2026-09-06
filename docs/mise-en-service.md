@@ -148,12 +148,24 @@ Les adresses de réception (`facturation-brochant@dext.cc` et
 charges) sont directement utilisées par le connecteur Gmail → Dext.
 Vérifier simplement qu'elles sont toujours actives dans le compte Dext.
 
-## 5. Stripe (pour plus tard)
+## 5. Stripe — à configurer
 
-Quand vous serez prêt : Tableau de bord Stripe → Développeurs → Clés API →
-créer une **clé restreinte** avec un accès en lecture seule sur les
-paiements, remboursements et virements (payouts). Ne jamais utiliser la clé
-secrète complète du compte.
+1. **Tableau de bord Stripe → Développeurs → Clés API → Créer une clé
+   restreinte**, avec un accès en **lecture seule** sur les paiements,
+   remboursements et virements (payouts). Ne jamais utiliser la clé secrète
+   complète du compte (section 17 : moindre privilège).
+2. Ajouter cette clé comme secret GitHub (même écran que les précédents) :
+
+   | Nom du secret | Valeur |
+   |---|---|
+   | `STRIPE_API_KEY` | La clé restreinte générée par Stripe |
+
+3. Redéployer : la section « Stripe » de l'application passe alors
+   automatiquement en « Connecté », récupère les payouts et paiements des 30
+   derniers jours, puis se resynchronise toutes les heures
+   (`STRIPE_POLL_INTERVAL_MS`, réglable) — **plus besoin de déposer un
+   export CSV Stripe à la main**. Le dépôt manuel reste possible en
+   complément si besoin (les deux voies ne se dupliquent jamais).
 
 ## Ce qui se passe une fois tout branché
 

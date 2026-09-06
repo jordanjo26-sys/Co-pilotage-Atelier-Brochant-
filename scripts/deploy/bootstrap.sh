@@ -22,6 +22,11 @@ SITE_AUTH_PASSWORD_ARG="${4:-}"
 # depuis le secret GitHub ANTHROPIC_API_KEY. Absente -> Morgane repond une
 # erreur explicite plutot que de planter le reste de l'application.
 ANTHROPIC_API_KEY_ARG="${5:-}"
+# Cle API Stripe (restreinte, lecture seule paiements/payouts - section 17,
+# jamais la cle secrete complete du compte), pour la synchronisation directe
+# par API. Absente -> la section Stripe reste desactivee, l'import CSV
+# manuel continue de fonctionner normalement.
+STRIPE_API_KEY_ARG="${6:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -71,6 +76,7 @@ GOOGLE_REDIRECT_URI=
 DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}
 DAILY_RECAP_HOUR=19
 ANTHROPIC_API_KEY=
+STRIPE_API_KEY=
 EOF
   echo "-- .env cree avec des secrets generes automatiquement (mot de passe base, cle de chiffrement)."
   echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."
@@ -111,6 +117,15 @@ if [ -n "$ANTHROPIC_API_KEY_ARG" ]; then
     sed -i "s#^ANTHROPIC_API_KEY=.*#ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_ARG}#" "$ENV_FILE"
   else
     echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_ARG}" >> "$ENV_FILE"
+  fi
+fi
+
+# Cle API Stripe : meme logique "ajouter si absente, sinon remplacer".
+if [ -n "$STRIPE_API_KEY_ARG" ]; then
+  if grep -q '^STRIPE_API_KEY=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^STRIPE_API_KEY=.*#STRIPE_API_KEY=${STRIPE_API_KEY_ARG}#" "$ENV_FILE"
+  else
+    echo "STRIPE_API_KEY=${STRIPE_API_KEY_ARG}" >> "$ENV_FILE"
   fi
 fi
 

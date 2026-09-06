@@ -1,11 +1,16 @@
 import { PrismaClient } from "@prisma/client";
 import { synchroniserGmail } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
+import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { logEvenement } from "./journalService";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVALLE_VERIF_RECAP_MS = 5 * 60 * 1000; // 5 minutes
 const HEURE_RECAP_PAR_DEFAUT = 19; // 19h, heure locale du serveur
+// Les payouts Stripe arrivent typiquement une fois par jour au plus, jamais
+// toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
+// largement et menage l'API Stripe.
+const INTERVALLE_STRIPE_PAR_DEFAUT_MS = 60 * 60 * 1000; // 1 heure
 
 /**
  * Demarre la surveillance continue de la boite Gmail connectee (section 3 :
@@ -73,4 +78,25 @@ export function demarrerRecapQuotidien(prisma: PrismaClient): void {
       console.error("Envoi du recapitulatif quotidien en echec :", (err as Error).message);
     }
   }, INTERVALLE_VERIF_RECAP_MS);
+}
+
+/**
+ * Synchronise automatiquement les payouts/paiements Stripe (remplace le
+ * depot manuel d'exports CSV une fois STRIPE_API_KEY configuree). Meme
+ * principe de tolerance aux pannes que `demarrerSurveillanceGmail` :
+ * n'interrompt jamais le serveur, journalise seulement en cas d'erreur.
+ */
+export function demarrerSurveillanceStripe(prisma: PrismaClient): void {
+  if (!stripeEstConnecte()) return; // rien a synchroniser sans cle API
+
+  const intervalle = Number(process.env.STRIPE_POLL_INTERVAL_MS) || INTERVALLE_STRIPE_PAR_DEFAUT_MS;
+
+  setInterval(async () => {
+    try {
+      await synchroniserStripe(prisma);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Synchronisation Stripe planifiee en echec :", (err as Error).message);
+    }
+  }, intervalle);
 }

@@ -207,6 +207,29 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 (`date|montant|mode|note`, séparés par ` // `). Voir
 `src/importers/synecFactures.ts` et `samples/README.md` pour le détail.
 
+## Stripe — synchronisation directe par API
+
+Remplace le dépôt manuel d'export CSV Stripe par une **récupération
+automatique** des payouts et des paiements qui les composent, directement
+via l'API Stripe (`src/services/stripeSync.ts`) :
+
+- Nécessite `STRIPE_API_KEY` dans `.env` — une clé **restreinte, lecture
+  seule** (jamais la clé secrète complète du compte). Sans elle, la section
+  Stripe de l'interface reste simplement désactivée, tout le reste continue
+  de fonctionner.
+- Synchronise automatiquement toutes les heures (`STRIPE_POLL_INTERVAL_MS`,
+  réglable) une fois connecté, ou à la demande (bouton « Synchroniser
+  maintenant », ou Morgane).
+- Utilise **exactement les mêmes clés de déduplication** que l'import CSV
+  (`Payout.payoutRef`, `Paiement.paymentRef`) : les deux voies alimentent la
+  même base sans jamais se dupliquer, le dépôt manuel d'un fichier reste
+  possible en complément si besoin.
+- Déclenche automatiquement le rapprochement bancaire (voir ci-dessous)
+  après chaque synchronisation.
+
+- `GET /api/stripe/status` : connecté ou non, date de dernière synchronisation.
+- `POST /api/stripe/sync` : déclenche une synchronisation immédiate.
+
 ## Rapprochement bancaire (payouts Stripe)
 
 Fait automatiquement correspondre un payout Stripe groupé (virement) au
@@ -294,6 +317,8 @@ texte proposé tel quel, via la boîte Gmail connectée.
 | `GET /api/payouts` | Virements Stripe |
 | `GET /api/payouts/:payoutRef/ventilation` | Détail des paiements composant un virement, avec le mouvement bancaire rapproché (chaîne de preuves, section 5) |
 | `POST /api/rapprochement-bancaire/executer` | Relance le rapprochement automatique payouts ↔ mouvements bancaires |
+| `GET /api/stripe/status` | État de la connexion Stripe et date de dernière synchronisation |
+| `POST /api/stripe/sync` | Déclenche une synchronisation Stripe immédiate (payouts + paiements) |
 | `GET /api/recapitulatifs-solde` | Récapitulatif de solde Stripe par période (repère d'audit) |
 | `GET /api/mouvements-bancaires` | Mouvements bancaires importés |
 | `GET /api/journal` | Journal des événements (section 12) |

@@ -7,6 +7,7 @@ import { synchroniserGmail } from "./gmailSync";
 import { listerFacturesARelancer, envoyerRelance } from "./relances";
 import { listerFournisseurs } from "./fournisseurs";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
+import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { logEvenement } from "./journalService";
 
 /**
@@ -93,6 +94,12 @@ const OUTILS: Anthropic.Tool[] = [
     name: "lister_factures_a_relancer",
     description:
       "Liste les factures impayees ayant atteint un nouveau palier de retard (rappel/relance/mise en demeure) non encore relance, avec le texte de relance propose. N'inclut jamais une facture sous delai accorde.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "declencher_synchronisation_stripe",
+    description:
+      "Lance immediatement une synchronisation Stripe (recupere les payouts et paiements recents par API) au lieu d'attendre le prochain passage automatique. Ne fait rien si aucune cle API Stripe n'est configuree.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -188,6 +195,15 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       try {
         await envoyerBilanSante(prisma);
         return { ok: true };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
+    case "declencher_synchronisation_stripe": {
+      if (!stripeEstConnecte()) return { erreur: "Aucune cle API Stripe configuree." };
+      try {
+        return await synchroniserStripe(prisma);
       } catch (err) {
         return { erreur: (err as Error).message };
       }

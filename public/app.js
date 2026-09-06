@@ -100,6 +100,45 @@ async function chargerStatutGmail() {
   });
 }
 
+// --- Stripe -----------------------------------------------------------------
+
+async function chargerStatutStripe() {
+  const res = await fetch("/api/stripe/status");
+  const data = await res.json();
+  const div = document.getElementById("stripe-statut");
+
+  if (!data.connecte) {
+    div.innerHTML = `<p class="statut-dot off">Non connecté — clé API à ajouter (voir docs/mise-en-service.md).</p>`;
+    return;
+  }
+
+  div.innerHTML = `
+    <p class="gmail-connecte">
+      <span class="statut-dot">Connecté</span><br/>
+      Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}
+    </p>
+    <button type="button" id="btn-sync-stripe" class="ghost">Synchroniser maintenant</button>
+    <div id="resultat-sync-stripe"></div>
+  `;
+
+  document.getElementById("btn-sync-stripe").addEventListener("click", async () => {
+    const resultatDiv = document.getElementById("resultat-sync-stripe");
+    resultatDiv.textContent = "Synchronisation en cours…";
+    try {
+      const r = await fetch("/api/stripe/sync", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) {
+        resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+        return;
+      }
+      resultatDiv.innerHTML = `${d.payoutsNouveaux} payout(s) nouveau(x), ${d.paiementsNouveaux} paiement(s) nouveau(x), ${d.erreurs.length} erreur(s).`;
+      await rafraichirTout();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
 // --- Anomalies : liste de cartes avec selection multiple -------------------
 
 async function ignorerAnomalie(id) {
@@ -386,7 +425,7 @@ document.getElementById("btn-envoyer-bilan").addEventListener("click", async (e)
 });
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerAnomalies(), chargerRelances(), chargerFournisseurs()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFournisseurs()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {
