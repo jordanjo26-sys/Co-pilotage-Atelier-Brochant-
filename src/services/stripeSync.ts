@@ -2,7 +2,6 @@ import Stripe from "stripe";
 import { PrismaClient } from "@prisma/client";
 import { logEvenement } from "./journalService";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
-import { verifierBonsCommande } from "./bonsCommande";
 
 /**
  * Connexion directe a l'API Stripe (Phase 9 esprit "API plutot que CSV",
@@ -134,11 +133,8 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
     }
   }
 
-  // De nouveaux payouts peuvent completer un rapprochement bancaire en
-  // attente, et de nouveaux paiements peuvent regler un bon de commande
-  // (section 4.4) en attente de reglement.
+  // De nouveaux payouts peuvent completer un rapprochement bancaire en attente.
   await executerRapprochementBancaire(prisma);
-  await verifierBonsCommande(prisma);
 
   await logEvenement(prisma, {
     evenement: "stripe_sync",
