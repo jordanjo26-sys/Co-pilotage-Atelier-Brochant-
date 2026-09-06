@@ -153,7 +153,10 @@ async function chargerAnomalies() {
         <div class="anomalie-fichier">${detail}</div>
         <div class="anomalie-meta">${fmtDate(a.createdAt)}${expediteur}</div>
       </div>
-      <button type="button" class="ghost" onclick="ignorerAnomalie('${a.id}')">Ignorer</button>
+      <div class="anomalie-actions">
+        <a class="ghost bouton-lien" href="/api/anomalies/${a.id}/document" target="_blank" rel="noopener">Voir</a>
+        <button type="button" class="ghost" onclick="ignorerAnomalie('${a.id}')">Ignorer</button>
+      </div>
     </div>`;
     })
     .join("");
@@ -176,6 +179,119 @@ document.getElementById("btn-ignorer-selection").addEventListener("click", async
     body: JSON.stringify({ ids }),
   });
   await Promise.all([chargerAnomalies(), chargerCockpit()]);
+});
+
+// --- Morgane (assistante IA) -------------------------------------------------
+
+const MORGANE_CLE_SESSION = "copilote_morgane_historique";
+
+function morganeChargerHistorique() {
+  try {
+    const brut = sessionStorage.getItem(MORGANE_CLE_SESSION);
+    return brut ? JSON.parse(brut) : [];
+  } catch {
+    return [];
+  }
+}
+
+function morganeSauverHistorique(historique) {
+  try {
+    sessionStorage.setItem(MORGANE_CLE_SESSION, JSON.stringify(historique.slice(-20)));
+  } catch {
+    // stockage indisponible (navigation privee...) : la conversation reste en memoire pour la session en cours
+  }
+}
+
+let morganeHistorique = morganeChargerHistorique();
+
+function morganeAjouterBulle(role, texte) {
+  const fil = document.getElementById("morgane-fil");
+  const bulle = document.createElement("div");
+  bulle.className = `morgane-message ${role === "user" ? "morgane-bulle-utilisateur" : "morgane-bulle-assistant"}`;
+  bulle.textContent = texte;
+  fil.appendChild(bulle);
+  fil.scrollTop = fil.scrollHeight;
+  return bulle;
+}
+
+// Rejoue la conversation deja en cours (sessionStorage) au chargement de la page.
+for (const m of morganeHistorique) {
+  morganeAjouterBulle(m.role, m.content);
+}
+
+document.getElementById("form-morgane").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const saisie = document.getElementById("morgane-saisie");
+  const texte = saisie.value.trim();
+  if (!texte) return;
+
+  saisie.value = "";
+  saisie.disabled = true;
+  morganeAjouterBulle("user", texte);
+  morganeHistorique.push({ role: "user", content: texte });
+  morganeSauverHistorique(morganeHistorique);
+
+  const bulleAttente = morganeAjouterBulle("assistant", "…");
+  bulleAttente.classList.add("morgane-bulle-attente");
+
+  try {
+    const res = await fetch("/api/morgane/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ historique: morganeHistorique }),
+    });
+    const data = await res.json();
+    bulleAttente.classList.remove("morgane-bulle-attente");
+    if (!res.ok) {
+      bulleAttente.textContent = `Erreur : ${data.erreur}`;
+      return;
+    }
+    bulleAttente.textContent = data.reponse;
+    morganeHistorique.push({ role: "assistant", content: data.reponse });
+    morganeSauverHistorique(morganeHistorique);
+    // Une action deleguee (ignorer une anomalie, lancer une synchro...) a pu
+    // changer les donnees affichees ailleurs sur la page.
+    await rafraichirTout();
+  } catch (err) {
+    bulleAttente.classList.remove("morgane-bulle-attente");
+    bulleAttente.textContent = `Erreur : ${err.message}`;
+  } finally {
+    saisie.disabled = false;
+    saisie.focus();
+  }
+});
+
+// --- Bilan de sante ---------------------------------------------------------
+
+document.getElementById("btn-generer-bilan").addEventListener("click", async () => {
+  const zone = document.getElementById("contenu-bilan");
+  zone.hidden = false;
+  zone.textContent = "Generation en cours…";
+  try {
+    const res = await fetch("/api/bilan-sante/apercu");
+    zone.textContent = await res.text();
+  } catch (err) {
+    zone.textContent = `Erreur : ${err.message}`;
+  }
+});
+
+document.getElementById("btn-envoyer-bilan").addEventListener("click", async (e) => {
+  const bouton = e.currentTarget;
+  bouton.disabled = true;
+  const texteInitial = bouton.textContent;
+  bouton.textContent = "Envoi…";
+  try {
+    const res = await fetch("/api/bilan-sante/envoyer", { method: "POST" });
+    const data = await res.json();
+    bouton.textContent = res.ok ? "Envoye !" : `Erreur : ${data.erreur}`;
+  } catch (err) {
+    bouton.textContent = `Erreur : ${err.message}`;
+  } finally {
+    setTimeout(() => {
+      bouton.textContent = texteInitial;
+      bouton.disabled = false;
+    }, 2500);
+  }
 });
 
 async function rafraichirTout() {

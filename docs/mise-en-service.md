@@ -122,6 +122,25 @@ demandera cet identifiant/mot de passe avant d'afficher quoi que ce soit
 secrets ne sont pas créés, le site reste accessible sans mot de passe comme
 aujourd'hui — le déploiement ne casse rien en leur absence.
 
+## 3 ter. Morgane, l'assistante IA — à configurer
+
+Morgane (chat conversationnel, section « Morgane » de l'application) répond
+aux questions sur l'activité et peut exécuter des actions déléguées
+(synchroniser Gmail, ignorer une anomalie, envoyer le bilan de santé...).
+Elle s'appuie sur l'API Claude d'Anthropic — sans cette clé, la section
+affiche une erreur mais le reste de l'application fonctionne normalement.
+
+1. Créer une clé API sur **[console.anthropic.com](https://console.anthropic.com)**
+   → API Keys → Create Key.
+2. L'ajouter comme secret GitHub (même écran que ci-dessus) :
+
+   | Nom du secret | Valeur |
+   |---|---|
+   | `ANTHROPIC_API_KEY` | La clé générée par la console Anthropic |
+
+3. Redéployer (automatique ou manuel) : Morgane devient utilisable dès que
+   la clé est en place, sans autre action.
+
 ## 4. Dext — rien à faire
 
 Les adresses de réception (`facturation-brochant@dext.cc` et

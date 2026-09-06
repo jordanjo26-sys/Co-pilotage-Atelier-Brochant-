@@ -159,7 +159,7 @@ model DocumentFournisseur {
   id             String    @id @default(cuid())
   fournisseurId  String?
   fournisseur    Fournisseur? @relation(fields: [fournisseurId], references: [id])
-  type           String // "facture" | "avoir" | "bon_enlevement" | "releve" | "devis" | "autre"
+  type           String // "facture" | "avoir" | "bon_enlevement" | "releve" | "devis" | "ambigu" | "autre"
   fichierNom     String?
   numero         String?
   date           DateTime?

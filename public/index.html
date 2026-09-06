@@ -19,6 +19,18 @@
   </header>
 
   <main>
+    <section class="carte accent-violet">
+      <h2>Morgane</h2>
+      <p class="aide">Assistante IA du copilote : pose une question sur l'activité ou délègue-lui une tâche (synchroniser Gmail, envoyer le bilan, ignorer une anomalie...).</p>
+      <div id="morgane-fil" class="morgane-fil">
+        <div class="morgane-message morgane-bulle-assistant">Bonjour, je suis Morgane. Comment puis-je t'aider ?</div>
+      </div>
+      <form id="form-morgane" class="morgane-formulaire">
+        <input type="text" id="morgane-saisie" placeholder="Écris à Morgane…" autocomplete="off" />
+        <button type="submit">Envoyer</button>
+      </form>
+    </section>
+
     <section class="carte accent-bleu">
       <h2>Cockpit du jour</h2>
       <div id="cockpit" class="grille-cockpit"></div>
@@ -39,6 +51,16 @@
       <h2>Gmail → Dext</h2>
       <p class="aide">Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext.</p>
       <div id="gmail-statut"></div>
+    </section>
+
+    <section class="carte accent-violet">
+      <h2>Bilan de santé</h2>
+      <p class="aide">Synthèse de l'activité : chiffre d'affaires, impayés par ancienneté, documents fournisseurs en attente, points de vigilance.</p>
+      <div class="ligne-boutons">
+        <button type="button" class="ghost" id="btn-generer-bilan">Générer le bilan</button>
+        <button type="button" class="ghost" id="btn-envoyer-bilan">Envoyer par e-mail</button>
+      </div>
+      <pre id="contenu-bilan" class="bloc-texte" hidden></pre>
     </section>
 
     <section class="carte accent-bleu">

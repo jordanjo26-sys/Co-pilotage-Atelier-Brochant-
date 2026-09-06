@@ -21,20 +21,29 @@ interface PieceJointeExtraite extends PieceJointe {
 /**
  * Aplatit recursivement les parts MIME pour en extraire les pieces jointes.
  * Exclut les ressources integrees au corps du message (logo de signature,
- * icones de reseaux sociaux, images de tracking...) : elles portent
- * techniquement un nom de fichier et un attachmentId comme une vraie piece
- * jointe, mais aussi un en-tete Content-ID qui sert a les referencer depuis
- * le HTML du message (`<img src="cid:...">`). Ce marqueur, universel dans
- * les clients mail, est le signal le plus fiable pour les distinguer d'un
- * vrai document envoye par l'expediteur.
+ * icones de reseaux sociaux, images de newsletter/mailing...) : elles
+ * portent techniquement un nom de fichier et un attachmentId comme une
+ * vraie piece jointe, mais se reconnaissent a deux signaux standards :
+ *  - un en-tete Content-ID, qui sert a les referencer depuis le HTML du
+ *    message (`<img src="cid:...">`) ;
+ *  - un Content-Disposition "inline" (par opposition a "attachment"),
+ *    utilise par la plupart des plateformes d'e-mailing pour leurs images
+ *    de template meme sans Content-ID (constate en production : images
+ *    "mailingassets_..." et images heergees par Google, sans Content-ID
+ *    mais explicitement en disposition inline).
+ * Ces deux en-tetes sont les signaux les plus fiables et universels pour
+ * distinguer une ressource de mise en forme d'un vrai document envoye par
+ * l'expediteur.
  */
-function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | undefined): PieceJointeExtraite[] {
+export function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | undefined): PieceJointeExtraite[] {
   if (!payload) return [];
   const pieces: PieceJointeExtraite[] = [];
 
   function visiter(part: gmail_v1.Schema$MessagePart) {
     const estIntegree = Boolean(extraireEntete(part.headers, "Content-ID"));
-    if (part.filename && part.body?.attachmentId && !estIntegree) {
+    const disposition = extraireEntete(part.headers, "Content-Disposition").trim().toLowerCase();
+    const estInline = disposition.startsWith("inline");
+    if (part.filename && part.body?.attachmentId && !estIntegree && !estInline) {
       pieces.push({
         nomFichier: part.filename,
         mimeType: part.mimeType || "application/octet-stream",
@@ -176,19 +185,13 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
 
       for (const { piece, type } of classifications) {
         try {
-          if (type === "ambigu") {
-            await prisma.anomalie.create({
-              data: {
-                type: "document_gmail_ambigu",
-                gravite: "moyenne",
-                preuves: JSON.stringify({ messageId: ref.id, expediteur, sujet, fichier: piece.nomFichier }),
-                actionProposee: "Examiner la piece jointe et la classer manuellement (facture, avoir, bon, releve).",
-              },
-            });
-            resultat.documentsAmbigus++;
-            continue;
-          }
-
+          // La deduplication (par empreinte de fichier, cf. plus bas) doit
+          // s'appliquer AVANT toute chose, ambigu compris : sans cela, le
+          // meme e-mail non reconnu (image de newsletter, logo...) etait
+          // re-signale comme une toute nouvelle anomalie a chaque passage
+          // du planificateur (toutes les 5 minutes), y compris apres avoir
+          // ete "ignore" par l'utilisateur, qui le voyait donc revenir sans
+          // cesse (bug reel signale par l'utilisateur en production).
           const attachment = await gmail.users.messages.attachments.get({
             userId: "me",
             messageId: ref.id,
@@ -209,6 +212,43 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
           }
 
           const numero = extraireNumeroFacture(`${sujet} ${piece.nomFichier}`);
+
+          if (type === "ambigu") {
+            // Enregistre aussi un DocumentFournisseur (type "ambigu") pour
+            // que le hash ci-dessus serve de garde-fou a la prochaine
+            // synchronisation, en plus de creer l'anomalie a valider.
+            await prisma.documentFournisseur.create({
+              data: {
+                type: "ambigu",
+                fichierNom: piece.nomFichier,
+                numero,
+                hashFichier,
+                statutDext: "a_valider",
+                gmailMessageId: ref.id,
+                gmailExpediteur: expediteur,
+                gmailObjet: sujet,
+                dateReceptionMail: dateReception,
+              },
+            });
+            await prisma.anomalie.create({
+              data: {
+                type: "document_gmail_ambigu",
+                gravite: "moyenne",
+                preuves: JSON.stringify({
+                  messageId: ref.id,
+                  attachmentId: piece.attachmentId,
+                  mimeType: piece.mimeType,
+                  expediteur,
+                  sujet,
+                  fichier: piece.nomFichier,
+                }),
+                actionProposee: "Examiner la piece jointe et la classer manuellement (facture, avoir, bon, releve).",
+              },
+            });
+            resultat.documentsAmbigus++;
+            resultat.documentsTraites++;
+            continue;
+          }
 
           if (type === "facture" && transfertAutomatiqueActif()) {
             await envoyerVersDext(gmail, { destinataire: adresseDext, nomFichier: piece.nomFichier, mimeType: piece.mimeType, donnees, sujetOrigine: sujet });

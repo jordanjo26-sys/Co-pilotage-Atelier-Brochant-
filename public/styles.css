@@ -117,6 +117,7 @@ main {
 .carte.accent-ambre { border-left-color: var(--warning); }
 .carte.accent-critique { border-left-color: var(--critical); }
 .carte.accent-neutre { border-left-color: var(--line-strong); }
+.carte.accent-violet { border-left-color: var(--brand-violet); }
 .carte h2 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
 .aide { color: var(--ink-muted); font-size: 12.5px; margin: 0 0 10px; line-height: 1.5; }
 
@@ -160,6 +161,22 @@ button.ghost:hover { background: var(--surface); border-color: var(--brand-blue)
 button:disabled { opacity: 0.4; cursor: default; }
 
 #resultat-import { margin-top: 12px; font-size: 13.5px; }
+.ligne-boutons { display: flex; flex-wrap: wrap; gap: 10px; }
+.bloc-texte {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-2);
+  max-height: 420px;
+  overflow-y: auto;
+}
 .badge {
   display: inline-block;
   padding: 3px 9px;
@@ -179,6 +196,52 @@ button:disabled { opacity: 0.4; cursor: default; }
 .statut-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
 .statut-dot.off::before { background: var(--critical); }
 #gmail-statut button { margin-top: 10px; }
+
+/* ---------- Morgane (chat) ---------- */
+.morgane-fil {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 4px 2px;
+  margin-bottom: 10px;
+}
+.morgane-message {
+  max-width: 88%;
+  padding: 9px 12px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.morgane-bulle-assistant {
+  align-self: flex-start;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border-bottom-left-radius: 4px;
+}
+.morgane-bulle-utilisateur {
+  align-self: flex-end;
+  background: var(--brand-violet);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.morgane-bulle-attente { opacity: 0.6; font-style: italic; }
+.morgane-formulaire { display: flex; gap: 8px; }
+.morgane-formulaire input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-family: inherit;
+}
+.morgane-formulaire input:focus { outline: 2px solid var(--brand-violet); outline-offset: 1px; }
 
 /* ---------- KPI grid ---------- */
 .grille-cockpit {
@@ -235,7 +298,22 @@ button:disabled { opacity: 0.4; cursor: default; }
 .anomalie-corps { flex: 1; min-width: 0; }
 .anomalie-fichier { font-size: 13px; font-weight: 600; color: var(--ink); word-break: break-all; }
 .anomalie-meta { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
-.anomalie-carte .ghost { flex: none; margin-top: 2px; }
+.anomalie-actions { display: flex; flex-direction: column; gap: 6px; flex: none; margin-top: 2px; }
+.anomalie-actions .ghost, .anomalie-actions .bouton-lien { text-align: center; }
+.bouton-lien {
+  display: inline-block;
+  text-decoration: none;
+  background: var(--surface-2);
+  color: var(--brand-blue);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  min-height: 34px;
+  line-height: 20px;
+}
+.bouton-lien:hover { background: var(--surface); border-color: var(--brand-blue); }
 
 /* ---------- Tables (imports, factures) ---------- */
 .table-scroll { overflow-x: auto; margin: 0 -16px; padding: 0 16px; }

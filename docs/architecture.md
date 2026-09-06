@@ -19,7 +19,7 @@ Phase 3 — Stripe / banque : imports, paiements, frais, payouts,
 Phase 4 — Fournisseurs
 Phase 5 — Règles / validation
 Phase 6 — Cockpit
-Phase 7 — Assistant IA
+Phase 7 — Assistant IA                                              <- premiere version (Morgane)
 Phase 8 — Mémoire / autonomie
 Phase 9 — API Synec (remplace les imports CSV)
 ```
@@ -217,6 +217,16 @@ plusieurs fois sur les memes e-mails (volontairement une fenetre de
 recherche large de 7 jours a chaque passage, pour ne jamais rater un
 message en cas d'arret prolonge du service) ne retransmet jamais un
 document deja envoye a Dext.
+
+> ⚠️ Historique : la deduplication par empreinte de fichier ne s'appliquait
+> initialement qu'aux documents reconnus (facture, avoir...), pas aux
+> documents "ambigus" — une piece jointe non reconnue (image de newsletter,
+> logo sans Content-ID) etait donc re-signalee comme une toute nouvelle
+> anomalie a chaque passage du planificateur (toutes les 5 minutes), y
+> compris apres avoir ete ignoree. Corrige en enregistrant aussi un
+> `DocumentFournisseur` (type "ambigu") pour les cas ambigus, soumis a la
+> meme verification de hash que les autres types avant toute creation
+> d'anomalie.
 
 **Interrupteur `DEXT_AUTO_FORWARD`.** A la suite de l'incident ci-dessus,
 l'utilisateur a demande une periode d'observation avant de refaire

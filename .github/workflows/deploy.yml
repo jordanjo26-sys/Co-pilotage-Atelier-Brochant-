@@ -54,12 +54,13 @@ jobs:
 
       - name: Exécuter le script de déploiement sur le serveur
         run: |
-          # GOOGLE_CLIENT_ID/SECRET et SITE_AUTH_USER/PASSWORD sont transmis
-          # en arguments positionnels (jamais commis dans le depot) : GitHub
-          # masque automatiquement ces valeurs dans les journaux car elles
-          # proviennent de secrets. SITE_AUTH_* protegent l'acces au site par
-          # mot de passe (nginx) ; s'ils n'existent pas encore comme secrets,
-          # bootstrap.sh laisse la protection existante inchangee.
+          # GOOGLE_CLIENT_ID/SECRET, SITE_AUTH_USER/PASSWORD et
+          # ANTHROPIC_API_KEY sont transmis en arguments positionnels (jamais
+          # commis dans le depot) : GitHub masque automatiquement ces valeurs
+          # dans les journaux car elles proviennent de secrets. SITE_AUTH_*
+          # protegent l'acces au site par mot de passe (nginx) ;
+          # ANTHROPIC_API_KEY alimente Morgane (assistante IA). Absents,
+          # bootstrap.sh laisse la configuration existante inchangee.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}'"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}'"

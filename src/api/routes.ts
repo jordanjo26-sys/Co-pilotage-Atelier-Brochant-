@@ -5,6 +5,9 @@ import { receiveCsv } from "../services/importService";
 import { getDashboardSummary } from "../services/dashboardService";
 import { synchroniserGmail } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
+import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
+import { repondreMorgane, MessageMorgane } from "../services/morgane";
+import { getGmailClient } from "../services/googleAuth";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -133,6 +136,24 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
+  // Note de synthese sur l'etat general de l'activite (CA, tresorerie,
+  // documents fournisseurs en attente, points de vigilance) — distincte du
+  // recapitulatif quotidien ci-dessus qui ne couvre que les evenements du
+  // jour meme.
+  router.get("/bilan-sante/apercu", async (_req, res) => {
+    const contenu = await construireBilanSante(prisma);
+    res.type("text/plain").send(contenu);
+  });
+
+  router.post("/bilan-sante/envoyer", async (_req, res) => {
+    try {
+      await envoyerBilanSante(prisma);
+      res.json({ envoye: true });
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
   router.get("/documents-fournisseurs", async (req, res) => {
     const type = typeof req.query.type === "string" ? req.query.type : undefined;
     const documents = await prisma.documentFournisseur.findMany({
@@ -151,6 +172,42 @@ export function buildRouter(prisma: PrismaClient): Router {
       take: 200,
     });
     res.json(anomalies);
+  });
+
+  // Previsualisation rapide d'une piece jointe ambigue (bouton "Voir" du
+  // centre de validation) : le fichier n'est pas stocke en base (seul son
+  // empreinte l'est, pour la deduplication), il est redemande a Gmail a la
+  // demande via les references conservees dans les preuves de l'anomalie.
+  router.get("/anomalies/:id/document", async (req, res) => {
+    const anomalie = await prisma.anomalie.findUnique({ where: { id: req.params.id } });
+    if (!anomalie) return res.status(404).json({ erreur: "Anomalie introuvable." });
+
+    let preuves: Record<string, string> = {};
+    try {
+      preuves = JSON.parse(anomalie.preuves || "{}");
+    } catch {
+      // preuves illisibles : traite comme absentes ci-dessous
+    }
+    if (!preuves.messageId || !preuves.attachmentId) {
+      return res.status(404).json({ erreur: "Document non disponible pour cette anomalie (pieces jointes plus anciennes)." });
+    }
+
+    try {
+      const connexionGmail = await getGmailClient(prisma);
+      if (!connexionGmail) return res.status(400).json({ erreur: "Gmail non connecte." });
+      const { gmail } = connexionGmail;
+      const attachment = await gmail.users.messages.attachments.get({
+        userId: "me",
+        messageId: preuves.messageId,
+        id: preuves.attachmentId,
+      });
+      const donnees = Buffer.from(attachment.data.data || "", "base64url");
+      res.setHeader("Content-Type", preuves.mimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(preuves.fichier || "document")}"`);
+      res.send(donnees);
+    } catch (err) {
+      res.status(502).json({ erreur: `Impossible de recuperer le document depuis Gmail : ${(err as Error).message}` });
+    }
   });
 
   const STATUTS_ANOMALIE_VALIDES = ["a_valider", "validee", "ignoree"];
@@ -187,6 +244,31 @@ export function buildRouter(prisma: PrismaClient): Router {
       data: { statut: "ignoree" },
     });
     res.json({ nombreIgnore: resultat.count });
+  });
+
+  // --- Morgane, assistante IA (Phase 7 du cahier des charges) -------------
+
+  router.post("/morgane/message", async (req, res) => {
+    const historique = req.body?.historique;
+    if (!Array.isArray(historique) || historique.length === 0) {
+      return res.status(400).json({ erreur: "Fournir 'historique' (tableau de {role, content})." });
+    }
+    const valide = historique.every(
+      (m: unknown): m is MessageMorgane =>
+        !!m &&
+        typeof m === "object" &&
+        ((m as MessageMorgane).role === "user" || (m as MessageMorgane).role === "assistant") &&
+        typeof (m as MessageMorgane).content === "string"
+    );
+    if (!valide) {
+      return res.status(400).json({ erreur: "Chaque message doit avoir 'role' (user|assistant) et 'content' (texte)." });
+    }
+    try {
+      const reponse = await repondreMorgane(prisma, historique);
+      res.json({ reponse });
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   return router;

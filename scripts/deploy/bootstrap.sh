@@ -18,6 +18,10 @@ GOOGLE_CLIENT_SECRET_ARG="${2:-}"
 # deploiement si ces secrets ne sont pas encore crees.
 SITE_AUTH_USER_ARG="${3:-}"
 SITE_AUTH_PASSWORD_ARG="${4:-}"
+# Cle API Anthropic pour Morgane (assistante IA, Phase 7) : meme mecanisme,
+# depuis le secret GitHub ANTHROPIC_API_KEY. Absente -> Morgane repond une
+# erreur explicite plutot que de planter le reste de l'application.
+ANTHROPIC_API_KEY_ARG="${5:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -66,6 +70,7 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=
 DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}
 DAILY_RECAP_HOUR=19
+ANTHROPIC_API_KEY=
 EOF
   echo "-- .env cree avec des secrets generes automatiquement (mot de passe base, cle de chiffrement)."
   echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."
@@ -97,6 +102,16 @@ if [ -n "$GOOGLE_CLIENT_ID_ARG" ]; then
 fi
 if [ -n "$GOOGLE_CLIENT_SECRET_ARG" ]; then
   sed -i "s#^GOOGLE_CLIENT_SECRET=.*#GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET_ARG}#" "$ENV_FILE"
+fi
+
+# Cle API Anthropic (Morgane) : "ajouter si absente, sinon remplacer" pour
+# rester compatible avec un .env cree avant l'ajout de cette variable.
+if [ -n "$ANTHROPIC_API_KEY_ARG" ]; then
+  if grep -q '^ANTHROPIC_API_KEY=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^ANTHROPIC_API_KEY=.*#ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_ARG}#" "$ENV_FILE"
+  else
+    echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_ARG}" >> "$ENV_FILE"
+  fi
 fi
 
 echo "== Base de donnees PostgreSQL =="

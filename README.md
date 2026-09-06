@@ -106,10 +106,20 @@ procédure complète, étape par étape). Une fois `GOOGLE_CLIENT_ID`,
      deviné.
    - Les e-mails provenant de Dext lui-même (accusés, récapitulatifs) sont
      exclus d'office de l'analyse.
-4. Chaque décision est déduplicée par empreinte de fichier (section 7.3) et
-   journalisée (`GET /api/journal`) : relancer une synchronisation, même
-   plusieurs fois sur les mêmes e-mails, ne retransmet jamais un document
-   déjà envoyé.
+   - Les images intégrées au corps du message (logo de signature, images de
+     newsletter/mailing) sont exclues avant même la classification, qu'elles
+     portent un en-tête `Content-ID` ou un `Content-Disposition: inline` —
+     les deux signaux standards utilisés par les clients mail et les
+     plateformes d'e-mailing pour ce type de ressource.
+4. Chaque décision est déduplicée par empreinte de fichier (section 7.3),
+   **anomalies comprises** : une pièce jointe non reconnue n'est signalée
+   qu'une seule fois, jamais à nouveau à chaque passage du planificateur une
+   fois traitée (ignorée ou non). Journalisé (`GET /api/journal`) : relancer
+   une synchronisation, même plusieurs fois sur les mêmes e-mails, ne
+   retransmet et ne re-signale jamais un document déjà connu.
+5. Chaque anomalie du centre de validation propose un bouton **Voir** pour
+   prévisualiser la pièce jointe (redemandée à Gmail à la volée, jamais
+   stockée) en plus d'**Ignorer**.
 
 **Pause du transfert automatique (`DEXT_AUTO_FORWARD=false`)** : les
 factures reconnues ne sont alors plus envoyées à Dext — elles sont
@@ -135,6 +145,35 @@ l'adresse consultée par l'utilisateur.
 - `GET /api/recap/apercu` : aperçu du contenu (texte), sans envoyer d'e-mail.
 - `POST /api/recap/envoyer` : déclenche l'envoi immédiatement (test, ou
   rattrapage si le serveur était indisponible à l'heure prévue).
+
+## Bilan de santé
+
+Note de synthèse sur l'état général de l'activité (chiffre d'affaires 7/30
+jours avec évolution, impayés répartis par ancienneté de retard, documents
+fournisseurs en attente, points de vigilance) — distincte du récapitulatif
+quotidien ci-dessus, qui ne couvre que les événements du jour même.
+
+- `GET /api/bilan-sante/apercu` : contenu (texte), sans envoyer d'e-mail.
+- `POST /api/bilan-sante/envoyer` : envoie immédiatement à la boîte Gmail connectée.
+- Accessible aussi depuis la section « Bilan de santé » de l'interface.
+
+## Morgane, l'assistante IA
+
+Section « Morgane » de l'interface : un chat qui répond aux questions sur
+l'activité et peut exécuter des actions déléguées, en s'appuyant sur l'API
+Claude d'Anthropic (`ANTHROPIC_API_KEY` dans `.env`, voir
+`docs/mise-en-service.md`). Toujours fondée sur des données réelles — jamais
+un chiffre inventé : chaque réponse chiffrée provient d'un appel outil vers
+les mêmes données que le reste de l'application (tableau de bord, bilan de
+santé, anomalies, factures impayées), jamais d'une estimation du modèle.
+
+Actions qu'elle peut déléguer, uniquement sur demande explicite : ignorer
+une anomalie précise, déclencher une synchronisation Gmail immédiate,
+envoyer le récapitulatif quotidien ou le bilan de santé par e-mail.
+
+- `POST /api/morgane/message` : `{ historique: [{role, content}, ...] }` → `{ reponse }`.
+- Sans `ANTHROPIC_API_KEY`, la section affiche une erreur explicite ; le
+  reste de l'application continue de fonctionner normalement.
 
 ## Ajuster le format des CSV
 
@@ -189,8 +228,14 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 | `POST /api/gmail/sync` | Déclenche une synchronisation Gmail → Dext immédiate |
 | `GET /api/documents-fournisseurs` | Documents reçus par e-mail (factures transférées, avoirs/bons/relevés archivés) |
 | `GET /api/anomalies?statut=a_valider` | Documents ambigus en attente de classification manuelle |
+| `PATCH /api/anomalies/:id` | Change le statut d'une anomalie (`a_valider`\|`validee`\|`ignoree`) |
+| `POST /api/anomalies/ignorer-en-masse` | Ignore plusieurs anomalies (`ids` et/ou `type`) |
+| `GET /api/anomalies/:id/document` | Prévisualise la pièce jointe d'une anomalie (redemandée à Gmail à la volée) |
 | `GET /api/recap/apercu` | Aperçu (texte) du récapitulatif quotidien, sans envoyer d'e-mail |
 | `POST /api/recap/envoyer` | Envoie immédiatement le récapitulatif quotidien à la boîte Gmail connectée |
+| `GET /api/bilan-sante/apercu` | Aperçu (texte) du bilan de santé, sans envoyer d'e-mail |
+| `POST /api/bilan-sante/envoyer` | Envoie immédiatement le bilan de santé à la boîte Gmail connectée |
+| `POST /api/morgane/message` | Envoie un message à Morgane (assistante IA), retourne sa réponse |
 
 ## Modèle de données
 
