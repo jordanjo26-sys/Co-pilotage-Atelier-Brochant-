@@ -81,8 +81,14 @@ h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Man
    qu'en border-image ou en pseudo-element positionne : la largeur suit alors
    exactement celle de l'en-tete lui-meme, sans dependre d'un calcul de
    containing block separe (les deux approches precedentes s'arretaient a
-   mi-largeur sur mobile). */
-header {
+   mi-largeur sur mobile).
+   Element renomme de <header> a <div class="entete"> : la largeur restait
+   tronquee (~66%, ratio identique quelle que soit la technique CSS testee)
+   de facon reproductible cote utilisateur alors que la meme regle appliquee
+   a un <div> se comporte normalement en local — signe probable d'une
+   extension (bloqueur de pub/lecteur) ciblant specifiquement la balise
+   semantique <header> pour retrecir les bandeaux de site. */
+.entete {
   padding: 16px 16px 15px;
   background:
     linear-gradient(90deg, var(--brand-blue), var(--brand-teal), var(--brand-violet)) left bottom / 100% 3px no-repeat,
@@ -91,7 +97,7 @@ header {
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand img { height: 42px; width: auto; flex: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.08)); }
-header h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+.entete h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
 .sous-titre { margin: 2px 0 0; color: var(--ink-muted); font-size: 12px; }
 
 .pied { text-align: center; padding: 6px 16px 32px; font-size: 11px; color: var(--ink-muted); }
@@ -334,7 +340,7 @@ tbody tr:hover { background: var(--surface-2); }
 
 @media (min-width: 640px) {
   main { padding: 24px 24px 56px; gap: 18px; }
-  header { padding: 22px 28px 16px; }
+  .entete { padding: 22px 28px 16px; }
   .grille-cockpit { grid-template-columns: repeat(4, 1fr); }
   form#form-import { flex-wrap: nowrap; }
 }
