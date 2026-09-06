@@ -220,6 +220,57 @@ document.getElementById("btn-ignorer-selection").addEventListener("click", async
   await Promise.all([chargerAnomalies(), chargerCockpit()]);
 });
 
+// --- Memoire de Morgane (decisions) ------------------------------------------
+
+const LIBELLE_TYPE_DECISION = {
+  delai_accorde: "Délai accordé",
+  exception: "Exception",
+  financement_oney: "Financement Oney",
+  correction: "Correction",
+};
+
+async function terminerDecision(id, bouton) {
+  bouton.disabled = true;
+  bouton.textContent = "…";
+  try {
+    await fetch(`/api/decisions/${id}/terminer`, { method: "PATCH" });
+    await chargerDecisions();
+  } catch (err) {
+    bouton.disabled = false;
+    bouton.textContent = "Terminer";
+    alert(err.message);
+  }
+}
+window.terminerDecision = terminerDecision;
+
+async function chargerDecisions() {
+  const res = await fetch("/api/decisions");
+  const decisions = await res.json();
+  const liste = document.getElementById("liste-decisions");
+
+  if (decisions.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune décision active pour le moment.</p>`;
+    return;
+  }
+
+  liste.innerHTML = decisions
+    .map(
+      (d) => `
+    <div class="decision-carte">
+      <div class="relance-entete">
+        <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_DECISION[d.type] || d.type)}</span>
+        ${d.objetType ? `<span class="relance-retard">${echapper(d.objetType)}${d.objetId ? " · " + echapper(d.objetId) : ""}</span>` : ""}
+      </div>
+      <div class="anomalie-meta">${echapper(d.motif || "")}</div>
+      <div class="anomalie-meta">Depuis le ${fmtDate(d.dateDebut)}${d.dateFin ? ` · jusqu'au ${fmtDate(d.dateFin)}` : ""}${d.auteur ? ` · ${echapper(d.auteur)}` : ""}</div>
+      <div class="relance-actions">
+        <button type="button" class="ghost" onclick="terminerDecision('${d.id}', this)">Terminer</button>
+      </div>
+    </div>`
+    )
+    .join("");
+}
+
 // --- Morgane (assistante IA) -------------------------------------------------
 
 const MORGANE_CLE_SESSION = "copilote_morgane_historique";
@@ -425,7 +476,7 @@ document.getElementById("btn-envoyer-bilan").addEventListener("click", async (e)
 });
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFournisseurs()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFournisseurs(), chargerDecisions()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

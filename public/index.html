@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=6" />
+  <link rel="stylesheet" href="/styles.css?v=7" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -29,6 +29,12 @@
         <input type="text" id="morgane-saisie" placeholder="Écris à Morgane…" autocomplete="off" />
         <button type="submit">Envoyer</button>
       </form>
+    </section>
+
+    <section class="carte accent-violet">
+      <h2>Mémoire de Morgane</h2>
+      <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>
+      <div id="liste-decisions"></div>
     </section>
 
     <section class="carte accent-bleu">
@@ -121,6 +127,6 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=6"></script>
+  <script src="/app.js?v=7"></script>
 </body>
 </html>

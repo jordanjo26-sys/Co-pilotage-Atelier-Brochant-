@@ -20,7 +20,7 @@ Phase 4 — Fournisseurs
 Phase 5 — Règles / validation
 Phase 6 — Cockpit
 Phase 7 — Assistant IA                                              <- premiere version (Morgane)
-Phase 8 — Mémoire / autonomie
+Phase 8 — Mémoire / autonomie                                       <- premiere version (Decision)
 Phase 9 — API Synec (remplace les imports CSV)
 ```
 

@@ -157,6 +157,28 @@ quotidien ci-dessus, qui ne couvre que les événements du jour même.
 - `POST /api/bilan-sante/envoyer` : envoie immédiatement à la boîte Gmail connectée.
 - Accessible aussi depuis la section « Bilan de santé » de l'interface.
 
+## Mémoire à long terme (décisions)
+
+Phase 8 du cahier des charges. S'appuie sur le modèle `Decision`, déjà
+prévu dans le schéma dès le début du projet mais jamais exploité jusqu'ici
+— une mémoire **structurée et consultable** (un carnet de décisions qu'un
+humain peut aussi relire directement), plutôt qu'une mémoire « floue » de
+conversation ou une recherche sémantique.
+
+- Quand tu demandes explicitement à Morgane de retenir quelque chose de
+  durable (« retiens que... », « à partir de maintenant... »), elle
+  enregistre une décision (délai accordé, exception, financement Oney,
+  correction) avec son motif, éventuellement rattachée à une facture/un
+  client/un fournisseur précis, et une date de fin si temporaire.
+- Elle consulte ces décisions **dans toutes ses conversations futures**
+  avant de répondre ou d'agir sur l'objet concerné.
+- Une décision terminée n'est jamais supprimée (traçabilité) — juste
+  marquée comme telle (date de fin fixée à maintenant).
+
+- `GET /api/decisions` : décisions actives (`?actives=false` pour tout voir).
+- `PATCH /api/decisions/:id/terminer` : révoque une décision.
+- Section « Mémoire de Morgane » dans l'interface, avec bouton « Terminer ».
+
 ## Morgane, l'assistante IA
 
 Section « Morgane » de l'interface : un chat qui répond aux questions sur
@@ -373,6 +395,8 @@ texte proposé tel quel, via la boîte Gmail connectée.
 | `GET /api/bilan-sante/apercu` | Aperçu (texte) du bilan de santé, sans envoyer d'e-mail |
 | `POST /api/bilan-sante/envoyer` | Envoie immédiatement le bilan de santé à la boîte Gmail connectée |
 | `POST /api/morgane/message` | Envoie un message à Morgane (assistante IA), retourne sa réponse |
+| `GET /api/decisions` | Décisions mémorisées (mémoire à long terme, `?actives=false` pour tout voir) |
+| `PATCH /api/decisions/:id/terminer` | Révoque une décision (garde une trace) |
 | `GET /api/fournisseurs` | Fournisseurs (fiches dérivées automatiquement) avec résumé d'activité |
 | `GET /api/fournisseurs/:id` | Détail d'un fournisseur et historique de ses documents |
 | `GET /api/relances` | Factures ayant atteint un nouveau palier de retard, avec texte de relance proposé |

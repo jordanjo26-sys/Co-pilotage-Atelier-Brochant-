@@ -9,6 +9,7 @@ import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante"
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur } from "../services/fournisseurs";
+import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe } from "../services/stripeSync";
 import { getGmailClient } from "../services/googleAuth";
@@ -305,6 +306,26 @@ export function buildRouter(prisma: PrismaClient): Router {
       data: { statut: "ignoree" },
     });
     res.json({ nombreIgnore: resultat.count });
+  });
+
+  // --- Memoire a long terme (section 8, Phase 8) ---------------------------
+  // Consultable directement (audit humain), en plus de l'usage par Morgane
+  // (src/services/morgane.ts).
+
+  router.get("/decisions", async (req, res) => {
+    const activesSeulement = req.query.actives !== "false";
+    res.json(await listerDecisions(prisma, { activesSeulement }));
+  });
+
+  // Revocation : fixe la fin de validite a maintenant plutot que de
+  // supprimer, pour garder une trace (meme principe que "ignoree" sur une
+  // anomalie).
+  router.patch("/decisions/:id/terminer", async (req, res) => {
+    try {
+      res.json(await terminerDecision(prisma, req.params.id));
+    } catch {
+      res.status(404).json({ erreur: "Decision introuvable." });
+    }
   });
 
   // --- Morgane, assistante IA (Phase 7 du cahier des charges) -------------

@@ -8,6 +8,7 @@ import { listerFacturesARelancer, envoyerRelance } from "./relances";
 import { listerFournisseurs } from "./fournisseurs";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
+import { enregistrerDecision, listerDecisions, TypeDecision } from "./decisions";
 import { logEvenement } from "./journalService";
 
 /**
@@ -107,6 +108,35 @@ const OUTILS: Anthropic.Tool[] = [
     description:
       "Relance le rapprochement automatique des payouts Stripe avec les mouvements bancaires (section 5) et indique combien ont ete rapproches, restent ambigus (plusieurs mouvements candidats) ou sans mouvement correspondant. Ecriture purement interne, sans impact externe.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "memoriser_decision",
+    description:
+      "Enregistre durablement une decision metier (memoire a long terme, section 8) : delai accorde, exception, financement Oney, ou correction. A utiliser uniquement quand l'utilisateur demande explicitement de retenir/memoriser quelque chose de facon durable (ex. 'retiens que...', 'a partir de maintenant...'). Reste consultable dans toutes les conversations futures.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["delai_accorde", "exception", "financement_oney", "correction"] },
+        motif: { type: "string", description: "Explication en langage naturel de la decision et de son contexte." },
+        objetType: { type: "string", description: "A quoi la decision s'applique, ex. 'Facture', 'Client', 'Fournisseur', ou 'Global' si generale." },
+        objetId: { type: "string", description: "Identifiant de l'objet concerne (id de facture/client/fournisseur), absent si objetType est 'Global'." },
+        dateFin: { type: "string", description: "Date de fin de validite (AAAA-MM-JJ), si la decision est temporaire. Omis = indefinie jusqu'a revocation." },
+      },
+      required: ["type", "motif"],
+    },
+  },
+  {
+    name: "lister_decisions",
+    description:
+      "Consulte les decisions memorisees precedemment (memoire a long terme). A appeler avant de repondre a une question ou d'agir des qu'une decision passee pourrait etre pertinente (ex. avant de relancer une facture, verifier si un delai/exception a ete accorde).",
+    input_schema: {
+      type: "object",
+      properties: {
+        objetType: { type: "string", description: "Filtrer par type d'objet, ex. 'Facture'." },
+        objetId: { type: "string", description: "Filtrer par identifiant d'objet precis." },
+        activesSeulement: { type: "boolean", description: "Exclure les decisions pas encore commencees ou deja terminees (recommande, defaut true)." },
+      },
+    },
   },
   {
     name: "lister_fournisseurs",
@@ -212,6 +242,33 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
     case "verifier_rapprochement_bancaire":
       return executerRapprochementBancaire(prisma);
 
+    case "memoriser_decision": {
+      const type = params.type;
+      const motif = params.motif;
+      if (typeof type !== "string" || typeof motif !== "string") return { erreur: "type et motif sont requis." };
+      const typesValides: TypeDecision[] = ["delai_accorde", "exception", "financement_oney", "correction"];
+      if (!typesValides.includes(type as TypeDecision)) return { erreur: `type invalide, attendu l'un de : ${typesValides.join(", ")}` };
+      const dateFinBrute = params.dateFin;
+      const dateFin = typeof dateFinBrute === "string" && dateFinBrute ? new Date(dateFinBrute) : null;
+      if (dateFin && Number.isNaN(dateFin.getTime())) return { erreur: "dateFin illisible (attendu AAAA-MM-JJ)." };
+      const decision = await enregistrerDecision(prisma, {
+        type: type as TypeDecision,
+        motif,
+        auteur: "Morgane",
+        objetType: typeof params.objetType === "string" ? params.objetType : null,
+        objetId: typeof params.objetId === "string" ? params.objetId : null,
+        dateFin,
+      });
+      return { ok: true, decision };
+    }
+
+    case "lister_decisions":
+      return listerDecisions(prisma, {
+        objetType: typeof params.objetType === "string" ? params.objetType : undefined,
+        objetId: typeof params.objetId === "string" ? params.objetId : undefined,
+        activesSeulement: params.activesSeulement !== false,
+      });
+
     case "lister_fournisseurs":
       return listerFournisseurs(prisma);
 
@@ -251,6 +308,14 @@ seulement facture par facture sur demande.
 - Si une question sort de ton perimetre (donnees Stripe detaillees, actions \
 non couvertes par tes outils), dis-le simplement plutot que d'inventer une \
 reponse.
+- Memoire a long terme : quand l'utilisateur te demande explicitement de \
+retenir/memoriser quelque chose de durable (un delai accorde, une \
+exception, une correction...), utilise memoriser_decision plutot que de \
+la garder seulement dans la conversation en cours - elle doit rester \
+disponible dans toutes tes conversations futures. A l'inverse, avant de \
+repondre a une question ou d'agir sur une facture/un client/un \
+fournisseur precis, verifie via lister_decisions si une decision passee \
+le concerne (delai accorde en cours, exception...) et tiens-en compte.
 - Reste bref : des phrases courtes, des listes plutot que des paragraphes \
 quand c'est plus lisible sur un telephone.`;
 

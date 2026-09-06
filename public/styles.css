@@ -326,6 +326,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .fournisseur-carte:first-of-type { border-top: none; padding-top: 0; }
 .fournisseur-nom { font-size: 13px; font-weight: 600; color: var(--ink); }
 
+/* ---------- Memoire de Morgane (decisions) ---------- */
+.decision-carte { padding: 10px 0; border-top: 1px solid var(--line); }
+.decision-carte:first-of-type { border-top: none; padding-top: 0; }
+
 /* ---------- Relances ---------- */
 .relance-carte {
   padding: 10px 0;
