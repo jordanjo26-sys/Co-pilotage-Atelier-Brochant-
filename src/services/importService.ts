@@ -7,6 +7,18 @@ import { extractPdfText, extractReleveTransactions } from "../importers/bankStat
 import { sha256Hex } from "./hash";
 import { ImportRowError, ImportSummary } from "../importers/types";
 import { logEvenement } from "./journalService";
+import { executerRapprochementBancaire } from "./rapprochementBancaire";
+
+// Un nouvel import de payouts ou de releve bancaire peut completer un
+// rapprochement en attente (section 5) - inutile pour les autres types
+// (factures, clients...) qui ne fournissent ni l'un ni l'autre cote.
+const TYPES_DECLENCHANT_RAPPROCHEMENT = new Set(["banque_releve", "banque_releve_pdf", "stripe_payouts"]);
+
+async function tenterRapprochementSiPertinent(prisma: PrismaClient, typeDetecte: string): Promise<void> {
+  if (TYPES_DECLENCHANT_RAPPROCHEMENT.has(typeDetecte)) {
+    await executerRapprochementBancaire(prisma);
+  }
+}
 
 function isPdfFile(buffer: Buffer, fichierNom: string): boolean {
   return buffer.subarray(0, 5).toString("latin1") === "%PDF-" || fichierNom.toLowerCase().endsWith(".pdf");
@@ -138,7 +150,7 @@ async function receivePdfBankStatement(
   const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant" };
   const result = await importBankStatement(prisma, rows, resolvedColumns, batch.id);
 
-  return finalizeImport(
+  const summary = await finalizeImport(
     prisma,
     fichierNom,
     "banque_releve_pdf",
@@ -147,6 +159,8 @@ async function receivePdfBankStatement(
     transactions.length,
     result
   );
+  await tenterRapprochementSiPertinent(prisma, "banque_releve_pdf");
+  return summary;
 }
 
 /**
@@ -266,5 +280,7 @@ export async function receiveCsv(
   const normalizer = NORMALIZERS[detection.mapping.type];
   const result = await normalizer(prisma, rows, detection.resolvedColumns, batch.id);
 
-  return finalizeImport(prisma, fichierNom, detection.mapping.type, detection.mapping.label, batch.id, rows.length, result);
+  const summary = await finalizeImport(prisma, fichierNom, detection.mapping.type, detection.mapping.label, batch.id, rows.length, result);
+  await tenterRapprochementSiPertinent(prisma, detection.mapping.type);
+  return summary;
 }

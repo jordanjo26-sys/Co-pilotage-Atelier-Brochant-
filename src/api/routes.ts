@@ -9,6 +9,7 @@ import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante"
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur } from "../services/fournisseurs";
+import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { getGmailClient } from "../services/googleAuth";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -71,8 +72,18 @@ export function buildRouter(prisma: PrismaClient): Router {
     const paiements = await prisma.paiement.findMany({ where: { payoutRef } });
     const brutTotal = paiements.reduce((s, p) => s + p.brut, 0);
     const fraisTotal = paiements.reduce((s, p) => s + p.frais, 0);
+    const mouvementBancaire = payout.mouvementBancaireId
+      ? await prisma.mouvementBancaire.findUnique({ where: { id: payout.mouvementBancaireId } })
+      : null;
 
-    res.json({ payout, paiements, brutTotal, fraisTotal, netTotal: brutTotal - fraisTotal });
+    res.json({ payout, paiements, brutTotal, fraisTotal, netTotal: brutTotal - fraisTotal, mouvementBancaire });
+  });
+
+  // Relance manuelle du rapprochement (section 5) : utile apres correction
+  // d'une donnee (ex. date de payout ajustee) sans avoir a redeposer un
+  // fichier pour redeclencher le calcul.
+  router.post("/rapprochement-bancaire/executer", async (_req, res) => {
+    res.json(await executerRapprochementBancaire(prisma));
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {

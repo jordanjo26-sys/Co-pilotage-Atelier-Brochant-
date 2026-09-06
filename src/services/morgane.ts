@@ -6,6 +6,7 @@ import { construireRecapQuotidien, envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserGmail } from "./gmailSync";
 import { listerFacturesARelancer, envoyerRelance } from "./relances";
 import { listerFournisseurs } from "./fournisseurs";
+import { executerRapprochementBancaire } from "./rapprochementBancaire";
 import { logEvenement } from "./journalService";
 
 /**
@@ -92,6 +93,12 @@ const OUTILS: Anthropic.Tool[] = [
     name: "lister_factures_a_relancer",
     description:
       "Liste les factures impayees ayant atteint un nouveau palier de retard (rappel/relance/mise en demeure) non encore relance, avec le texte de relance propose. N'inclut jamais une facture sous delai accorde.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "verifier_rapprochement_bancaire",
+    description:
+      "Relance le rapprochement automatique des payouts Stripe avec les mouvements bancaires (section 5) et indique combien ont ete rapproches, restent ambigus (plusieurs mouvements candidats) ou sans mouvement correspondant. Ecriture purement interne, sans impact externe.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -185,6 +192,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         return { erreur: (err as Error).message };
       }
     }
+
+    case "verifier_rapprochement_bancaire":
+      return executerRapprochementBancaire(prisma);
 
     case "lister_fournisseurs":
       return listerFournisseurs(prisma);

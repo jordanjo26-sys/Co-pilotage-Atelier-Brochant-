@@ -207,6 +207,30 @@ colonne e-mail client, retirez `clientEmail` de `requiredFields` dans
 (`date|montant|mode|note`, séparés par ` // `). Voir
 `src/importers/synecFactures.ts` et `samples/README.md` pour le détail.
 
+## Rapprochement bancaire (payouts Stripe)
+
+Fait automatiquement correspondre un payout Stripe groupé (virement) au
+mouvement bancaire correspondant (section 5) — jusqu'ici visible mais
+jamais relié : `Payout.mouvementBancaireId` et
+`MouvementBancaire.rapprochementStatut` existaient déjà dans le modèle de
+données sans être renseignés.
+
+- **Correspondance exigée** : même montant (à 1 centime près) et date à 5
+  jours d'écart maximum. Une seule correspondance possible → rapprochement
+  automatique (écriture purement interne, même niveau de confiance que le
+  rattachement client par nom — pas de validation humaine requise,
+  contrairement aux relances qui contactent un tiers).
+- **Ambiguïté jamais devinée** (section 14) : si plusieurs mouvements
+  correspondent au même montant à des dates proches, rien n'est rapproché
+  automatiquement — à vérifier manuellement.
+- Se déclenche automatiquement après chaque import d'un relevé bancaire ou
+  d'un export de payouts Stripe. Rejouable à la demande :
+  `POST /api/rapprochement-bancaire/executer` (utile après correction
+  d'une donnée, sans redéposer de fichier).
+- Le mouvement bancaire rapproché apparaît dans
+  `GET /api/payouts/:payoutRef/ventilation`. Morgane peut aussi vérifier
+  l'état du rapprochement sur demande.
+
 ## Fiche Fournisseurs
 
 Aucun import dédié n'existe pour les fournisseurs (contrairement aux
@@ -268,7 +292,8 @@ texte proposé tel quel, via la boîte Gmail connectée.
 | `GET /api/factures?statut=impayee` | Liste des factures normalisées |
 | `GET /api/paiements` | Paiements Stripe normalisés |
 | `GET /api/payouts` | Virements Stripe |
-| `GET /api/payouts/:payoutRef/ventilation` | Détail des paiements composant un virement (chaîne de preuves, section 5) |
+| `GET /api/payouts/:payoutRef/ventilation` | Détail des paiements composant un virement, avec le mouvement bancaire rapproché (chaîne de preuves, section 5) |
+| `POST /api/rapprochement-bancaire/executer` | Relance le rapprochement automatique payouts ↔ mouvements bancaires |
 | `GET /api/recapitulatifs-solde` | Récapitulatif de solde Stripe par période (repère d'audit) |
 | `GET /api/mouvements-bancaires` | Mouvements bancaires importés |
 | `GET /api/journal` | Journal des événements (section 12) |
