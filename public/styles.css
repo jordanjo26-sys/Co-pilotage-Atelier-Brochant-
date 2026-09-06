@@ -76,23 +76,18 @@ body {
 .num, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Manrope", sans-serif; }
 
+/* Bande degradee dessinee comme un calque de background (position "bottom",
+   taille "100% 3px"), superpose a la couleur de fond de l'en-tete plutot
+   qu'en border-image ou en pseudo-element positionne : la largeur suit alors
+   exactement celle de l'en-tete lui-meme, sans dependre d'un calcul de
+   containing block separe (les deux approches precedentes s'arretaient a
+   mi-largeur sur mobile). */
 header {
-  position: relative;
   padding: 16px 16px 15px;
-  background: var(--surface);
+  background:
+    linear-gradient(90deg, var(--brand-blue), var(--brand-teal), var(--brand-violet)) left bottom / 100% 3px no-repeat,
+    var(--surface);
   box-shadow: var(--shadow);
-}
-/* Bande degradee en pseudo-element plutot qu'en border-image : garantit une
-   largeur bord a bord fiable (border-image avec un gradient CSS s'est avere
-   ne pas toujours couvrir toute la largeur sur mobile). */
-header::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--brand-blue), var(--brand-teal), var(--brand-violet));
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand img { height: 42px; width: auto; flex: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.08)); }
