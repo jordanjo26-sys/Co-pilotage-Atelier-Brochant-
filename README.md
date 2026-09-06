@@ -230,6 +230,25 @@ via l'API Stripe (`src/services/stripeSync.ts`) :
 - `GET /api/stripe/status` : connecté ou non, date de dernière synchronisation.
 - `POST /api/stripe/sync` : déclenche une synchronisation immédiate.
 
+## Bons de commande payés par Stripe
+
+« Un bon de commande payé par Stripe est reconnu comme payé ; un bon de
+commande non payé peut bénéficier du délai de 30 jours » (section 4.4) —
+`src/services/bonsCommande.ts` :
+
+- Si un paiement Stripe synchronisé cite la référence du bon de commande
+  dans sa description (ex. « Commande BC-1001 »), la facture correspondante
+  est automatiquement marquée payée (ou partiellement payée). **Jamais de
+  choix deviné** : si plusieurs paiements citent la même référence,
+  rien n'est modifié automatiquement.
+- Sinon, un délai de grâce de **30 jours depuis l'émission** est accordé
+  (réutilise le champ `delaiAccordeJusqua`, section 4.3) : la facture ne
+  sera pas relancée pendant cette période, sans qu'aucune saisie manuelle
+  soit nécessaire. Un délai déjà fixé (manuellement ou précédemment) n'est
+  jamais écrasé.
+- Se déclenche automatiquement après chaque synchronisation Stripe.
+  Rejouable à la demande : `POST /api/bons-commande/verifier`.
+
 ## Rapprochement bancaire (payouts Stripe)
 
 Fait automatiquement correspondre un payout Stripe groupé (virement) au
@@ -319,6 +338,7 @@ texte proposé tel quel, via la boîte Gmail connectée.
 | `POST /api/rapprochement-bancaire/executer` | Relance le rapprochement automatique payouts ↔ mouvements bancaires |
 | `GET /api/stripe/status` | État de la connexion Stripe et date de dernière synchronisation |
 | `POST /api/stripe/sync` | Déclenche une synchronisation Stripe immédiate (payouts + paiements) |
+| `POST /api/bons-commande/verifier` | Relance la vérification des factures avec bon de commande |
 | `GET /api/recapitulatifs-solde` | Récapitulatif de solde Stripe par période (repère d'audit) |
 | `GET /api/mouvements-bancaires` | Mouvements bancaires importés |
 | `GET /api/journal` | Journal des événements (section 12) |

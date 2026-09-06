@@ -11,6 +11,7 @@ import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur } from "../services/fournisseurs";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe } from "../services/stripeSync";
+import { verifierBonsCommande } from "../services/bonsCommande";
 import { getGmailClient } from "../services/googleAuth";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -99,6 +100,12 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
+  });
+
+  // Relance manuelle (section 4.4) : utile juste apres avoir renseigne un
+  // bon de commande sur une facture, sans attendre la prochaine synchro Stripe.
+  router.post("/bons-commande/verifier", async (_req, res) => {
+    res.json(await verifierBonsCommande(prisma));
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {

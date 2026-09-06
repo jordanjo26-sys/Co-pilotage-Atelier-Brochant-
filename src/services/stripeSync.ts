@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { PrismaClient } from "@prisma/client";
 import { logEvenement } from "./journalService";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
+import { verifierBonsCommande } from "./bonsCommande";
 
 /**
  * Connexion directe a l'API Stripe (Phase 9 esprit "API plutot que CSV",
@@ -88,10 +89,21 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
         resultat.payoutsNouveaux++;
       }
 
-      const transactions = await stripe.balanceTransactions.list({ payout: payout.id, limit: 100 });
+      // "source" expanse en une seule fois pour tout le lot : evite un
+      // appel API supplementaire par transaction pour recuperer la
+      // description de la charge (utilisee ensuite pour retrouver une
+      // reference de bon de commande, section 4.4).
+      const transactions = await stripe.balanceTransactions.list({
+        payout: payout.id,
+        limit: 100,
+        expand: ["data.source"],
+      });
       for (const bt of transactions.data) {
         if (!TYPES_PAIEMENT.has(bt.type)) continue; // frais, remboursements, ajustements... pas des paiements clients
         resultat.paiementsExamines++;
+
+        const description =
+          bt.source && typeof bt.source !== "string" && "description" in bt.source ? bt.source.description || null : null;
 
         // L'adresse e-mail du client n'est pas disponible sur la transaction
         // elle-meme (il faudrait un appel supplementaire par transaction
@@ -105,6 +117,7 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
           devise: (bt.currency || "eur").toUpperCase(),
           date: new Date(bt.created * 1000),
           clientEmail: null,
+          description,
           payoutRef: payout.id,
         };
 
@@ -121,8 +134,11 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
     }
   }
 
-  // De nouveaux payouts peuvent completer un rapprochement bancaire en attente.
+  // De nouveaux payouts peuvent completer un rapprochement bancaire en
+  // attente, et de nouveaux paiements peuvent regler un bon de commande
+  // (section 4.4) en attente de reglement.
   await executerRapprochementBancaire(prisma);
+  await verifierBonsCommande(prisma);
 
   await logEvenement(prisma, {
     evenement: "stripe_sync",

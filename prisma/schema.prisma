@@ -94,6 +94,12 @@ model Paiement {
   devise         String    @default("EUR")
   date           DateTime
   clientEmail    String?
+  // Description/libelle du paiement cote Stripe (quand disponible via
+  // l'API) : sert a retrouver la reference d'un bon de commande citee par
+  // le client au moment du paiement (section 4.4, "un bon de commande
+  // paye par Stripe est reconnu comme paye"). Jamais rempli par l'import
+  // CSV (absent de cet export), uniquement par la synchronisation directe.
+  description    String?
   // Identifiant de payout Stripe (texte libre, pas de cle etrangere) :
   // le rapprochement se fait par requete applicative, pas a l'import, car
   // paiements et payouts peuvent arriver dans un ordre quelconque selon

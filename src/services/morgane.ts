@@ -8,6 +8,7 @@ import { listerFacturesARelancer, envoyerRelance } from "./relances";
 import { listerFournisseurs } from "./fournisseurs";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
+import { verifierBonsCommande } from "./bonsCommande";
 import { logEvenement } from "./journalService";
 
 /**
@@ -100,6 +101,12 @@ const OUTILS: Anthropic.Tool[] = [
     name: "declencher_synchronisation_stripe",
     description:
       "Lance immediatement une synchronisation Stripe (recupere les payouts et paiements recents par API) au lieu d'attendre le prochain passage automatique. Ne fait rien si aucune cle API Stripe n'est configuree.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "verifier_bons_de_commande",
+    description:
+      "Relance la verification des factures avec bon de commande (section 4.4) : rapproche un paiement Stripe qui cite la reference du bon de commande (marque la facture payee), sinon accorde un delai de grace de 30 jours depuis l'emission. Jamais de choix devine si plusieurs paiements evoquent la meme reference.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -208,6 +215,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         return { erreur: (err as Error).message };
       }
     }
+
+    case "verifier_bons_de_commande":
+      return verifierBonsCommande(prisma);
 
     case "verifier_rapprochement_bancaire":
       return executerRapprochementBancaire(prisma);
