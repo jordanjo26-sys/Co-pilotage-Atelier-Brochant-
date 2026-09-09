@@ -150,18 +150,28 @@ window.fermerModaleDocument = fermerModaleDocument;
 // Recupere le document via fetch (avec les identifiants deja memorises par
 // le navigateur pour ce site) plutot qu'une navigation directe (qui
 // declenchait un telechargement plutot qu'un affichage sur mobile), puis
-// l'ouvre dans un nouvel onglet : l'onglet est ouvert TOUT DE SUITE, de
-// facon synchrone dans le geste de clic (avant le moindre await), car
-// Safari bloque silencieusement un window.open() appele apres un fetch
-// asynchrone — c'est ce qui produisait un onglet/une modale vide (constate
-// par l'utilisateur, la premiere version affichait le PDF dans une iframe
-// integree, rendu egalement peu fiable pour un blob PDF sur Safari iOS).
-async function voirDocument(id, bouton) {
+// l'ouvre dans un nouvel onglet.
+//
+// Le window.open() doit etre appele depuis une fonction NON-async, en tout
+// premier, directement dans le gestionnaire de clic : sur Safari (iOS et
+// desktop), un window.open() execute a l'interieur d'une fonction async —
+// meme comme toute premiere instruction, avant le moindre await — perd le
+// "user activation" et est bloque silencieusement (la modale de repli
+// s'affichait alors vide, constate deux fois par l'utilisateur meme apres
+// verification que le fichier deploye etait le bon : le probleme n'etait
+// pas le cache mais bien cette fonction declaree async). C'est pourquoi
+// l'ouverture est isolee ici dans voirDocument (synchrone), et le
+// telechargement/l'affichage delegues a une fonction async separee.
+function voirDocument(id, bouton) {
+  const nouvelOnglet = window.open("", "_blank");
+  chargerEtAfficherDocument(id, bouton, nouvelOnglet);
+}
+window.voirDocument = voirDocument;
+
+async function chargerEtAfficherDocument(id, bouton, nouvelOnglet) {
   const texteInitial = bouton.textContent;
   bouton.disabled = true;
   bouton.textContent = "Chargement…";
-
-  const nouvelOnglet = window.open("", "_blank");
 
   try {
     const res = await fetch(`/api/anomalies/${id}/document`);
@@ -190,7 +200,6 @@ async function voirDocument(id, bouton) {
     bouton.textContent = texteInitial;
   }
 }
-window.voirDocument = voirDocument;
 
 // --- Anomalies : liste de cartes avec selection multiple -------------------
 
