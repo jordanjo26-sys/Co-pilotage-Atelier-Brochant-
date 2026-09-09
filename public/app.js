@@ -140,66 +140,25 @@ async function chargerStatutStripe() {
 }
 
 // --- Apercu d'un document -------------------------------------------------
-
-function fermerModaleDocument() {
-  document.getElementById("modal-document").hidden = true;
-  document.getElementById("contenu-modal").innerHTML = "";
-}
-window.fermerModaleDocument = fermerModaleDocument;
-
-// Recupere le document via fetch (avec les identifiants deja memorises par
-// le navigateur pour ce site) plutot qu'une navigation directe (qui
-// declenchait un telechargement plutot qu'un affichage sur mobile), puis
-// l'ouvre dans un nouvel onglet.
 //
-// Le window.open() doit etre appele depuis une fonction NON-async, en tout
-// premier, directement dans le gestionnaire de clic : sur Safari (iOS et
-// desktop), un window.open() execute a l'interieur d'une fonction async —
-// meme comme toute premiere instruction, avant le moindre await — perd le
-// "user activation" et est bloque silencieusement (la modale de repli
-// s'affichait alors vide, constate deux fois par l'utilisateur meme apres
-// verification que le fichier deploye etait le bon : le probleme n'etait
-// pas le cache mais bien cette fonction declaree async). C'est pourquoi
-// l'ouverture est isolee ici dans voirDocument (synchrone), et le
-// telechargement/l'affichage delegues a une fonction async separee.
-function voirDocument(id, bouton) {
-  const nouvelOnglet = window.open("", "_blank");
-  chargerEtAfficherDocument(id, bouton, nouvelOnglet);
-}
-window.voirDocument = voirDocument;
-
-async function chargerEtAfficherDocument(id, bouton, nouvelOnglet) {
-  const texteInitial = bouton.textContent;
-  bouton.disabled = true;
-  bouton.textContent = "Chargement…";
-
-  try {
-    const res = await fetch(`/api/anomalies/${id}/document`);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.erreur || "Document indisponible.");
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-
-    if (nouvelOnglet && !nouvelOnglet.closed) {
-      nouvelOnglet.location.href = url;
-    } else {
-      // Bloqueur de popup (rare, mais possible) : repli sur un lien a
-      // activer manuellement, ce qui reste un geste utilisateur direct.
-      document.getElementById("contenu-modal").innerHTML =
-        `<p>Document prêt : <a href="${url}" target="_blank" rel="noopener">appuyer ici pour l'ouvrir</a>.</p>`;
-      document.getElementById("modal-document").hidden = false;
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
-  } catch (err) {
-    if (nouvelOnglet && !nouvelOnglet.closed) nouvelOnglet.close();
-    alert(err.message);
-  } finally {
-    bouton.disabled = false;
-    bouton.textContent = texteInitial;
-  }
-}
+// Historique : trois tentatives successives de previsualisation "intelligente"
+// (modale avec iframe/img sur blob URL, puis window.open apres fetch, puis
+// window.open isole dans une fonction non-async) ont chacune ete bloquees ou
+// affiche un ecran blanc sur l'iPhone de l'utilisateur, chaque correctif
+// remplaçant un echec silencieux par un autre — constate a chaque fois par
+// capture d'ecran, et confirme par l'utilisateur : "ca marche pas alors que
+// ca marchait avant" (avant ces trois tentatives). Plutot que de continuer a
+// deviner le comportement exact de Safari sur cet appareil (section 14 :
+// jamais deviner), retour au lien direct simple qui fonctionnait a l'origine :
+// aucun JavaScript entre le clic et l'affichage, donc rien qu'un bloqueur de
+// popup ou une regle async/await de WebKit puisse casser. Le seul defaut connu
+// (signale une fois par l'utilisateur) est que certains types de fichiers que
+// Safari ne sait pas afficher nativement (ex. Word/Excel joints en piece) sont
+// telecharges plutot qu'affiches — c'est une limite du navigateur pour ces
+// formats, pas quelque chose qu'un script cote client peut forcer a previsualiser.
+// L'endpoint /api/anomalies/:id/document envoie deja Content-Disposition:
+// inline avec le bon Content-Type (voir routes.ts), donc Safari affiche
+// directement les PDF et images dans l'onglet ouvert par le lien.
 
 // --- Anomalies : liste de cartes avec selection multiple -------------------
 
@@ -255,7 +214,7 @@ async function chargerAnomalies() {
         <div class="anomalie-meta">${fmtDate(a.createdAt)}${expediteur}</div>
       </div>
       <div class="anomalie-actions">
-        <button type="button" class="ghost bouton-lien" onclick="voirDocument('${a.id}', this)">Voir</button>
+        <a class="ghost bouton-lien" href="/api/anomalies/${a.id}/document" target="_blank" rel="noopener">Voir</a>
         <button type="button" class="ghost" onclick="ignorerAnomalie('${a.id}')">Ignorer</button>
       </div>
     </div>`;
