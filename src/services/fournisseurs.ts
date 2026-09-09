@@ -176,3 +176,29 @@ export async function obtenirFournisseur(prisma: PrismaClient, fournisseurId: st
   });
   return fournisseur;
 }
+
+export class FournisseurAvecFacturesError extends Error {}
+
+/**
+ * Supprime une fiche fournisseur creee a tort (expediteur qui n'est pas un
+ * vrai fournisseur : secretariat, notification automatique, mauvaise
+ * classification anterieure au correctif de section 7...). Refuse si au
+ * moins une facture reelle lui est deja rattachee : un fournisseur avec de
+ * vraies factures n'est jamais du bruit, mieux vaut laisser la decision a
+ * l'utilisateur plutot que de deviner (section 14).
+ *
+ * La contrainte de cle etrangere (ON DELETE SET NULL) detache simplement
+ * les documents et factures eventuels plutot que de les supprimer : rien
+ * n'est perdu, seul le rattachement au fournisseur disparait.
+ */
+export async function supprimerFournisseur(prisma: PrismaClient, fournisseurId: string): Promise<void> {
+  const fournisseur = await prisma.fournisseur.findUnique({
+    where: { id: fournisseurId },
+    include: { factures: { select: { id: true }, take: 1 } },
+  });
+  if (!fournisseur) throw new Error("Fournisseur introuvable.");
+  if (fournisseur.factures.length > 0) {
+    throw new FournisseurAvecFacturesError("Ce fournisseur a au moins une facture reelle rattachee, suppression refusee.");
+  }
+  await prisma.fournisseur.delete({ where: { id: fournisseurId } });
+}

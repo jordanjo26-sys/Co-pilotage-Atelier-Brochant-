@@ -8,7 +8,7 @@ import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dai
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
-import { listerFournisseurs, obtenirFournisseur } from "../services/fournisseurs";
+import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe } from "../services/stripeSync";
@@ -214,6 +214,22 @@ export function buildRouter(prisma: PrismaClient): Router {
     const fournisseur = await obtenirFournisseur(prisma, req.params.id);
     if (!fournisseur) return res.status(404).json({ erreur: "Fournisseur introuvable." });
     res.json(fournisseur);
+  });
+
+  // Nettoyage manuel des fiches creees a tort (expediteur qui n'est pas un
+  // vrai fournisseur, ou backlog issu d'avant le correctif de classification
+  // par contenu PDF) : jamais de suppression automatique, seulement a la
+  // demande explicite de l'utilisateur depuis l'interface.
+  router.delete("/fournisseurs/:id", async (req, res) => {
+    try {
+      await supprimerFournisseur(prisma, req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof FournisseurAvecFacturesError) {
+        return res.status(409).json({ erreur: err.message });
+      }
+      res.status(404).json({ erreur: (err as Error).message });
+    }
   });
 
   router.get("/documents-fournisseurs", async (req, res) => {

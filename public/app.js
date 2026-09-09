@@ -374,6 +374,33 @@ document.getElementById("form-morgane").addEventListener("submit", async (e) => 
 
 // --- Fournisseurs ---------------------------------------------------------
 
+// Le nom seul ne permet pas de deviner si un expediteur est un vrai
+// fournisseur (section 14 : jamais deviner) : la suppression manuelle
+// laisse la decision a l'utilisateur, plutot qu'un filtre automatique qui
+// se tromperait forcement dans un sens ou dans l'autre. Le serveur refuse
+// toute suppression d'un fournisseur ayant deja de vraies factures
+// rattachees (voir supprimerFournisseur) : le bouton n'est propose que
+// pour les fiches sans facture, ou les documents restent consultables et
+// traitables individuellement dans "Anomalies à valider" ci-dessus.
+async function supprimerFournisseur(id, bouton) {
+  if (!confirm("Supprimer cette fiche fournisseur ? Les documents deja recus ne sont pas supprimes, seul le rattachement disparait.")) return;
+  bouton.disabled = true;
+  bouton.textContent = "Suppression…";
+  try {
+    const res = await fetch(`/api/fournisseurs/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Suppression impossible.");
+    }
+    await chargerFournisseurs();
+  } catch (err) {
+    bouton.disabled = false;
+    bouton.textContent = "Supprimer";
+    alert(err.message);
+  }
+}
+window.supprimerFournisseur = supprimerFournisseur;
+
 async function chargerFournisseurs() {
   const res = await fetch("/api/fournisseurs");
   const fournisseurs = await res.json();
@@ -394,6 +421,7 @@ async function chargerFournisseurs() {
         ${f.nbEnAttente > 0 ? ` · <strong>${f.nbEnAttente} en attente</strong>` : ""}
         ${f.dernierDocumentLe ? ` · dernier reçu le ${fmtDate(f.dernierDocumentLe)}` : ""}
       </div>
+      ${f.nbFactures === 0 ? `<div class="fournisseur-actions"><button type="button" class="ghost" onclick="supprimerFournisseur('${f.id}', this)">Supprimer</button></div>` : ""}
     </div>`
     )
     .join("");
