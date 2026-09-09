@@ -139,30 +139,30 @@ async function chargerStatutStripe() {
   });
 }
 
-// --- Apercu d'un document (modale) -------------------------------------
-
-let urlObjetDocumentActuel = null;
+// --- Apercu d'un document -------------------------------------------------
 
 function fermerModaleDocument() {
-  const modale = document.getElementById("modal-document");
-  modale.hidden = true;
+  document.getElementById("modal-document").hidden = true;
   document.getElementById("contenu-modal").innerHTML = "";
-  if (urlObjetDocumentActuel) {
-    URL.revokeObjectURL(urlObjetDocumentActuel);
-    urlObjetDocumentActuel = null;
-  }
 }
 window.fermerModaleDocument = fermerModaleDocument;
 
 // Recupere le document via fetch (avec les identifiants deja memorises par
-// le navigateur pour ce site) plutot qu'une navigation directe : garantit
-// un apercu integre sur tous les navigateurs, certains proposant sinon un
-// telechargement plutot qu'un affichage pour une navigation directe vers
-// un type de contenu binaire (signale par l'utilisateur sur mobile).
+// le navigateur pour ce site) plutot qu'une navigation directe (qui
+// declenchait un telechargement plutot qu'un affichage sur mobile), puis
+// l'ouvre dans un nouvel onglet : l'onglet est ouvert TOUT DE SUITE, de
+// facon synchrone dans le geste de clic (avant le moindre await), car
+// Safari bloque silencieusement un window.open() appele apres un fetch
+// asynchrone — c'est ce qui produisait un onglet/une modale vide (constate
+// par l'utilisateur, la premiere version affichait le PDF dans une iframe
+// integree, rendu egalement peu fiable pour un blob PDF sur Safari iOS).
 async function voirDocument(id, bouton) {
   const texteInitial = bouton.textContent;
   bouton.disabled = true;
   bouton.textContent = "Chargement…";
+
+  const nouvelOnglet = window.open("", "_blank");
+
   try {
     const res = await fetch(`/api/anomalies/${id}/document`);
     if (!res.ok) {
@@ -170,19 +170,20 @@ async function voirDocument(id, bouton) {
       throw new Error(data.erreur || "Document indisponible.");
     }
     const blob = await res.blob();
-    if (urlObjetDocumentActuel) URL.revokeObjectURL(urlObjetDocumentActuel);
-    urlObjetDocumentActuel = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
 
-    const contenu = document.getElementById("contenu-modal");
-    if (blob.type.startsWith("image/")) {
-      contenu.innerHTML = `<img src="${urlObjetDocumentActuel}" alt="Document" />`;
+    if (nouvelOnglet && !nouvelOnglet.closed) {
+      nouvelOnglet.location.href = url;
     } else {
-      // PDF (ou tout autre type) : l'iframe delegue l'affichage au moteur
-      // de rendu integre du navigateur.
-      contenu.innerHTML = `<iframe src="${urlObjetDocumentActuel}" title="Document"></iframe>`;
+      // Bloqueur de popup (rare, mais possible) : repli sur un lien a
+      // activer manuellement, ce qui reste un geste utilisateur direct.
+      document.getElementById("contenu-modal").innerHTML =
+        `<p>Document prêt : <a href="${url}" target="_blank" rel="noopener">appuyer ici pour l'ouvrir</a>.</p>`;
+      document.getElementById("modal-document").hidden = false;
     }
-    document.getElementById("modal-document").hidden = false;
+    setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
   } catch (err) {
+    if (nouvelOnglet && !nouvelOnglet.closed) nouvelOnglet.close();
     alert(err.message);
   } finally {
     bouton.disabled = false;
