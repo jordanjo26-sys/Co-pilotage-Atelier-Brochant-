@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=7" />
+  <link rel="stylesheet" href="/styles.css?v=8" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -127,6 +127,13 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=7"></script>
+  <div id="modal-document" class="modal-document" hidden>
+    <div class="modal-document-barre">
+      <button type="button" class="ghost" onclick="fermerModaleDocument()">Fermer</button>
+    </div>
+    <div id="contenu-modal" class="modal-document-contenu"></div>
+  </div>
+
+  <script src="/app.js?v=8"></script>
 </body>
 </html>

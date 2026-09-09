@@ -2,11 +2,12 @@ import { PrismaClient } from "@prisma/client";
 import { gmail_v1 } from "googleapis";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { getGmailClient } from "./googleAuth";
-import { classifierPieceJointe, choisirAdresseDext, extraireNumeroFacture, EmailAClassifier, PieceJointe } from "./gmailClassify";
+import { classifierPieceJointe, choisirAdresseDext, extraireNumeroFacture, EmailAClassifier, PieceJointe, TypeDocument } from "./gmailClassify";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
 import { controlerReleveFournisseur } from "./controleReleves";
+import { extractPdfText } from "../importers/bankStatementPdf";
 
 export interface ResultatSyncGmail {
   messagesExamines: number;
@@ -182,22 +183,23 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
         piecesJointes: piecesBrutes,
       };
 
-      const classifications = piecesBrutes.map((p) => ({ piece: p, type: classifierPieceJointe(emailContexte, p) }));
-      const nbFactures = classifications.filter((c) => c.type === "facture").length;
-      const adresseDext = choisirAdresseDext(nbFactures);
-      // Une seule fiche fournisseur par expediteur (section 6) : resolue une
-      // fois par message, reutilisee pour chacune de ses pieces jointes.
-      const fournisseurId = await resoudreFournisseur(prisma, expediteur, cacheFournisseurs);
+      // Phase 1 : telecharger chaque piece, ecarter les doublons deja
+      // connus, puis classifier — en lisant le CONTENU d'un PDF (pas
+      // seulement le sujet/corps/nom de fichier) via extractPdfText. Sans
+      // cela, une facture reelle avec un sujet generique ("Voici vos
+      // documents") et le mot "facture" uniquement a l'interieur du PDF
+      // tombait a tort en ambigu (signale par l'utilisateur en production).
+      interface PieceAClasser {
+        piece: PieceJointeExtraite;
+        type: TypeDocument;
+        donnees: Buffer;
+        hashFichier: string;
+        numero: string | null;
+      }
+      const piecesAtraiter: PieceAClasser[] = [];
 
-      for (const { piece, type } of classifications) {
+      for (const piece of piecesBrutes) {
         try {
-          // La deduplication (par empreinte de fichier, cf. plus bas) doit
-          // s'appliquer AVANT toute chose, ambigu compris : sans cela, le
-          // meme e-mail non reconnu (image de newsletter, logo...) etait
-          // re-signale comme une toute nouvelle anomalie a chaque passage
-          // du planificateur (toutes les 5 minutes), y compris apres avoir
-          // ete "ignore" par l'utilisateur, qui le voyait donc revenir sans
-          // cesse (bug reel signale par l'utilisateur en production).
           const attachment = await gmail.users.messages.attachments.get({
             userId: "me",
             messageId: ref.id,
@@ -206,6 +208,13 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
           const donnees = Buffer.from(attachment.data.data || "", "base64url");
           const hashFichier = sha256Hex(donnees);
 
+          // La deduplication (par empreinte de fichier) doit s'appliquer
+          // AVANT toute chose, ambigu compris : sans cela, le meme e-mail
+          // non reconnu (image de newsletter, logo...) etait re-signale
+          // comme une toute nouvelle anomalie a chaque passage du
+          // planificateur (toutes les 5 minutes), y compris apres avoir ete
+          // "ignore" par l'utilisateur, qui le voyait donc revenir sans
+          // cesse (bug reel signale par l'utilisateur en production).
           const existant = await prisma.documentFournisseur.findUnique({ where: { hashFichier } });
           if (existant) {
             resultat.documentsDoublons++;
@@ -217,8 +226,41 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             continue;
           }
 
-          const numero = extraireNumeroFacture(`${sujet} ${piece.nomFichier}`);
+          let contenuExtrait: string | undefined;
+          if (piece.mimeType.toLowerCase() === "application/pdf") {
+            try {
+              contenuExtrait = extractPdfText(donnees);
+            } catch {
+              // pdftotext manquant ou PDF illisible : ne bloque pas la
+              // classification, qui se rabat simplement sur le
+              // sujet/corps/nom de fichier comme avant cette amelioration.
+            }
+          }
 
+          const type = classifierPieceJointe(emailContexte, piece, contenuExtrait);
+          const numero = extraireNumeroFacture(`${sujet} ${piece.nomFichier} ${contenuExtrait || ""}`);
+          piecesAtraiter.push({ piece, type, donnees, hashFichier, numero });
+        } catch (err) {
+          resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
+        }
+      }
+
+      if (piecesAtraiter.length === 0) continue;
+
+      const nbFactures = piecesAtraiter.filter((p) => p.type === "facture").length;
+      const adresseDext = choisirAdresseDext(nbFactures);
+      // Fiche fournisseur (section 6) resolue une seule fois par message,
+      // et seulement si au moins un document est reellement reconnu
+      // (facture, avoir, bon d'enlevement, releve, devis) : un lot
+      // uniquement ambigu vient souvent d'un expediteur qui n'est pas un
+      // vrai fournisseur (newsletter, notification...) — lui creer une
+      // fiche aurait pollue la liste des fournisseurs (signale par
+      // l'utilisateur en production).
+      const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu");
+      const fournisseurId = auMoinsUnDocumentReconnu ? await resoudreFournisseur(prisma, expediteur, cacheFournisseurs) : null;
+
+      for (const { piece, type, donnees, hashFichier, numero } of piecesAtraiter) {
+        try {
           if (type === "ambigu") {
             // Enregistre aussi un DocumentFournisseur (type "ambigu") pour
             // que le hash ci-dessus serve de garde-fou a la prochaine

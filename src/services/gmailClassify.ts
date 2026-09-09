@@ -38,15 +38,20 @@ function estPdf(piece: PieceJointe): boolean {
 }
 
 /**
- * Classe une seule piece jointe a partir de son propre nom de fichier et
- * du contexte du mail (sujet + debut du corps), qui priment sur le nom du
- * fichier lorsqu'ils se contredisent (le nom de fichier est souvent
- * generique, ex. "scan0001.pdf").
+ * Classe une seule piece jointe a partir de son propre nom de fichier, du
+ * contexte du mail (sujet + debut du corps), et — pour un PDF — du texte
+ * extrait de son propre contenu (`contenuExtrait`, voir
+ * `extractPdfText` dans bankStatementPdf.ts, reutilise par
+ * gmailSync.ts). Ce dernier est indispensable en pratique : beaucoup de
+ * factures fournisseurs arrivent avec un sujet/corps generiques ("Voici
+ * vos documents", pas un mot sur "facture"), le mot n'apparaissant que
+ * dans le PDF lui-meme. Sans lire le contenu, ces factures reelles
+ * tombaient a tort en ambigu (signale par l'utilisateur en production).
  */
-export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJointe): TypeDocument {
+export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJointe, contenuExtrait?: string): TypeDocument {
   if (!estPieceDocument(piece)) return "ambigu";
 
-  const texte = `${email.sujet} ${email.extraitCorps} ${piece.nomFichier}`;
+  const texte = `${email.sujet} ${email.extraitCorps} ${piece.nomFichier} ${contenuExtrait || ""}`;
 
   if (MOTIF_BON_ENLEVEMENT.test(texte)) return "bon_enlevement";
   if (MOTIF_RELEVE.test(texte)) return "releve";

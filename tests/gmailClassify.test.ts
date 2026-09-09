@@ -81,3 +81,19 @@ test("extraireNumeroFacture trouve un numero apres le mot facture", () => {
 test("extraireNumeroFacture retourne null si rien de reconnaissable", () => {
   assert.equal(extraireNumeroFacture("Merci pour votre commande"), null);
 });
+
+test("sujet/corps generiques, mais le mot facture est dans le contenu du PDF -> reconnue (pas ambigue)", () => {
+  const e = email({ sujet: "Voici vos documents", extraitCorps: "Bonjour, veuillez trouver ci-joint." });
+  const type = classifierPieceJointe(
+    e,
+    { nomFichier: "document.pdf", mimeType: "application/pdf" },
+    "FACTURE N°2026-099\nCedeo Paris\nMontant TTC : 245,00 EUR"
+  );
+  assert.equal(type, "facture");
+});
+
+test("contenu du PDF vide/absent -> comportement inchange (repli sur sujet/corps/nom de fichier)", () => {
+  const e = email({ sujet: "Commande chez Central Plomberie" });
+  const type = classifierPieceJointe(e, { nomFichier: "scan0042.pdf", mimeType: "application/pdf" }, undefined);
+  assert.equal(type, "ambigu");
+});

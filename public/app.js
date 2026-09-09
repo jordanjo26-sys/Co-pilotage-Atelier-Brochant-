@@ -139,6 +139,58 @@ async function chargerStatutStripe() {
   });
 }
 
+// --- Apercu d'un document (modale) -------------------------------------
+
+let urlObjetDocumentActuel = null;
+
+function fermerModaleDocument() {
+  const modale = document.getElementById("modal-document");
+  modale.hidden = true;
+  document.getElementById("contenu-modal").innerHTML = "";
+  if (urlObjetDocumentActuel) {
+    URL.revokeObjectURL(urlObjetDocumentActuel);
+    urlObjetDocumentActuel = null;
+  }
+}
+window.fermerModaleDocument = fermerModaleDocument;
+
+// Recupere le document via fetch (avec les identifiants deja memorises par
+// le navigateur pour ce site) plutot qu'une navigation directe : garantit
+// un apercu integre sur tous les navigateurs, certains proposant sinon un
+// telechargement plutot qu'un affichage pour une navigation directe vers
+// un type de contenu binaire (signale par l'utilisateur sur mobile).
+async function voirDocument(id, bouton) {
+  const texteInitial = bouton.textContent;
+  bouton.disabled = true;
+  bouton.textContent = "Chargement…";
+  try {
+    const res = await fetch(`/api/anomalies/${id}/document`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Document indisponible.");
+    }
+    const blob = await res.blob();
+    if (urlObjetDocumentActuel) URL.revokeObjectURL(urlObjetDocumentActuel);
+    urlObjetDocumentActuel = URL.createObjectURL(blob);
+
+    const contenu = document.getElementById("contenu-modal");
+    if (blob.type.startsWith("image/")) {
+      contenu.innerHTML = `<img src="${urlObjetDocumentActuel}" alt="Document" />`;
+    } else {
+      // PDF (ou tout autre type) : l'iframe delegue l'affichage au moteur
+      // de rendu integre du navigateur.
+      contenu.innerHTML = `<iframe src="${urlObjetDocumentActuel}" title="Document"></iframe>`;
+    }
+    document.getElementById("modal-document").hidden = false;
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = texteInitial;
+  }
+}
+window.voirDocument = voirDocument;
+
 // --- Anomalies : liste de cartes avec selection multiple -------------------
 
 async function ignorerAnomalie(id) {
@@ -193,7 +245,7 @@ async function chargerAnomalies() {
         <div class="anomalie-meta">${fmtDate(a.createdAt)}${expediteur}</div>
       </div>
       <div class="anomalie-actions">
-        <a class="ghost bouton-lien" href="/api/anomalies/${a.id}/document" target="_blank" rel="noopener">Voir</a>
+        <button type="button" class="ghost bouton-lien" onclick="voirDocument('${a.id}', this)">Voir</button>
         <button type="button" class="ghost" onclick="ignorerAnomalie('${a.id}')">Ignorer</button>
       </div>
     </div>`;

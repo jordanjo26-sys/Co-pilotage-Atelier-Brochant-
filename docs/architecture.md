@@ -192,9 +192,26 @@ metier deterministes priment sur une interpretation libre de l'IA").
 `gmailClassify.ts` est un module pur (aucun appel reseau, aucune donnee
 Prisma) : entierement teste unitairement, il classe une piece jointe en
 facture / avoir / bon d'enlevement / relevé / ambigu par des motifs
-explicites sur le sujet, le corps et le nom de fichier. Le cas "aucun
-motif ne correspond" part au centre de validation (ambigu), jamais vers
-Dext automatiquement.
+explicites sur le sujet, le corps, le nom de fichier, et (pour un PDF) le
+texte extrait de son propre contenu (voir plus bas). Le cas "aucun motif
+ne correspond" part au centre de validation (ambigu), jamais vers Dext
+automatiquement.
+
+> ⚠️ Historique : signale par l'utilisateur en production, des factures
+> reelles arrivaient a tort en anomalie "ambigu". Cause : la classification
+> ne regardait que le sujet, le debut du corps du message et le nom de
+> fichier — jamais le contenu du PDF lui-meme. Beaucoup de factures
+> fournisseurs arrivent avec un sujet/corps generiques ("Voici vos
+> documents"), le mot "facture" n'apparaissant que dans le PDF. Corrige en
+> extrayant le texte du PDF (`extractPdfText`, meme utilitaire `pdftotext`
+> que pour le releve bancaire PDF) avant classification — voir
+> `gmailSync.ts`, qui telecharge et lit chaque piece jointe AVANT de la
+> classifier plutot qu'apres (necessaire pour disposer du contenu).
+> Le meme signalement a aussi revele qu'une fiche Fournisseur etait creee
+> pour des expediteurs qui n'etaient pas de vrais fournisseurs (newsletter,
+> notification) des qu'un message contenait ne serait-ce qu'une piece
+> jointe ambigue : corrige en ne resolvant/creant une fiche que si au
+> moins un document du message est reellement reconnu.
 
 > ⚠️ Historique : une premiere version traitait ce cas comme "facture
 > standard" par defaut (l'hypothese etant que beaucoup de fournisseurs

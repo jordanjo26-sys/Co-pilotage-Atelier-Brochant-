@@ -92,7 +92,11 @@ procédure complète, étape par étape). Une fois `GOOGLE_CLIENT_ID`,
    (`GMAIL_POLL_INTERVAL_MS`, réglable) — ou cliquer sur "Synchroniser
    maintenant" dans le cockpit pour déclencher une passe immédiatement.
 3. Chaque pièce jointe reçue est classée selon des règles déterministes
-   (section 14 : jamais d'interprétation libre) :
+   (section 14 : jamais d'interprétation libre), en tenant compte **du sujet,
+   du début du corps du message, du nom de fichier, ET du contenu texte du
+   PDF lui-même** (extrait via `pdftotext`) — beaucoup de factures arrivent
+   avec un sujet/corps générique ("Voici vos documents"), le mot "facture"
+   n'apparaissant que dans le PDF :
    - **Facture** standard (uniquement au format PDF — une image dans le
      même e-mail, ex. logo de signature, reste ambiguë) → transférée
      vers l'adresse Dext appropriée (`facturation-brochant@dext.cc` ou
@@ -111,15 +115,20 @@ procédure complète, étape par étape). Une fois `GOOGLE_CLIENT_ID`,
      portent un en-tête `Content-ID` ou un `Content-Disposition: inline` —
      les deux signaux standards utilisés par les clients mail et les
      plateformes d'e-mailing pour ce type de ressource.
-4. Chaque décision est déduplicée par empreinte de fichier (section 7.3),
+4. Une fiche fournisseur (voir plus bas) n'est créée/liée que si **au moins
+   un document du message est réellement reconnu** (facture, avoir, bon
+   d'enlèvement, relevé, devis) — un lot entièrement ambigu (souvent une
+   newsletter ou une notification, pas un vrai fournisseur) ne crée jamais
+   de fiche.
+5. Chaque décision est déduplicée par empreinte de fichier (section 7.3),
    **anomalies comprises** : une pièce jointe non reconnue n'est signalée
    qu'une seule fois, jamais à nouveau à chaque passage du planificateur une
    fois traitée (ignorée ou non). Journalisé (`GET /api/journal`) : relancer
    une synchronisation, même plusieurs fois sur les mêmes e-mails, ne
    retransmet et ne re-signale jamais un document déjà connu.
-5. Chaque anomalie du centre de validation propose un bouton **Voir** pour
-   prévisualiser la pièce jointe (redemandée à Gmail à la volée, jamais
-   stockée) en plus d'**Ignorer**.
+6. Chaque anomalie du centre de validation propose un bouton **Voir** pour
+   prévisualiser la pièce jointe **directement dans la page** (redemandée
+   à Gmail à la volée, jamais stockée) en plus d'**Ignorer**.
 
 **Pause du transfert automatique (`DEXT_AUTO_FORWARD=false`)** : les
 factures reconnues ne sont alors plus envoyées à Dext — elles sont
