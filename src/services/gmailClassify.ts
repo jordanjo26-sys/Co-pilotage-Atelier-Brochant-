@@ -51,23 +51,38 @@ function estPdf(piece: PieceJointe): boolean {
 export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJointe, contenuExtrait?: string): TypeDocument {
   if (!estPieceDocument(piece)) return "ambigu";
 
-  const texte = `${email.sujet} ${email.extraitCorps} ${piece.nomFichier} ${contenuExtrait || ""}`;
+  // Contexte "sûr" (sujet, corps, nom de fichier) : ces quatre autres types
+  // de document restent verifies UNIQUEMENT ici, jamais dans le contenu
+  // integral du PDF. "avoir" en particulier est un mot francais tres
+  // courant hors de son sens comptable ("pour avoir plus d'informations",
+  // mentions legales de bas de page...) : l'ouvrir a tout le texte d'un PDF
+  // multi-pages (necessaire pour reconnaitre une facture au sujet
+  // generique, voir plus bas) ferait basculer en "avoir" - un type jamais
+  // transmis a Dext ni signale en anomalie, donc invisible - une vraie
+  // facture qui mentionne incidemment ce mot n'importe ou dans le document
+  // (signale par l'utilisateur en production : une facture recue disparait
+  // sans laisser de trace, ni dans les anomalies ni dans les factures).
+  const contexte = `${email.sujet} ${email.extraitCorps} ${piece.nomFichier}`;
 
-  if (MOTIF_BON_ENLEVEMENT.test(texte)) return "bon_enlevement";
-  if (MOTIF_RELEVE.test(texte)) return "releve";
-  if (MOTIF_AVOIR.test(texte)) return "avoir";
+  if (MOTIF_BON_ENLEVEMENT.test(contexte)) return "bon_enlevement";
+  if (MOTIF_RELEVE.test(contexte)) return "releve";
+  if (MOTIF_AVOIR.test(contexte)) return "avoir";
   // Une facture n'est jamais transmise a Dext si ce n'est pas un PDF : un
   // e-mail de facture contient souvent d'autres pieces jointes (logo de
   // signature en .jpg/.png par ex.) qui partagent le meme contexte
   // (le mot "facture" dans le sujet) mais ne sont pas la facture elle-meme.
   // Seul le PDF est retenu comme facture ; une image dans ce contexte reste
-  // ambigue plutot que d'etre presumee etre la facture.
-  if (MOTIF_FACTURE.test(texte) && estPdf(piece)) return "facture";
+  // ambigue plutot que d'etre presumee etre la facture. Seule la detection
+  // de facture regarde aussi le contenu extrait du PDF (contenuExtrait) :
+  // c'est le seul type pour lequel un sujet generique ("Voici vos
+  // documents") est un cas reel et frequent, le mot "facture" n'apparaissant
+  // alors que dans le PDF lui-meme.
+  if (MOTIF_FACTURE.test(`${contexte} ${contenuExtrait || ""}`) && estPdf(piece)) return "facture";
   // Un devis n'est ni une facture ni un cas ambigu : type connu et
   // reconnaissable, jamais transmis a Dext, jamais mis en attente de
   // validation (evite d'encombrer le centre de validation a chaque devis
   // recu d'un fournisseur).
-  if (MOTIF_DEVIS.test(texte)) return "devis";
+  if (MOTIF_DEVIS.test(contexte)) return "devis";
 
   // Correctif suite a un incident reel (envois errones vers Dext, rejetes
   // en masse) : la recherche Gmail (has:attachment newer_than:7d) balaie

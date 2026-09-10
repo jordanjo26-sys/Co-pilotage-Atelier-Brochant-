@@ -461,6 +461,47 @@ async function supprimerFournisseur(id, bouton) {
 }
 window.supprimerFournisseur = supprimerFournisseur;
 
+// Libelles des types de document autres que "facture" (voir gmailClassify.ts) :
+// avoir/bon_enlevement/releve/devis ne sont jamais transmis a Dext ni
+// signales en anomalie (jamais ambigus, jamais a valider), donc totalement
+// invisibles sans ce detail - une mauvaise classification (ex. le mot
+// "avoir" present incidemment dans une vraie facture) passait inapercue
+// jusqu'a ce que l'utilisateur constate qu'une facture recue avait disparu
+// sans laisser de trace (signale en production).
+const LIBELLE_TYPE_DOCUMENT = {
+  facture: "Facture",
+  avoir: "Avoir",
+  bon_enlevement: "Bon d'enlèvement",
+  releve: "Relevé",
+  devis: "Devis",
+  ambigu: "Non classé",
+};
+
+async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
+  conteneur.innerHTML = `<p class="aide-inline">Chargement…</p>`;
+  try {
+    const res = await fetch(`/api/fournisseurs/${fournisseurId}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.erreur || "Chargement impossible.");
+    const documents = data.documents || [];
+    conteneur.innerHTML =
+      documents
+        .map(
+          (d) => `
+      <div class="fournisseur-document-ligne">
+        <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_DOCUMENT[d.type] || d.type)}</span>
+        <span>${echapper(d.fichierNom || "Document")}</span>
+        ${d.dateReceptionMail ? `<span class="anomalie-meta">reçu le ${fmtDate(d.dateReceptionMail)}</span>` : ""}
+        <a class="ghost bouton-lien" href="/api/documents-fournisseurs/${d.id}/document" target="_blank" rel="noopener">Voir</a>
+      </div>`
+        )
+        .join("") || `<p class="aide-inline">Aucun document.</p>`;
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+window.chargerDocumentsFournisseur = chargerDocumentsFournisseur;
+
 async function chargerFournisseurs() {
   const res = await fetch("/api/fournisseurs");
   const fournisseurs = await res.json();
@@ -481,6 +522,14 @@ async function chargerFournisseurs() {
         ${f.nbEnAttente > 0 ? ` · <strong>${f.nbEnAttente} en attente</strong>` : ""}
         ${f.dernierDocumentLe ? ` · dernier reçu le ${fmtDate(f.dernierDocumentLe)}` : ""}
       </div>
+      ${
+        f.nbDocuments > 0
+          ? `<details class="fournisseur-documents" ontoggle="if(this.open) chargerDocumentsFournisseur('${f.id}', this.querySelector('.fournisseur-documents-liste'))">
+        <summary>Voir les documents (${f.nbDocuments})</summary>
+        <div class="fournisseur-documents-liste">Chargement…</div>
+      </details>`
+          : ""
+      }
       ${f.nbFactures === 0 ? `<div class="fournisseur-actions"><button type="button" class="ghost" onclick="supprimerFournisseur('${f.id}', this)">Supprimer</button></div>` : ""}
     </div>`
     )

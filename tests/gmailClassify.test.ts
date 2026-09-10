@@ -97,3 +97,18 @@ test("contenu du PDF vide/absent -> comportement inchange (repli sur sujet/corps
   const type = classifierPieceJointe(e, { nomFichier: "scan0042.pdf", mimeType: "application/pdf" }, undefined);
   assert.equal(type, "ambigu");
 });
+
+test("une vraie facture au sujet generique n'est pas detournee en avoir/devis/releve par un mot present ailleurs dans le PDF (regression reelle en production)", () => {
+  const e = email({ sujet: "Vos documents", extraitCorps: "Bonjour, veuillez trouver ci-joint." });
+  // "avoir" est un mot francais tres courant hors de son sens comptable :
+  // une mention legale de bas de page ("pour avoir plus d'informations,
+  // contactez-nous") ne doit jamais faire basculer une vraie facture en
+  // type "avoir" (jamais transmis a Dext, jamais signale en anomalie -
+  // donc totalement invisible si mal classe).
+  const type = classifierPieceJointe(
+    e,
+    { nomFichier: "document.pdf", mimeType: "application/pdf" },
+    "FACTURE N°2026-142\nOr Torah\nMontant TTC : 89,00 EUR\nPour avoir plus d'informations, contactez notre service client."
+  );
+  assert.equal(type, "facture");
+});
