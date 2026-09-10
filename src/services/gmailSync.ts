@@ -274,6 +274,8 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
                 hashFichier,
                 statutDext: "a_valider",
                 gmailMessageId: ref.id,
+                gmailAttachmentId: piece.attachmentId,
+                mimeType: piece.mimeType,
                 gmailExpediteur: expediteur,
                 gmailObjet: sujet,
                 dateReceptionMail: dateReception,
@@ -310,6 +312,8 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
                 hashFichier,
                 statutDext: "envoye",
                 gmailMessageId: ref.id,
+                gmailAttachmentId: piece.attachmentId,
+                mimeType: piece.mimeType,
                 gmailExpediteur: expediteur,
                 gmailObjet: sujet,
                 dateReceptionMail: dateReception,
@@ -336,6 +340,8 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
                 hashFichier,
                 statutDext: "a_valider",
                 gmailMessageId: ref.id,
+                gmailAttachmentId: piece.attachmentId,
+                mimeType: piece.mimeType,
                 gmailExpediteur: expediteur,
                 gmailObjet: sujet,
                 dateReceptionMail: dateReception,
@@ -358,6 +364,8 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
                 hashFichier,
                 statutDext: "archive",
                 gmailMessageId: ref.id,
+                gmailAttachmentId: piece.attachmentId,
+                mimeType: piece.mimeType,
                 gmailExpediteur: expediteur,
                 gmailObjet: sujet,
                 dateReceptionMail: dateReception,
@@ -415,4 +423,59 @@ async function envoyerVersDext(
   const raw = message.toString("base64url");
 
   await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+}
+
+export class DocumentFournisseurEnvoiError extends Error {}
+
+/**
+ * Envoi manuel vers Dext d'une facture fournisseur deja recue et
+ * classifiee, mais pas encore transferee (statutDext "a_valider" : soit le
+ * transfert automatique est en pause via DEXT_AUTO_FORWARD=false et la
+ * facture attend l'envoi groupe de fin de mois, soit elle a ete corrigee
+ * manuellement en "facture" depuis le centre de validation des anomalies).
+ * Toujours a la demande explicite de l'utilisateur (bouton "Envoyer a
+ * Dext"), jamais declenche automatiquement.
+ */
+export async function envoyerDocumentFournisseurVersDext(prisma: PrismaClient, documentId: string): Promise<void> {
+  const document = await prisma.documentFournisseur.findUnique({ where: { id: documentId } });
+  if (!document) throw new DocumentFournisseurEnvoiError("Document introuvable.");
+  if (document.type !== "facture") {
+    throw new DocumentFournisseurEnvoiError(`Seules les factures peuvent etre envoyees a Dext (type actuel : ${document.type}).`);
+  }
+  if (document.statutDext === "envoye") {
+    throw new DocumentFournisseurEnvoiError("Cette facture a deja ete envoyee a Dext.");
+  }
+  if (!document.gmailMessageId || !document.gmailAttachmentId) {
+    throw new DocumentFournisseurEnvoiError("Piece jointe non disponible (document trop ancien, avant l'enregistrement de sa reference Gmail).");
+  }
+
+  const connexionGmail = await getGmailClient(prisma);
+  if (!connexionGmail) throw new DocumentFournisseurEnvoiError("Gmail non connecte.");
+  const { gmail } = connexionGmail;
+
+  const attachment = await gmail.users.messages.attachments.get({
+    userId: "me",
+    messageId: document.gmailMessageId,
+    id: document.gmailAttachmentId,
+  });
+  const donnees = Buffer.from(attachment.data.data || "", "base64url");
+
+  // Un envoi manuel porte toujours sur un document a la fois : l'adresse
+  // "multiple" (choisirAdresseDext) ne s'applique qu'au moment ou plusieurs
+  // factures arrivent groupees dans le meme e-mail, contexte deja passe ici.
+  const destinataire = choisirAdresseDext(1);
+  await envoyerVersDext(gmail, {
+    destinataire,
+    nomFichier: document.fichierNom || "facture",
+    mimeType: document.mimeType || "application/octet-stream",
+    donnees,
+    sujetOrigine: document.gmailObjet || document.fichierNom || "Facture fournisseur",
+  });
+
+  await prisma.documentFournisseur.update({ where: { id: documentId }, data: { statutDext: "envoye" } });
+  await logEvenement(prisma, {
+    evenement: "gmail_document",
+    action: `Facture recue de ${document.gmailExpediteur} : ${document.fichierNom}`,
+    resultat: `Envoyee manuellement vers ${destinataire} depuis le centre de fournisseurs.`,
+  });
 }

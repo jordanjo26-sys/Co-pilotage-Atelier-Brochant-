@@ -3,7 +3,7 @@ import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
 import { getDashboardSummary } from "../services/dashboardService";
-import { synchroniserGmail } from "../services/gmailSync";
+import { synchroniserGmail, envoyerDocumentFournisseurVersDext, DocumentFournisseurEnvoiError } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
@@ -234,12 +234,56 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   router.get("/documents-fournisseurs", async (req, res) => {
     const type = typeof req.query.type === "string" ? req.query.type : undefined;
+    const statutDext = typeof req.query.statutDext === "string" ? req.query.statutDext : undefined;
     const documents = await prisma.documentFournisseur.findMany({
-      where: type ? { type } : undefined,
+      where: { ...(type ? { type } : {}), ...(statutDext ? { statutDext } : {}) },
+      include: { fournisseur: { select: { nom: true } } },
       orderBy: { createdAt: "desc" },
       take: 500,
     });
     res.json(documents);
+  });
+
+  // Previsualisation d'une facture fournisseur reconnue mais pas encore
+  // envoyee a Dext (meme principe que /anomalies/:id/document : le fichier
+  // n'est pas stocke en base, seulement sa reference Gmail).
+  router.get("/documents-fournisseurs/:id/document", async (req, res) => {
+    const document = await prisma.documentFournisseur.findUnique({ where: { id: req.params.id } });
+    if (!document) return res.status(404).json({ erreur: "Document introuvable." });
+    if (!document.gmailMessageId || !document.gmailAttachmentId) {
+      return res.status(404).json({ erreur: "Document non disponible (piece jointe plus ancienne, reference Gmail non enregistree)." });
+    }
+    try {
+      const connexionGmail = await getGmailClient(prisma);
+      if (!connexionGmail) return res.status(400).json({ erreur: "Gmail non connecte." });
+      const { gmail } = connexionGmail;
+      const attachment = await gmail.users.messages.attachments.get({
+        userId: "me",
+        messageId: document.gmailMessageId,
+        id: document.gmailAttachmentId,
+      });
+      const donnees = Buffer.from(attachment.data.data || "", "base64url");
+      res.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.fichierNom || "document")}"`);
+      res.send(donnees);
+    } catch (err) {
+      res.status(502).json({ erreur: `Impossible de recuperer le document depuis Gmail : ${(err as Error).message}` });
+    }
+  });
+
+  // Envoi manuel vers Dext d'une facture fournisseur en attente (transfert
+  // automatique en pause, ou correction manuelle depuis les anomalies) :
+  // toujours a la demande explicite de l'utilisateur (section 14).
+  router.post("/documents-fournisseurs/:id/envoyer", async (req, res) => {
+    try {
+      await envoyerDocumentFournisseurVersDext(prisma, req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof DocumentFournisseurEnvoiError) {
+        return res.status(409).json({ erreur: err.message });
+      }
+      res.status(500).json({ erreur: (err as Error).message });
+    }
   });
 
   router.get("/anomalies", async (req, res) => {

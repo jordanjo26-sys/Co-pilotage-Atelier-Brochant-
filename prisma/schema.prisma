@@ -192,6 +192,8 @@ model DocumentFournisseur {
   // deduplication reelle (section 7.3) repose sur hashFichier, unique par
   // piece jointe quel que soit le message qui l'a apportee.
   gmailMessageId    String?
+  gmailAttachmentId String? // avec gmailMessageId : permet de rappeler la piece jointe (previsualisation, envoi manuel vers Dext)
+  mimeType          String?
   gmailExpediteur   String?
   gmailObjet        String?
   dateReceptionMail DateTime?

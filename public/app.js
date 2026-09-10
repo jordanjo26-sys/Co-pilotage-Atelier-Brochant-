@@ -372,6 +372,66 @@ document.getElementById("form-morgane").addEventListener("submit", async (e) => 
   }
 });
 
+// --- Factures fournisseurs recues, pas encore envoyees a Dext -------------
+//
+// Une facture correctement reconnue par la classification (type "facture")
+// mais dont le transfert automatique est en pause (DEXT_AUTO_FORWARD=false,
+// cas standard : etiquetee dans Gmail pour un envoi manuel groupe en fin de
+// mois) n'apparaissait auparavant nulle part dans l'interface — ni dans les
+// anomalies (elle est reconnue, pas ambigue), ni ailleurs qu'un chiffre sur
+// la fiche du fournisseur concerne, invisible en pratique. Signale par
+// l'utilisateur : une facture bien recue par e-mail, introuvable "dans les
+// factures". Cette section la rend visible individuellement, avec un envoi
+// manuel immediat en plus de l'attente de fin de mois.
+
+async function envoyerFactureFournisseurVersDext(id, bouton) {
+  const texteInitial = bouton.textContent;
+  bouton.disabled = true;
+  bouton.textContent = "Envoi…";
+  try {
+    const res = await fetch(`/api/documents-fournisseurs/${id}/envoyer`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Envoi impossible.");
+    }
+    await chargerFacturesFournisseurs();
+  } catch (err) {
+    bouton.disabled = false;
+    bouton.textContent = texteInitial;
+    alert(err.message);
+  }
+}
+window.envoyerFactureFournisseurVersDext = envoyerFactureFournisseurVersDext;
+
+async function chargerFacturesFournisseurs() {
+  const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=a_valider");
+  const documents = await res.json();
+  const liste = document.getElementById("liste-factures-fournisseurs");
+
+  if (documents.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune facture fournisseur en attente d'envoi.</p>`;
+    return;
+  }
+
+  liste.innerHTML = documents
+    .map(
+      (d) => `
+    <div class="fournisseur-carte">
+      <div class="fournisseur-nom">${echapper(d.fichierNom || "Document")}</div>
+      <div class="anomalie-meta">
+        ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
+        ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
+        ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
+      </div>
+      <div class="fournisseur-actions fournisseur-actions-ligne">
+        <a class="ghost bouton-lien" href="/api/documents-fournisseurs/${d.id}/document" target="_blank" rel="noopener">Voir</a>
+        <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
+      </div>
+    </div>`
+    )
+    .join("");
+}
+
 // --- Fournisseurs ---------------------------------------------------------
 
 // Le nom seul ne permet pas de deviner si un expediteur est un vrai
@@ -525,7 +585,7 @@ document.getElementById("btn-envoyer-bilan").addEventListener("click", async (e)
 });
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFournisseurs(), chargerDecisions()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {
