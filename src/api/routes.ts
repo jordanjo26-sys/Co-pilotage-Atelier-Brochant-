@@ -11,7 +11,7 @@ import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
-import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe } from "../services/stripeSync";
+import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
 import { getGmailClient } from "../services/googleAuth";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -91,7 +91,12 @@ export function buildRouter(prisma: PrismaClient): Router {
   // --- Stripe : synchronisation directe par API (remplace l'import CSV) ---
 
   router.get("/stripe/status", async (_req, res) => {
-    res.json({ connecte: stripeEstConnecte(), derniereSynchro: await derniereSynchroStripe(prisma) });
+    const verification = await verifierConnexionStripe();
+    res.json(
+      verification.ok
+        ? { connecte: true, derniereSynchro: await derniereSynchroStripe(prisma) }
+        : { connecte: false, motif: verification.motif }
+    );
   });
 
   router.post("/stripe/sync", async (_req, res) => {
@@ -100,6 +105,20 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
+  });
+
+  // Detail des paiements/payouts effectivement captes par la synchronisation
+  // (par API ou par depot CSV, les deux alimentant les memes tables) :
+  // jusqu'ici seuls des compteurs agreges etaient visibles au moment d'un
+  // clic sur "Synchroniser maintenant", sans aucune liste consultable
+  // ensuite - impossible de verifier si un paiement precis a bien ete recu
+  // ou non (signale par l'utilisateur en production). Rappel important :
+  // ces tables alimentent le rapprochement bancaire (Payout <-> releve),
+  // jamais directement le statut payee/impayee d'une Facture client - celui-ci
+  // vient exclusivement du champ reglements de l'export Synec (section 4.4).
+  router.get("/stripe/paiements", async (_req, res) => {
+    const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 100 });
+    res.json(paiements);
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {

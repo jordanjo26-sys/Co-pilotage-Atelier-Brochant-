@@ -41,6 +41,25 @@ export function stripeEstConnecte(): boolean {
   return Boolean(process.env.STRIPE_API_KEY);
 }
 
+/**
+ * Verifie que la cle API Stripe configuree fonctionne reellement (meme
+ * principe que la verification du jeton Google, voir GET /api/gmail/status) :
+ * la seule presence de STRIPE_API_KEY ne garantit rien - une cle revoquee,
+ * expiree ou mal recopiee laisserait le statut afficher "Connecté" en
+ * continu sans que la synchronisation ne fonctionne jamais, sans aucune
+ * indication a l'utilisateur (panne silencieuse constatee en production
+ * pour Gmail, meme risque ici). Un appel minimal (balance.retrieve) suffit.
+ */
+export async function verifierConnexionStripe(): Promise<{ ok: true } | { ok: false; motif: string }> {
+  if (!stripeEstConnecte()) return { ok: false, motif: "Aucune cle API Stripe configuree." };
+  try {
+    await obtenirClientStripe().balance.retrieve();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, motif: `Cle API Stripe invalide ou revoquee : ${(err as Error).message}` };
+  }
+}
+
 function obtenirClientStripe(): Stripe {
   const cle = process.env.STRIPE_API_KEY;
   if (!cle) throw new Error("Aucune cle API Stripe configuree (STRIPE_API_KEY).");

@@ -108,7 +108,7 @@ async function chargerStatutStripe() {
   const div = document.getElementById("stripe-statut");
 
   if (!data.connecte) {
-    div.innerHTML = `<p class="statut-dot off">Non connecté — clé API à ajouter (voir docs/mise-en-service.md).</p>`;
+    div.innerHTML = `<p class="statut-dot off">${data.motif ? echapper(data.motif) : "Non connecté — clé API à ajouter (voir docs/mise-en-service.md)."}</p>`;
     return;
   }
 
@@ -117,9 +117,16 @@ async function chargerStatutStripe() {
       <span class="statut-dot">Connecté</span><br/>
       Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}
     </p>
+    <p class="aide-inline">Alimente uniquement le rapprochement bancaire (payout ↔ relevé) — jamais directement le statut payée/impayée d'une facture client, qui vient exclusivement du champ "règlements" de l'export Synec.</p>
     <button type="button" id="btn-sync-stripe" class="ghost">Synchroniser maintenant</button>
     <div id="resultat-sync-stripe"></div>
+    <details class="fournisseur-documents">
+      <summary>Voir les paiements captés</summary>
+      <div id="liste-paiements-stripe">Chargement…</div>
+    </details>
   `;
+
+  chargerPaiementsStripe();
 
   document.getElementById("btn-sync-stripe").addEventListener("click", async () => {
     const resultatDiv = document.getElementById("resultat-sync-stripe");
@@ -137,6 +144,41 @@ async function chargerStatutStripe() {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }
   });
+}
+
+// Liste individuelle des paiements Stripe deja captes : jusqu'ici seuls des
+// compteurs agreges apparaissaient au moment d'un clic sur "Synchroniser
+// maintenant", sans aucune trace consultable ensuite - impossible de
+// verifier si un paiement precis a bien ete recu ou non (signale par
+// l'utilisateur en production). Important : cette synchronisation ne
+// decouvre un paiement qu'A TRAVERS le payout qui le contient (voir
+// stripeSync.ts) - un paiement recu chez Stripe mais pas encore reverse sur
+// le compte bancaire (delai habituel de quelques jours) n'apparait donc PAS
+// encore ici, meme s'il est deja visible dans le tableau de bord Stripe.
+// C'est un delai normal du fonctionnement de Stripe, pas un bug de cette
+// synchronisation ni une raison pour laquelle une facture resterait impayee
+// dans l'application (ce statut vient exclusivement de l'export Synec).
+async function chargerPaiementsStripe() {
+  const conteneur = document.getElementById("liste-paiements-stripe");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/stripe/paiements");
+    const paiements = await res.json();
+    conteneur.innerHTML =
+      paiements
+        .map(
+          (p) => `
+      <div class="fournisseur-document-ligne">
+        <span class="anomalie-meta">${fmtDate(p.date)}</span>
+        <span>${fmtMontant(p.net)}</span>
+        ${p.description ? `<span class="anomalie-meta">${echapper(p.description)}</span>` : ""}
+      </div>`
+        )
+        .join("") ||
+      `<p class="aide-inline">Aucun paiement capté pour le moment (un paiement tout juste reçu chez Stripe n'apparaît ici qu'une fois inclus dans un virement vers la banque, généralement sous quelques jours).</p>`;
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
 }
 
 // --- Apercu d'un document -------------------------------------------------
