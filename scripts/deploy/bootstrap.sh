@@ -259,9 +259,18 @@ server {
     client_max_body_size 25M;
 
     # En-tetes de securite de base (l'appli elle-meme ne les fixe pas).
+    # X-Frame-Options en SAMEORIGIN (pas DENY) : protege toujours contre le
+    # clickjacking depuis un site tiers (menace reelle visee par cet
+    # en-tete), mais permet a l'application de se cadrer elle-meme dans une
+    # iframe sur ses propres pages - necessaire a l'apercu de document
+    # integre (bouton "Voir"), qui restait bloque silencieusement par
+    # "DENY" (constate en production : la page s'affichait en about:blank
+    # avec bascule forcee en telechargement, WebKit refusant purement et
+    # simplement d'afficher une reponse marquee DENY dans une iframe, meme
+    # venant du meme site).
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 ${AUTH_BASIC_CONF}
 
