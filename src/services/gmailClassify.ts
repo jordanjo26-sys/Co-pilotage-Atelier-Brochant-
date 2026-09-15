@@ -25,7 +25,19 @@ const MIME_TYPES_DOCUMENT = ["application/pdf", "image/jpeg", "image/png", "imag
 
 const MOTIF_BON_ENLEVEMENT = /bon[\s.-]*d['\s]*enl[eè]vement|bon[\s.-]*de[\s.-]*sortie|bordereau[\s.-]*d['\s]*enl[eè]vement/i;
 const MOTIF_RELEVE = /relev[eé][\s.-]*(de[\s.-]*)?factures?|relev[eé][\s.-]*fournisseur|statement[\s.-]*of[\s.-]*account/i;
-const MOTIF_AVOIR = /\bavoir\b|note[\s.-]*de[\s.-]*cr[eé]dit|credit[\s.-]*note/i;
+// "avoir" est a la fois le nom du document comptable ("Avoir n°123") ET
+// l'un des verbes les plus courants du francais, presque toujours utilise
+// dans des tournures qui n'ont rien a voir avec un avoir ("merci d'avoir
+// choisi...", "apres avoir passe commande", "pour avoir plus d'informations")
+// et qui apparaissent couramment en tete de sujet/corps d'un e-mail de
+// facture standard (regression reelle en production, deux fois : d'abord
+// via le contenu integral du PDF, puis via le sujet/corps meme apres avoir
+// restreint le contexte). Plutot que le mot seul, n'accepter que ses
+// usages typiques de nom de document : en tete de texte ("Avoir n°..."),
+// precede d'un determinant ("votre avoir", "un avoir"...), ou suivi d'une
+// reference ("avoir n°123").
+const MOTIF_AVOIR =
+  /^avoir\b|\b(?:un|une|cet|cette|votre|notre|mon|ma|son|sa|l['’])\s+avoir\b|\bavoir\s*n[°o]?\s*[:.#-]?\s*\d|note[\s.-]*de[\s.-]*cr[eé]dit|credit[\s.-]*note/i;
 const MOTIF_FACTURE = /\bfacture\b|\binvoice\b|\bfattura\b/i;
 const MOTIF_DEVIS = /\bdevis\b|offre[\s.-]*de[\s.-]*prix|offre[\s.-]*commerciale|\bquote\b|\bquotation\b|\bestimate\b/i;
 

@@ -35,10 +35,34 @@ test("classifie un releve de factures fournisseur", () => {
   assert.equal(type, "releve");
 });
 
-test("classifie un avoir", () => {
+test("classifie un avoir (mot en tete de sujet)", () => {
   const e = email({ sujet: "Avoir suite a votre reclamation" });
   const type = classifierPieceJointe(e, { nomFichier: "avoir.pdf", mimeType: "application/pdf" });
   assert.equal(type, "avoir");
+});
+
+test("classifie un avoir precede d'un determinant", () => {
+  const e = email({ sujet: "Merci, votre avoir a ete emis" });
+  const type = classifierPieceJointe(e, { nomFichier: "document.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "avoir");
+});
+
+test("classifie un avoir suivi d'une reference, meme sans etre en tete de sujet", () => {
+  const e = email({ sujet: "Suite a votre retour, avoir n°2026-014" });
+  const type = classifierPieceJointe(e, { nomFichier: "document.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "avoir");
+});
+
+test("une vraie facture au sujet contenant 'avoir' au sens du verbe n'est pas detournee (regression reelle en production, signalee deux fois)", () => {
+  const e = email({ sujet: "Merci d'avoir choisi Style A - Facture n°2026-201" });
+  const type = classifierPieceJointe(e, { nomFichier: "facture.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "facture");
+});
+
+test("une vraie facture dont le corps commence par 'après avoir' n'est pas detournee", () => {
+  const e = email({ sujet: "Votre commande", extraitCorps: "Bonjour, apres avoir valide votre commande, voici votre facture." });
+  const type = classifierPieceJointe(e, { nomFichier: "facture.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "facture");
 });
 
 test("classifie un devis, jamais une facture ni un cas ambigu", () => {
