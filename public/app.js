@@ -183,24 +183,36 @@ async function chargerPaiementsStripe() {
 
 // --- Apercu d'un document -------------------------------------------------
 //
-// Historique : trois tentatives successives de previsualisation "intelligente"
-// (modale avec iframe/img sur blob URL, puis window.open apres fetch, puis
-// window.open isole dans une fonction non-async) ont chacune ete bloquees ou
-// affiche un ecran blanc sur l'iPhone de l'utilisateur, chaque correctif
-// remplaçant un echec silencieux par un autre — constate a chaque fois par
-// capture d'ecran, et confirme par l'utilisateur : "ca marche pas alors que
-// ca marchait avant" (avant ces trois tentatives). Plutot que de continuer a
-// deviner le comportement exact de Safari sur cet appareil (section 14 :
-// jamais deviner), retour au lien direct simple qui fonctionnait a l'origine :
-// aucun JavaScript entre le clic et l'affichage, donc rien qu'un bloqueur de
-// popup ou une regle async/await de WebKit puisse casser. Le seul defaut connu
-// (signale une fois par l'utilisateur) est que certains types de fichiers que
-// Safari ne sait pas afficher nativement (ex. Word/Excel joints en piece) sont
-// telecharges plutot qu'affiches — c'est une limite du navigateur pour ces
-// formats, pas quelque chose qu'un script cote client peut forcer a previsualiser.
-// L'endpoint /api/anomalies/:id/document envoie deja Content-Disposition:
-// inline avec le bon Content-Type (voir routes.ts), donc Safari affiche
-// directement les PDF et images dans l'onglet ouvert par le lien.
+// Historique : quatre tentatives successives de previsualisation ont
+// chacune echoue sur l'appareil de l'utilisateur (iPhone/Safari) : modale
+// avec iframe/img sur blob URL, window.open apres fetch, window.open isole
+// dans une fonction non-async, puis un lien direct <a target="_blank">
+// (qui ouvrait bien un nouvel onglet, mais celui-ci restait blanc). Le
+// point commun aux trois dernieres tentatives : un NOUVEL ONGLET/FENETRE,
+// dont le contexte d'authentification (le site entier est protege par
+// Basic Auth) ne se comporte pas de facon fiable sur cet appareil.
+//
+// Cette version n'ouvre plus aucun nouvel onglet ni fenetre : une iframe
+// integree DANS LA PAGE ACTUELLE pointe directement vers l'URL reseau du
+// document (jamais un blob local, contrairement a la toute premiere
+// tentative). Le navigateur la charge exactement comme il charge deja
+// styles.css, app.js ou logo.png sur cette meme page : memes identifiants
+// Basic Auth deja en cache, meme onglet, aucun geste utilisateur a
+// preserver pour un window.open. Un bouton "Telecharger" reste propose en
+// repli pour les formats qu'aucun navigateur ne sait afficher nativement
+// (Word/Excel...), limite inherente au format, pas a ce mecanisme.
+function voirDocument(url) {
+  document.getElementById("iframe-document").src = url;
+  document.getElementById("lien-telecharger-document").href = url;
+  document.getElementById("modal-document").hidden = false;
+}
+window.voirDocument = voirDocument;
+
+function fermerModaleDocument() {
+  document.getElementById("modal-document").hidden = true;
+  document.getElementById("iframe-document").src = "";
+}
+window.fermerModaleDocument = fermerModaleDocument;
 
 // --- Anomalies : liste de cartes avec selection multiple -------------------
 
@@ -256,7 +268,7 @@ async function chargerAnomalies() {
         <div class="anomalie-meta">${fmtDate(a.createdAt)}${expediteur}</div>
       </div>
       <div class="anomalie-actions">
-        <a class="ghost bouton-lien" href="/api/anomalies/${a.id}/document" target="_blank" rel="noopener">Voir</a>
+        <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/anomalies/${a.id}/document')">Voir</button>
         <button type="button" class="ghost" onclick="ignorerAnomalie('${a.id}')">Ignorer</button>
       </div>
     </div>`;
@@ -466,7 +478,7 @@ async function chargerFacturesFournisseurs() {
         ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
       </div>
       <div class="fournisseur-actions fournisseur-actions-ligne">
-        <a class="ghost bouton-lien" href="/api/documents-fournisseurs/${d.id}/document" target="_blank" rel="noopener">Voir</a>
+        <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
         <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
       </div>
     </div>`
@@ -534,7 +546,7 @@ async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
         <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_DOCUMENT[d.type] || d.type)}</span>
         <span>${echapper(d.fichierNom || "Document")}</span>
         ${d.dateReceptionMail ? `<span class="anomalie-meta">reçu le ${fmtDate(d.dateReceptionMail)}</span>` : ""}
-        <a class="ghost bouton-lien" href="/api/documents-fournisseurs/${d.id}/document" target="_blank" rel="noopener">Voir</a>
+        <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
       </div>`
         )
         .join("") || `<p class="aide-inline">Aucun document.</p>`;

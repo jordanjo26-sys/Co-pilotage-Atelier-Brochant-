@@ -333,6 +333,37 @@ button:disabled { opacity: 0.4; cursor: default; }
 .fournisseur-document-ligne { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
 .fournisseur-document-ligne:first-child { border-top: none; padding-top: 0; }
 
+/* ---------- Apercu d'un document (modale, iframe sur URL reelle) ---------- */
+/* Contrairement a une precedente tentative (retiree), l'iframe pointe ici
+   directement vers l'URL reseau du document (jamais un blob local) : le
+   navigateur la charge comme n'importe quelle autre ressource de la page
+   (styles.css, logo.png...), avec les memes identifiants Basic Auth deja
+   en cache pour ce site - aucun nouvel onglet, aucun window.open, donc
+   aucune des defaillances Safari rencontrees avec ces deux mecanismes. */
+.modal-document {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+}
+.modal-document-barre {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.modal-document-iframe {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  background: #fff;
+}
+
 /* ---------- Memoire de Morgane (decisions) ---------- */
 .decision-carte { padding: 10px 0; border-top: 1px solid var(--line); }
 .decision-carte:first-of-type { border-top: none; padding-top: 0; }
