@@ -67,8 +67,8 @@ async function chargerStatutGmail() {
 
   if (!data.connecte) {
     div.innerHTML = `
-      <p class="statut-dot off">Aucune boîte Gmail connectée.</p>
-      <a href="/auth/google"><button type="button">Connecter Gmail</button></a>
+      <p class="statut-dot off">${data.motif ? echapper(data.motif) : "Aucune boîte Gmail connectée."}</p>
+      <a href="/auth/google"><button type="button">${data.motif ? "Reconnecter Gmail" : "Connecter Gmail"}</button></a>
     `;
     return;
   }
@@ -633,8 +633,49 @@ document.getElementById("btn-envoyer-bilan").addEventListener("click", async (e)
   }
 });
 
+// --- Journal ---------------------------------------------------------------
+//
+// Les planificateurs automatiques (synchronisation Gmail, recapitulatif
+// quotidien, synchronisation Stripe) journalisent desormais aussi leurs
+// echecs en base (pas seulement dans les logs du serveur, inaccessibles
+// sans acces SSH) : cette section les rend visibles directement dans
+// l'application. Root cause reelle d'une panne silencieuse constatee en
+// production (plus de recapitulatif depuis plusieurs jours, factures non
+// traitees) : le jeton Google expire automatiquement au bout de 7 jours
+// tant que l'ecran de consentement OAuth reste en statut "Testing" (voir
+// docs/mise-en-service.md section 3) - jusqu'ici invisible car /api/gmail/status
+// ne verifiait pas la validite reelle du jeton, seulement sa presence.
+
+function classeJournal(evenement) {
+  return /erreur|echec|non_envoye/.test(evenement) ? "badge-echec" : "badge-ok";
+}
+
+async function chargerJournal() {
+  const res = await fetch("/api/journal");
+  const journal = await res.json();
+  const liste = document.getElementById("liste-journal");
+
+  if (journal.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucun evenement journalise.</p>`;
+    return;
+  }
+
+  liste.innerHTML = journal
+    .slice(0, 30)
+    .map(
+      (j) => `
+    <div class="fournisseur-document-ligne">
+      <span class="badge ${classeJournal(j.evenement)}">${echapper(j.evenement)}</span>
+      <span class="anomalie-meta">${fmtDate(j.horodatage)}</span>
+      ${j.action ? `<span>${echapper(j.action)}</span>` : ""}
+      ${j.resultat ? `<span class="anomalie-meta">${echapper(j.resultat)}</span>` : ""}
+    </div>`
+    )
+    .join("");
+}
+
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

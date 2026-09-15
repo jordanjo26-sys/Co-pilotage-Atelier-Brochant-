@@ -108,7 +108,19 @@ export async function construireRecapQuotidien(prisma: PrismaClient, maintenant:
  */
 export async function envoyerRecapQuotidien(prisma: PrismaClient, maintenant: Date = new Date()): Promise<void> {
   const connexionGmail = await getGmailClient(prisma);
-  if (!connexionGmail) return; // rien a envoyer tant que Gmail n'est pas connecte
+  if (!connexionGmail) {
+    // Journalise explicitement l'absence d'envoi (pas seulement un retour
+    // silencieux) : sans boite Gmail active, ce planificateur ne peut RIEN
+    // envoyer, ni le jour meme ni les suivants tant que la connexion n'est
+    // pas retablie - un silence prolonge (constate en production) doit
+    // rester diagnosticable depuis l'application elle-meme.
+    await logEvenement(prisma, {
+      evenement: "recap_quotidien_non_envoye",
+      action: "Envoi du recapitulatif quotidien",
+      resultat: "Ignore : aucune boite Gmail active (reconnexion necessaire via /auth/google).",
+    });
+    return;
+  }
 
   const { gmail, connexion } = connexionGmail;
   const contenu = await construireRecapQuotidien(prisma, maintenant);

@@ -42,6 +42,15 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("Synchronisation Gmail planifiee en echec :", (err as Error).message);
+      // Journalise aussi en base (pas seulement la console du serveur,
+      // inaccessible sans acces SSH) : une panne silencieuse et repetee de
+      // ce planificateur (ex. jeton Google expire) est passee inapercue en
+      // production faute de trace visible depuis l'application elle-meme.
+      await logEvenement(prisma, {
+        evenement: "gmail_sync_planifiee_erreur",
+        action: "Synchronisation automatique Gmail",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
     }
   }, intervalle);
 }
@@ -76,6 +85,11 @@ export function demarrerRecapQuotidien(prisma: PrismaClient): void {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("Envoi du recapitulatif quotidien en echec :", (err as Error).message);
+      await logEvenement(prisma, {
+        evenement: "recap_quotidien_erreur",
+        action: "Envoi du recapitulatif quotidien",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
     }
   }, INTERVALLE_VERIF_RECAP_MS);
 }
@@ -97,6 +111,11 @@ export function demarrerSurveillanceStripe(prisma: PrismaClient): void {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("Synchronisation Stripe planifiee en echec :", (err as Error).message);
+      await logEvenement(prisma, {
+        evenement: "stripe_sync_planifiee_erreur",
+        action: "Synchronisation automatique Stripe",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
     }
   }, intervalle);
 }

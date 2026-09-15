@@ -123,17 +123,32 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   // --- Gmail -> Dext (section 7) ------------------------------------------
 
+  // Verifie reellement la validite du jeton (pas seulement la presence
+  // d'une ligne "active" en base) : sans cela, le statut affichait
+  // "Connecté" indefiniment meme apres expiration du jeton Google (motif
+  // reel d'une panne silencieuse constatee en production - voir le
+  // commentaire de getGmailClient/buildOAuthClient et la section 3 de
+  // docs/mise-en-service.md : tant que l'ecran de consentement OAuth reste
+  // en statut "Testing" cote Google Cloud, le refresh_token expire au bout
+  // de 7 jours quelle que soit l'activite, sans e-mail d'alerte de Google).
+  // Un appel Gmail minimal (getProfile) suffit a distinguer un jeton mort
+  // d'une vraie connexion active.
   router.get("/gmail/status", async (_req, res) => {
     const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
-    res.json(
-      connexion
-        ? {
-            connecte: true,
-            compteEmail: connexion.compteEmail,
-            derniereSynchro: connexion.derniereSynchro,
-          }
-        : { connecte: false }
-    );
+    if (!connexion) return res.json({ connecte: false });
+
+    try {
+      const client = await getGmailClient(prisma);
+      await client!.gmail.users.getProfile({ userId: "me" });
+      res.json({ connecte: true, compteEmail: connexion.compteEmail, derniereSynchro: connexion.derniereSynchro });
+    } catch (err) {
+      res.json({
+        connecte: false,
+        motif:
+          `Jeton Google invalide ou expire (${(err as Error).message}). Reconnexion necessaire via le bouton ci-dessous. ` +
+          "Cause frequente : ecran de consentement OAuth encore en statut \"Testing\" cote Google Cloud (le refresh_token expire alors automatiquement au bout de 7 jours) - voir docs/mise-en-service.md section 3.",
+      });
+    }
   });
 
   // Synchronisation manuelle, en attendant la planification automatique
