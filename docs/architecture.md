@@ -231,9 +231,22 @@ de deduplication est le hash SHA-256 de chaque piece jointe
 (`hashFichier`, unique), identique au mecanisme deja utilise pour les CSV.
 Cela rend `synchroniserGmail` idempotent par construction : la relancer
 plusieurs fois sur les memes e-mails (volontairement une fenetre de
-recherche large de 7 jours a chaque passage, pour ne jamais rater un
-message en cas d'arret prolonge du service) ne retransmet jamais un
+recherche large de 30 jours a chaque passage, pour ne jamais rater un
+message en cas d'arret prolonge du service - un jeton Google expire
+plusieurs jours, deja constate en production, epuiserait une fenetre plus
+courte avant meme d'avoir pu rattraper le retard) ne retransmet jamais un
 document deja envoye a Dext.
+
+> ⚠️ Historique : la recherche Gmail se limitait initialement au premier
+> lot de 50 resultats (`messages.list` sans pagination), avec une fenetre
+> de 7 jours. Au-dela de ce premier lot - Gmail les ordonnant du plus
+> recent au plus ancien - les messages plus anciens dans la fenetre
+> n'etaient jamais examines, sans la moindre erreur ni trace visible.
+> Corrige par une boucle de pagination complete (`pageToken`, plafonnee a
+> 1000 messages par prudence) et un elargissement de la fenetre a 30 jours
+> (alignee sur celle de la synchronisation Stripe), pour absorber une
+> panne de connexion prolongee sans jamais perdre silencieusement un
+> e-mail recu tot dans la periode d'indisponibilite.
 
 > ⚠️ Historique : la deduplication par empreinte de fichier ne s'appliquait
 > initialement qu'aux documents reconnus (facture, avoir...), pas aux

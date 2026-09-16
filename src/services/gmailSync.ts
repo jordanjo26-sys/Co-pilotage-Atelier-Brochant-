@@ -140,20 +140,40 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
   }
   const { gmail, connexion } = connexionGmail;
 
-  // Fenetre de recherche volontairement large (7 jours) : la deduplication
-  // par hash de piece jointe rend le re-balayage de messages deja traites
-  // sans consequence, et evite de manquer un message en cas d'arret
-  // prolonge du service entre deux synchronisations. On exclut d'office les
-  // e-mails de Dext lui-meme (accuses de reception, recapitulatif
-  // quotidien) : ce sont des notifications sortantes de Dext, jamais des
-  // documents fournisseurs a router.
-  const liste = await gmail.users.messages.list({
-    userId: "me",
-    q: "has:attachment newer_than:7d -from:dext.cc",
-    maxResults: 50,
-  });
-
-  const messages = liste.data.messages || [];
+  // Fenetre de recherche volontairement large (30 jours, alignee sur celle
+  // de la synchronisation Stripe) : la deduplication par hash de piece
+  // jointe rend le re-balayage de messages deja traites sans consequence,
+  // et evite de manquer un message en cas d'arret prolonge du service
+  // entre deux synchronisations (ex. jeton Google expire plusieurs jours,
+  // deja constate en production - une fenetre de 7 jours court alors le
+  // risque reel qu'un e-mail recu tot dans la panne sorte de la fenetre
+  // avant meme d'avoir pu etre rattrape). On exclut d'office les e-mails
+  // de Dext lui-meme (accuses de reception, recapitulatif quotidien) : ce
+  // sont des notifications sortantes de Dext, jamais des documents
+  // fournisseurs a router.
+  //
+  // Pagination complete (pageToken) plutot qu'un seul appel limite a
+  // maxResults : sans cela, au-dela du premier lot (ordonne du plus recent
+  // au plus ancien par Gmail), les messages plus anciens dans la fenetre
+  // n'etaient JAMAIS examines, sans la moindre erreur ni trace - bug reel
+  // trouve en relisant ce fichier (aucun signalement direct de
+  // l'utilisateur, mais un e-mail par ailleurs correctement classifiable
+  // aurait pu ainsi n'etre simplement jamais vu si la boite a recu plus de
+  // 50 e-mails avec piece jointe en 7 jours). Garde-fou a 1000 messages
+  // pour eviter une boucle non bornee en cas de resultat anormalement
+  // volumineux.
+  const messages: gmail_v1.Schema$Message[] = [];
+  let pageToken: string | undefined;
+  do {
+    const liste = await gmail.users.messages.list({
+      userId: "me",
+      q: "has:attachment newer_than:30d -from:dext.cc",
+      maxResults: 100,
+      pageToken,
+    });
+    messages.push(...(liste.data.messages || []));
+    pageToken = liste.data.nextPageToken || undefined;
+  } while (pageToken && messages.length < 1000);
   const cacheLabels = new Map<string, string>();
   const cacheFournisseurs = new Map<string, string>();
 

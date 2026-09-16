@@ -33,10 +33,17 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
 
       const resultat = await synchroniserGmail(prisma);
       if (resultat.documentsTraites > 0 || resultat.documentsAmbigus > 0 || resultat.erreurs.length > 0) {
+        // Le detail des erreurs (pas seulement leur nombre) est inclus ici :
+        // sans cela, une erreur repetee sur une piece jointe precise (PDF
+        // corrompu, message inaccessible...) restait invisible dans le
+        // Journal au-dela d'un simple compteur, sans indice pour la
+        // diagnostiquer depuis l'application.
         await logEvenement(prisma, {
           evenement: "gmail_sync_planifiee",
           action: `Synchronisation automatique (${resultat.messagesExamines} message(s) examine(s))`,
-          resultat: `${resultat.documentsTraites} traite(s), ${resultat.documentsDoublons} doublon(s), ${resultat.documentsAmbigus} ambigu(s), ${resultat.erreurs.length} erreur(s).`,
+          resultat:
+            `${resultat.documentsTraites} traite(s), ${resultat.documentsDoublons} doublon(s), ${resultat.documentsAmbigus} ambigu(s), ${resultat.erreurs.length} erreur(s).` +
+            (resultat.erreurs.length > 0 ? ` Details : ${resultat.erreurs.join(" | ")}` : ""),
         });
       }
     } catch (err) {
