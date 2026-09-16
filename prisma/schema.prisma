@@ -269,6 +269,142 @@ model JournalEvenement {
   details    String? // JSON serialise
 }
 
+// --- Prospection commerciale (cahier des charges "Outil de prospection") ---
+//
+// Module distinct de la gestion (sections 1 a 17 ci-dessus) : sourcing de
+// prospects, mini-CRM, enrichissement email et campagnes d'envoi. Cible
+// prioritaire au demarrage : syndics/gestionnaires et assurances de
+// Seine-et-Marne (77), extension Ile-de-France ensuite (section 1).
+
+model Prospect {
+  id          String    @id @default(cuid())
+  type        String // "syndic" | "assurance"
+  entreprise  String
+  contactNom  String?
+  contactFonction String?
+  email       String?
+  // Estimation de fiabilite de l'email (0-100) posee par le module
+  // d'enrichissement (verification MX + pattern), section 2.3. Permet de
+  // prioriser/filtrer avant un envoi de masse plutot que de decouvrir les
+  // adresses invalides via le taux de rebond.
+  emailScoreFiabilite Int?
+  emailSource String? // "import" | "manuel" | "enrichissement_pattern" | "enrichissement_hunter"
+  telephone   String?
+  siteWeb     String?
+  adresse     String?
+  codePostal  String?
+  ville       String?
+  marqueProposee String? // "france_degorgement" | "atelier_brochant"
+  serviceCible   String?
+  statut      String    @default("a_contacter") // a_contacter | contacte | relance | rdv | client | sans_suite
+  notes       String?
+  datePremierContact DateTime?
+  dateDerniereRelance DateTime?
+  // RGPD (section 3) : un prospect desinscrit n'est plus jamais inclus dans
+  // un segment de campagne, quel que soit le filtre applique.
+  desinscrit  Boolean   @default(false)
+  dateDesinscription DateTime?
+  source      String? // "sourcing_api" | "import_csv" | "import_excel" | "manuel"
+  sourceImportId String?
+  sourceImport   ProspectionImport? @relation(fields: [sourceImportId], references: [id])
+  historiqueStatuts ProspectStatutChangement[]
+  envois      EnvoiCampagne[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Dedoublonnage (section 2.1) : meme entreprise + meme email = meme fiche.
+  @@unique([entreprise, email])
+  @@index([type, statut])
+  @@index([codePostal])
+}
+
+// Historique des changements de statut (section 2.2 : "avec historique des
+// changements"), horodate independamment du champ statut/updatedAt du
+// prospect qui ne garde que la valeur courante.
+model ProspectStatutChangement {
+  id           String   @id @default(cuid())
+  prospectId   String
+  prospect     Prospect @relation(fields: [prospectId], references: [id])
+  ancienStatut String?
+  nouveauStatut String
+  auteur       String?
+  createdAt    DateTime @default(now())
+}
+
+// Import de sourcing (CSV/Excel manuel, section 2.1) : rejoue le meme
+// principe de tracabilite qu'ImportBatch pour la gestion, sans le
+// reutiliser directement (schemas de colonnes et types de source distincts).
+model ProspectionImport {
+  id          String     @id @default(cuid())
+  fichierNom  String
+  hashFichier String     @unique
+  dateImport  DateTime   @default(now())
+  nbLignes    Int        @default(0)
+  nbNouveaux  Int        @default(0)
+  nbDoublons  Int        @default(0)
+  nbErreurs   Int        @default(0)
+  details     String? // JSON serialise (erreurs, avertissements)
+  prospects   Prospect[]
+}
+
+// Modele de mail de campagne (section 2.4), variables remplacees a l'envoi
+// (voir src/services/prospection/campagnes.ts) : {{contact}}, {{entreprise}},
+// {{marque}}, {{service}}.
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  nom       String
+  marque    String? // "france_degorgement" | "atelier_brochant"
+  service   String?
+  objet     String
+  corpsHtml String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  campagnes Campagne[]
+}
+
+// Campagne d'envoi vers un segment de la base (section 2.4). Le filtre de
+// segment est stocke tel quel (JSON) et reevalue a chaque envoi, plutot que
+// de figer la liste des destinataires a la creation.
+model Campagne {
+  id              String   @id @default(cuid())
+  nom             String
+  templateId      String
+  template        EmailTemplate @relation(fields: [templateId], references: [id])
+  segmentFiltre   String // JSON : { type?, statut?, codePostal?, marqueProposee? }
+  statut          String   @default("brouillon") // brouillon | en_cours | terminee
+  relanceApresJours Int?   // ex. 7 : delai avant relance automatique (section 2.4)
+  arretSiReponse  Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  envois          EnvoiCampagne[]
+}
+
+// Un envoi individuel (premier envoi ou relance) d'une campagne a un
+// prospect, avec son suivi (section 2.5 : ouverture, clic, reponse,
+// desinscription). tokenSuivi sert de cle publique (pixel d'ouverture, lien
+// de clic, lien de desinscription) : jamais l'id interne, pour ne pas
+// exposer les identifiants de la base dans les URLs d'un e-mail.
+model EnvoiCampagne {
+  id             String    @id @default(cuid())
+  campagneId     String
+  campagne       Campagne  @relation(fields: [campagneId], references: [id])
+  prospectId     String
+  prospect       Prospect  @relation(fields: [prospectId], references: [id])
+  tokenSuivi     String    @unique @default(cuid())
+  estRelance     Boolean   @default(false)
+  gmailMessageId String?
+  gmailThreadId  String?
+  statut         String    @default("envoye") // envoye | ouvert | clique | repondu | rebond | desabonne | echec
+  dateEnvoi      DateTime  @default(now())
+  dateOuverture  DateTime?
+  dateClic       DateTime?
+  dateReponse    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([campagneId])
+  @@index([prospectId])
+}
+
 // --- Reception des fichiers CSV ---------------------------------------------
 
 model ImportBatch {

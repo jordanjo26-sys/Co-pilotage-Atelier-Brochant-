@@ -16,6 +16,14 @@ choix techniques, et `docs/mise-en-service.md` pour la checklist concrète
 (hébergement OVHcloud, connexion Gmail) nécessaire pour que tout tourne en
 continu.
 
+Un second module, **Prospection commerciale** (sourcing de prospects,
+mini-CRM, enrichissement email, campagnes d'envoi — accessible depuis le
+lien « Prospection commerciale » du cockpit, ou directement sur
+`/prospection.html`), a été ajouté à partir d'un second cahier des charges
+(`docs/cahier-des-charges-prospection.docx`). Voir `docs/prospection.md`
+pour son architecture et les points encore à arbitrer (clés API de
+sourcing/enrichissement automatisés, volume d'envoi visé).
+
 > ⚠️ **État des connecteurs** : les vrais exports **Synec** (factures et
 > clients), **récapitulatif de solde Stripe** et **relevé de compte Banque
 > Populaire (PDF)** ont été reçus et les connecteurs correspondants sont

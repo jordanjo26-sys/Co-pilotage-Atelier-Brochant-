@@ -4,7 +4,13 @@ import express from "express";
 import { prisma } from "./db/client";
 import { buildRouter } from "./api/routes";
 import { buildAuthRouter } from "./api/authRoutes";
-import { demarrerSurveillanceGmail, demarrerRecapQuotidien, demarrerSurveillanceStripe } from "./services/scheduler";
+import { buildProspectionRouter, buildProspectionTrackingRouter } from "./api/prospectionRoutes";
+import {
+  demarrerSurveillanceGmail,
+  demarrerRecapQuotidien,
+  demarrerSurveillanceStripe,
+  demarrerDetectionReponsesProspection,
+} from "./services/scheduler";
 
 dotenv.config();
 
@@ -13,6 +19,8 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 app.use("/api", buildRouter(prisma));
+app.use("/api/prospection", buildProspectionRouter(prisma));
+app.use("/api/prospection/suivi", buildProspectionTrackingRouter(prisma));
 app.use("/auth", buildAuthRouter(prisma));
 // process.cwd() plutot que __dirname : ce dernier depend de la structure de
 // sortie de tsc (dist/src/server.js, cf. rootDir "." dans tsconfig.json),
@@ -28,6 +36,7 @@ app.listen(PORT, () => {
 demarrerSurveillanceGmail(prisma);
 demarrerRecapQuotidien(prisma);
 demarrerSurveillanceStripe(prisma);
+demarrerDetectionReponsesProspection(prisma);
 
 process.on("SIGINT", async () => {
   await prisma.$disconnect();

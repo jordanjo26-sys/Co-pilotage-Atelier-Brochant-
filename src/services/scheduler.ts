@@ -3,6 +3,7 @@ import { synchroniserGmail } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { logEvenement } from "./journalService";
+import { detecterReponses } from "./prospection/campagnes";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVALLE_VERIF_RECAP_MS = 5 * 60 * 1000; // 5 minutes
@@ -11,6 +12,10 @@ const HEURE_RECAP_PAR_DEFAUT = 19; // 19h, heure locale du serveur
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
 const INTERVALLE_STRIPE_PAR_DEFAUT_MS = 60 * 60 * 1000; // 1 heure
+// Detection de reponse aux campagnes de prospection (section 2.5) : lecture
+// seule des fils Gmail, aucun envoi -> peut tourner automatiquement sans
+// enfreindre le principe de prudence applique aux envois eux-memes.
+const INTERVALLE_REPONSES_PROSPECTION_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
  * Demarre la surveillance continue de la boite Gmail connectee (section 3 :
@@ -125,4 +130,26 @@ export function demarrerSurveillanceStripe(prisma: PrismaClient): void {
       }).catch(() => {});
     }
   }, intervalle);
+}
+
+/**
+ * Detecte automatiquement les reponses aux campagnes de prospection en
+ * cours (section 2.5), pour tenir le statut de chaque envoi a jour sans
+ * action manuelle. N'envoie jamais rien elle-meme (voir campagnes.ts) : se
+ * contente de lire les fils Gmail concernes.
+ */
+export function demarrerDetectionReponsesProspection(prisma: PrismaClient): void {
+  setInterval(async () => {
+    try {
+      await detecterReponses(prisma);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Detection des reponses de prospection en echec :", (err as Error).message);
+      await logEvenement(prisma, {
+        evenement: "prospection_reponses_erreur",
+        action: "Detection automatique des reponses",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
+    }
+  }, INTERVALLE_REPONSES_PROSPECTION_MS);
 }
