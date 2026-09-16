@@ -281,6 +281,20 @@ document deja envoye a Dext.
 > quelques occurrences), utilisee a la fois par le Journal et par
 > l'affichage d'une synchronisation manuelle.
 
+> ⚠️ Historique : une ligne de Journal etait ecrite pour CHAQUE piece
+> jointe deja connue (doublon), a chaque cycle du planificateur (toutes
+> les 5 minutes). Consequence directe de la fenetre de 14 jours re-balayee
+> a chaque passage (idempotence deliberee, voir plus haut) : la grande
+> majorite des pieces rencontrees a chaque cycle sont des doublons deja
+> connus, produisant des dizaines d'entrees quasi identiques et sans
+> valeur ajoutee au fil du temps, noyant les entrees reellement utiles
+> (signale en production, capture a l'appui : "puis-je etre oblige d'avoir
+> ce journal comme ca ?"). Corrige en ne journalisant plus les doublons
+> individuellement (seul `resultat.documentsDoublons` en garde le compte,
+> deja repercute dans le resume de synchronisation quand quelque chose de
+> notable s'est produit) : un cycle qui ne rencontre que des doublons
+> connus n'ecrit desormais plus aucune ligne dans le Journal.
+
 > ⚠️ Historique : la deduplication par empreinte de fichier ne s'appliquait
 > initialement qu'aux documents reconnus (facture, avoir...), pas aux
 > documents "ambigus" — une piece jointe non reconnue (image de newsletter,

@@ -310,12 +310,19 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
           // cesse (bug reel signale par l'utilisateur en production).
           const existant = await prisma.documentFournisseur.findUnique({ where: { hashFichier } });
           if (existant) {
+            // Pas de ligne de Journal par doublon (compteur seul, voir
+            // resultat.documentsDoublons) : la fenetre de recherche
+            // re-balaie chaque cycle (toutes les 5 minutes) les memes
+            // messages sur 14 jours par construction (idempotence
+            // deliberee, voir plus haut) - la grande majorite des pieces
+            // rencontrees sont donc des doublons deja connus a chaque
+            // passage. Une ligne par doublon inondait le Journal de
+            // dizaines d'entrees quasi identiques et sans valeur ajoutee
+            // au fil du temps (signale en production, capture a l'appui),
+            // noyant les entrees reellement utiles (nouveaux documents,
+            // erreurs). Le compte agrege reste visible dans le resume de
+            // synchronisation quand quelque chose de notable s'est produit.
             resultat.documentsDoublons++;
-            await logEvenement(prisma, {
-              evenement: "gmail_document",
-              action: `Piece jointe deja connue : ${piece.nomFichier}`,
-              resultat: "Doublon ignore (meme empreinte de fichier).",
-            });
             continue;
           }
 
