@@ -197,6 +197,23 @@ texte extrait de son propre contenu (voir plus bas). Le cas "aucun motif
 ne correspond" part au centre de validation (ambigu), jamais vers Dext
 automatiquement.
 
+**Filet de securite par IA, en repli seulement** (demande explicite de
+l'utilisateur, apres deux regressions reelles sur des regles de mots-cles
+trop rigides — voir plus bas). `gmailClassifyIA.ts` appelle Claude
+(`ANTHROPIC_API_KEY`, meme infrastructure que Morgane) UNIQUEMENT quand
+`gmailClassify.ts` conclut "ambigu" sur une piece qui est bien un document
+exploitable (PDF/image) : aucune regression possible sur les cas deja bien
+geres par les regles, seulement des cas recuperes en plus. Le prompt
+consigne explicitement de repondre "ambigu" au moindre doute — meme
+philosophie que la regle deterministe, pas une rupture avec elle. Le
+resultat reste marque `DocumentFournisseur.classifiePar = "ia"` (badge
+"classé par IA" dans l'interface) plutot que traite silencieusement comme
+un match certain, et n'emprunte JAMAIS la voie d'envoi automatique vers
+Dext meme si `DEXT_AUTO_FORWARD` est actif : une classification par IA
+attend toujours une confirmation manuelle. Toute panne du filet (cle
+absente, erreur reseau, reponse invalide) retombe silencieusement sur le
+comportement actuel (ambigu, centre de validation).
+
 > ⚠️ Historique : signale par l'utilisateur en production, des factures
 > reelles arrivaient a tort en anomalie "ambigu". Cause : la classification
 > ne regardait que le sujet, le debut du corps du message et le nom de

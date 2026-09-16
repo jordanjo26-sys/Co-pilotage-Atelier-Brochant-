@@ -480,6 +480,7 @@ async function chargerFacturesFournisseurs() {
         ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
         ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
         ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
+        ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
       </div>
       <div class="fournisseur-actions fournisseur-actions-ligne">
         <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
@@ -548,6 +549,7 @@ async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
           (d) => `
       <div class="fournisseur-document-ligne">
         <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_DOCUMENT[d.type] || d.type)}</span>
+        ${d.classifiePar === "ia" ? `<span class="badge badge-palier-ambre">classé par IA</span>` : ""}
         <span>${echapper(d.fichierNom || "Document")}</span>
         ${d.dateReceptionMail ? `<span class="anomalie-meta">reçu le ${fmtDate(d.dateReceptionMail)}</span>` : ""}
         <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>

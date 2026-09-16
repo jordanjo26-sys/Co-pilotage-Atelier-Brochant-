@@ -186,6 +186,12 @@ model DocumentFournisseur {
   montant        Float?
   statutDext     String    @default("non_envoye") // non_envoye | envoye | archive | a_valider
   hashFichier    String?   @unique
+  // "ia" quand le type provient du filet de securite Claude (uniquement
+  // pour les documents que les regles de mots-cles auraient laisses
+  // "ambigu"), absent/null sinon (classification par regle deterministe,
+  // le cas normal). Transparence explicite plutot qu'un match silencieux,
+  // et permet de reconsiderer facilement ces cas si besoin.
+  classifiePar   String?
   // Provenance Gmail (section 7 du cahier des charges), conservee pour
   // tracabilite. Pas de contrainte unique ici : un meme e-mail peut
   // contenir plusieurs pieces jointes, donc plusieurs documents. La

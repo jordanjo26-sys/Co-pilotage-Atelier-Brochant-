@@ -2,7 +2,16 @@ import { PrismaClient } from "@prisma/client";
 import { gmail_v1 } from "googleapis";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { getGmailClient } from "./googleAuth";
-import { classifierPieceJointe, choisirAdresseDext, extraireNumeroFacture, EmailAClassifier, PieceJointe, TypeDocument } from "./gmailClassify";
+import {
+  classifierPieceJointe,
+  choisirAdresseDext,
+  extraireNumeroFacture,
+  estPieceDocument,
+  EmailAClassifier,
+  PieceJointe,
+  TypeDocument,
+} from "./gmailClassify";
+import { classifierParIA } from "./gmailClassifyIA";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
@@ -215,6 +224,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
         donnees: Buffer;
         hashFichier: string;
         numero: string | null;
+        classifiePar: "ia" | null;
       }
       const piecesAtraiter: PieceAClasser[] = [];
 
@@ -257,9 +267,30 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             }
           }
 
-          const type = classifierPieceJointe(emailContexte, piece, contenuExtrait);
+          let type = classifierPieceJointe(emailContexte, piece, contenuExtrait);
+          let classifiePar: "ia" | null = null;
+
+          // Filet de securite par IA (demande explicite de l'utilisateur,
+          // apres deux regressions reelles sur des regles de mots-cles trop
+          // rigides) : n'intervient QUE quand la regle deterministe conclut
+          // "ambigu" sur une piece qui est bien un document exploitable -
+          // jamais a la place d'un match par mot-cle deja confiant, jamais
+          // sur une piece dont le type n'est de toute facon pas gere
+          // (estPieceDocument). Toute panne de ce filet (cle absente, erreur
+          // reseau...) retombe silencieusement sur "ambigu", le comportement
+          // actuel : aucune regression possible, uniquement des cas
+          // recuperes en plus.
+          if (type === "ambigu" && estPieceDocument(piece)) {
+            const texteComplet = `Sujet : ${sujet}\nExtrait du corps : ${emailContexte.extraitCorps}\nNom du fichier : ${piece.nomFichier}\n${contenuExtrait ? `Contenu du document :\n${contenuExtrait}` : ""}`;
+            const typeIA = await classifierParIA(texteComplet);
+            if (typeIA && typeIA !== "ambigu") {
+              type = typeIA;
+              classifiePar = "ia";
+            }
+          }
+
           const numero = extraireNumeroFacture(`${sujet} ${piece.nomFichier} ${contenuExtrait || ""}`);
-          piecesAtraiter.push({ piece, type, donnees, hashFichier, numero });
+          piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, classifiePar });
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
         }
@@ -279,7 +310,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
       const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu");
       const fournisseurId = auMoinsUnDocumentReconnu ? await resoudreFournisseur(prisma, expediteur, cacheFournisseurs) : null;
 
-      for (const { piece, type, donnees, hashFichier, numero } of piecesAtraiter) {
+      for (const { piece, type, donnees, hashFichier, numero, classifiePar } of piecesAtraiter) {
         try {
           if (type === "ambigu") {
             // Enregistre aussi un DocumentFournisseur (type "ambigu") pour
@@ -321,7 +352,15 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             continue;
           }
 
-          if (type === "facture" && transfertAutomatiqueActif()) {
+          // Une classification par IA (classifiePar === "ia") n'emprunte
+          // jamais la voie d'envoi automatique, meme si le transfert
+          // automatique est actif : elle attend toujours une confirmation
+          // manuelle (bouton "Envoyer a Dext"), a la difference d'un match
+          // par mot-cle deterministe sur "facture", juge assez fiable pour
+          // continuer a partir seul. Garde-fou explicite plutot qu'une
+          // simple consequence indirecte du code, pour qu'il reste valable
+          // meme si la logique environnante change un jour.
+          if (type === "facture" && transfertAutomatiqueActif() && classifiePar !== "ia") {
             await envoyerVersDext(gmail, { destinataire: adresseDext, nomFichier: piece.nomFichier, mimeType: piece.mimeType, donnees, sujetOrigine: sujet });
             await prisma.documentFournisseur.create({
               data: {
@@ -345,8 +384,9 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
               resultat: `Transferee automatiquement vers ${adresseDext} (cas standard, section "exception deja validee").`,
             });
           } else if (type === "facture") {
-            // Transfert automatique en pause (DEXT_AUTO_FORWARD=false) :
-            // on etiquette dans Gmail par mois de reception pour un envoi
+            // Transfert automatique en pause (DEXT_AUTO_FORWARD=false), ou
+            // classifiee par IA (toujours manuelle, voir plus haut) : on
+            // etiquette dans Gmail par mois de reception pour un envoi
             // manuel groupe en fin de mois, plutot que de transmettre.
             const nomLabel = nomEtiquetteFacturesDuMois(dateReception || new Date());
             const labelId = await obtenirOuCreerLabel(gmail, nomLabel, cacheLabels);
@@ -359,6 +399,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
                 numero,
                 hashFichier,
                 statutDext: "a_valider",
+                classifiePar,
                 gmailMessageId: ref.id,
                 gmailAttachmentId: piece.attachmentId,
                 mimeType: piece.mimeType,
@@ -370,7 +411,9 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             await logEvenement(prisma, {
               evenement: "gmail_document",
               action: `Facture recue de ${expediteur} : ${piece.nomFichier}`,
-              resultat: `Transfert automatique en pause : etiquetee "${nomLabel}" dans Gmail pour envoi manuel en fin de mois.`,
+              resultat:
+                (classifiePar === "ia" ? "Classee par IA (a verifier). " : "") +
+                `Transfert automatique en pause : etiquetee "${nomLabel}" dans Gmail pour envoi manuel en fin de mois.`,
             });
           } else {
             // avoir | bon_enlevement | releve | devis : jamais envoyes a
@@ -383,6 +426,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
                 numero,
                 hashFichier,
                 statutDext: "archive",
+                classifiePar,
                 gmailMessageId: ref.id,
                 gmailAttachmentId: piece.attachmentId,
                 mimeType: piece.mimeType,
@@ -394,7 +438,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
             await logEvenement(prisma, {
               evenement: "gmail_document",
               action: `${type} recu de ${expediteur} : ${piece.nomFichier}`,
-              resultat: "Archive pour controle, non transmis a Dext.",
+              resultat: (classifiePar === "ia" ? "Classee par IA (a verifier). " : "") + "Archive pour controle, non transmis a Dext.",
             });
 
             if (type === "releve") {

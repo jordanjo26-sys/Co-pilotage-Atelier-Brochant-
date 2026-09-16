@@ -41,7 +41,7 @@ const MOTIF_AVOIR =
 const MOTIF_FACTURE = /\bfacture\b|\binvoice\b|\bfattura\b/i;
 const MOTIF_DEVIS = /\bdevis\b|offre[\s.-]*de[\s.-]*prix|offre[\s.-]*commerciale|\bquote\b|\bquotation\b|\bestimate\b/i;
 
-function estPieceDocument(piece: PieceJointe): boolean {
+export function estPieceDocument(piece: PieceJointe): boolean {
   return MIME_TYPES_DOCUMENT.includes(piece.mimeType.toLowerCase());
 }
 
