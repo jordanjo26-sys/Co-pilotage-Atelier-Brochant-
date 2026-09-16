@@ -187,36 +187,28 @@ async function chargerPaiementsStripe() {
 
 // --- Apercu d'un document -------------------------------------------------
 //
-// Historique : quatre tentatives successives de previsualisation ont
-// chacune echoue sur l'appareil de l'utilisateur (iPhone/Safari) : modale
-// avec iframe/img sur blob URL, window.open apres fetch, window.open isole
-// dans une fonction non-async, puis un lien direct <a target="_blank">
-// (qui ouvrait bien un nouvel onglet, mais celui-ci restait blanc). Le
-// point commun aux trois dernieres tentatives : un NOUVEL ONGLET/FENETRE,
-// dont le contexte d'authentification (le site entier est protege par
-// Basic Auth) ne se comporte pas de facon fiable sur cet appareil.
+// Historique : cinq tentatives successives de previsualisation ont chacune
+// echoue sur l'appareil de l'utilisateur (iPhone/Safari) : modale avec
+// iframe/img sur blob URL, window.open apres fetch, window.open isole dans
+// une fonction non-async, un lien direct <a target="_blank"> (nouvel
+// onglet qui restait blanc, cause identifiee ensuite : X-Frame-Options
+// DENY empechait tout cadrage), puis une iframe integree sur la page une
+// fois X-Frame-Options corrige en SAMEORIGIN - qui s'est ouverte
+// correctement (bouton Fermer/Telecharger visibles) mais dont le contenu
+// restait vide : limite connue et documentee de Safari iOS, qui ne rend
+// pas toujours un PDF de facon fiable a l'interieur d'une iframe, meme sur
+// une URL reseau reelle (pas seulement un blob).
 //
-// Cette version n'ouvre plus aucun nouvel onglet ni fenetre : une iframe
-// integree DANS LA PAGE ACTUELLE pointe directement vers l'URL reseau du
-// document (jamais un blob local, contrairement a la toute premiere
-// tentative). Le navigateur la charge exactement comme il charge deja
-// styles.css, app.js ou logo.png sur cette meme page : memes identifiants
-// Basic Auth deja en cache, meme onglet, aucun geste utilisateur a
-// preserver pour un window.open. Un bouton "Telecharger" reste propose en
-// repli pour les formats qu'aucun navigateur ne sait afficher nativement
-// (Word/Excel...), limite inherente au format, pas a ce mecanisme.
+// Seul mecanisme non encore essaye : une navigation NORMALE, dans le MEME
+// onglet (ni nouvel onglet, ni cadre). C'est le cas le mieux supporte par
+// Safari pour afficher un PDF nativement (zoom, recherche, bouton
+// telecharger integres) - au prix de devoir utiliser le bouton "Retour"
+// du navigateur pour revenir au tableau de bord, contrepartie assumee
+// apres cinq echecs des approches plus "integrees".
 function voirDocument(url) {
-  document.getElementById("iframe-document").src = url;
-  document.getElementById("lien-telecharger-document").href = url;
-  document.getElementById("modal-document").hidden = false;
+  window.location.href = url;
 }
 window.voirDocument = voirDocument;
-
-function fermerModaleDocument() {
-  document.getElementById("modal-document").hidden = true;
-  document.getElementById("iframe-document").src = "";
-}
-window.fermerModaleDocument = fermerModaleDocument;
 
 // --- Anomalies : liste de cartes avec selection multiple -------------------
 
