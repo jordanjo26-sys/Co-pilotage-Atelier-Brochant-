@@ -15,7 +15,8 @@
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
-    "seed:samples": "tsx scripts/seed-samples.ts"
+    "seed:samples": "tsx scripts/seed-samples.ts",
+    "seed:tarifs": "tsx scripts/seed-tarifs.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

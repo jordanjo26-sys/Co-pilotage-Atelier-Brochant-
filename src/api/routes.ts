@@ -10,6 +10,7 @@ import { repondreMorgane, MessageMorgane } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
 import { listerDecisions, terminerDecision } from "../services/decisions";
+import { listerTarifs, creerTarif, modifierTarif, supprimerTarif, TarifInvalideError, TarifDoublonError } from "../services/tarifs";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
 import { getGmailClient } from "../services/googleAuth";
@@ -419,6 +420,51 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.json(await terminerDecision(prisma, req.params.id));
     } catch {
       res.status(404).json({ erreur: "Decision introuvable." });
+    }
+  });
+
+  // --- Tarifier plomberie / electricite / serrurerie -----------------------
+  // Grille de prix indicatifs (main d'oeuvre + materiel), consultable et
+  // modifiable pour etablir un devis rapidement. Voir src/services/tarifs.ts :
+  // les prix ne sont pas recuperes automatiquement chez les fournisseurs
+  // (comptes pro requis, sites bloquant l'acces automatise), a verifier avec
+  // vos propres comptes avant utilisation pour un devis client.
+
+  router.get("/tarifs", async (req, res) => {
+    const metier = typeof req.query.metier === "string" ? req.query.metier : undefined;
+    const categorie = typeof req.query.categorie === "string" ? req.query.categorie : undefined;
+    const actifSeulement = req.query.actifSeulement === "true";
+    res.json(await listerTarifs(prisma, { metier, categorie, actifSeulement }));
+  });
+
+  router.post("/tarifs", async (req, res) => {
+    try {
+      const tarif = await creerTarif(prisma, req.body || {});
+      res.status(201).json(tarif);
+    } catch (err) {
+      if (err instanceof TarifInvalideError) return res.status(400).json({ erreur: err.message });
+      if (err instanceof TarifDoublonError) return res.status(409).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.patch("/tarifs/:id", async (req, res) => {
+    try {
+      const tarif = await modifierTarif(prisma, req.params.id, req.body || {});
+      res.json(tarif);
+    } catch (err) {
+      if (err instanceof TarifInvalideError) return res.status(400).json({ erreur: err.message });
+      if (err instanceof TarifDoublonError) return res.status(409).json({ erreur: err.message });
+      res.status(404).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.delete("/tarifs/:id", async (req, res) => {
+    try {
+      await supprimerTarif(prisma, req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      res.status(404).json({ erreur: (err as Error).message });
     }
   });
 

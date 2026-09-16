@@ -269,6 +269,35 @@ model JournalEvenement {
   details    String? // JSON serialise
 }
 
+// --- Tarifier plomberie / electricite / serrurerie --------------------------
+// Grille de prix indicatifs pour les prestations courantes (main d'oeuvre +
+// materiel), utilisable pour etablir un devis rapidement. Les prix ne
+// proviennent PAS d'une recuperation automatique chez les fournisseurs
+// (Cedeo, La Plateforme du Batiment, Foussier, Richardson...) : ce sont des
+// comptes professionnels dont les tarifs sont masques sans connexion (et
+// dont les sites bloquent l'acces automatise) - chaque ligne "estimation
+// marche" doit etre verifiee et ajustee avec vos propres comptes pro avant
+// d'etre utilisee telle quelle pour un devis client.
+model TarifPrestation {
+  id             String   @id @default(cuid())
+  metier         String // "plomberie" | "electricite" | "serrurerie"
+  categorie      String // ex. "Depannage", "Robinetterie", "Tableau electrique"...
+  designation    String
+  unite          String // "forfait" | "heure" | "u" | "ml" | "m2"...
+  prixMateriel   Float? // cout matiere/fourniture indicatif HT
+  prixMainOeuvre Float? // cout main d'oeuvre indicatif HT
+  prixVenteHT    Float // prix de vente conseille HT (materiel + main d'oeuvre + marge)
+  fournisseurRef String? // fournisseur de reference pour le materiel (Cedeo, La Plateforme du Batiment, Foussier, Richardson...)
+  source         String? // provenance du prix : "estimation_marche" | "verifie" | "devis_fournisseur"
+  notes          String?
+  actif          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([metier, designation])
+  @@index([metier, categorie])
+}
+
 // --- Reception des fichiers CSV ---------------------------------------------
 
 model ImportBatch {

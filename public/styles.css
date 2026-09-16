@@ -348,6 +348,11 @@ button:disabled { opacity: 0.4; cursor: default; }
   display: flex;
   flex-direction: column;
 }
+/* La classe pose "display: flex" inconditionnellement, ce qui l'emporterait
+   sur "[hidden] { display: none }" de la feuille de style de l'agent
+   utilisateur (regle d'auteur vs regle UA, a specificite egale) et laisserait
+   la modale intercepter les clics sur toute la page meme masquee. */
+.modal-document[hidden] { display: none; }
 .modal-document-barre {
   flex: none;
   display: flex;
@@ -403,9 +408,54 @@ th, td {
 th { color: var(--ink-muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
 tbody tr:hover { background: var(--surface-2); }
 
+/* ---------- Tarifier (plomberie / electricite / serrurerie) ---------- */
+.badge-estimation { background: var(--warning-soft); color: var(--warning); }
+.badge-verifie { background: var(--good-soft); color: var(--good); }
+.tarifs-filtres { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.tarifs-onglet.actif { background: var(--brand-violet); color: #fff; border-color: var(--brand-violet); }
+.tarif-formulaire {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.tarif-formulaire input, .tarif-formulaire select {
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+}
+.tarif-formulaire .ligne-boutons { grid-column: 1 / -1; }
+.tarif-formulaire[hidden] { display: none; }
+.tarif-groupe { margin-top: 4px; }
+.tarif-groupe-titre {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 14px 0 4px;
+}
+.tarif-groupe-titre:first-child { margin-top: 0; }
+.tarif-carte { padding: 9px 0; border-top: 1px solid var(--line); }
+.tarif-carte:first-of-type { border-top: none; padding-top: 0; }
+.tarif-ligne-haut { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tarif-designation { font-size: 13px; font-weight: 600; color: var(--ink); }
+.tarif-prix { font-size: 14px; font-weight: 700; color: var(--brand-violet); white-space: nowrap; }
+.tarif-meta { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+.tarif-actions { margin-top: 6px; display: flex; gap: 8px; }
+
 @media (min-width: 640px) {
   main { padding: 24px 24px 56px; gap: 18px; }
   .entete { padding: 22px 28px 16px; }
   .grille-cockpit { grid-template-columns: repeat(4, 1fr); }
   form#form-import { flex-wrap: nowrap; }
+  .tarif-formulaire { grid-template-columns: repeat(3, 1fr); }
 }

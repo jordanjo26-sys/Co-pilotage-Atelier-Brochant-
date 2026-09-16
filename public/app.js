@@ -596,6 +596,160 @@ async function chargerFournisseurs() {
     .join("");
 }
 
+// --- Tarifier (plomberie / electricite / serrurerie) --------------------
+
+const LIBELLE_METIER = { plomberie: "Plomberie", electricite: "Électricité", serrurerie: "Serrurerie" };
+let tarifMetierActuel = "";
+let tarifsParId = new Map();
+
+document.querySelectorAll(".tarifs-onglet").forEach((bouton) => {
+  bouton.addEventListener("click", () => {
+    document.querySelectorAll(".tarifs-onglet").forEach((b) => b.classList.remove("actif"));
+    bouton.classList.add("actif");
+    tarifMetierActuel = bouton.dataset.metier || "";
+    chargerTarifs();
+  });
+});
+
+function reinitialiserFormulaireTarif() {
+  const form = document.getElementById("form-tarif");
+  form.reset();
+  document.getElementById("tarif-id").value = "";
+  document.getElementById("erreur-tarif").hidden = true;
+  form.hidden = true;
+}
+
+function ouvrirFormulaireTarif(tarif) {
+  const form = document.getElementById("form-tarif");
+  form.hidden = false;
+  document.getElementById("erreur-tarif").hidden = true;
+  document.getElementById("tarif-id").value = tarif ? tarif.id : "";
+  document.getElementById("tarif-metier").value = tarif ? tarif.metier : (tarifMetierActuel || "");
+  document.getElementById("tarif-categorie").value = tarif ? tarif.categorie : "";
+  document.getElementById("tarif-designation").value = tarif ? tarif.designation : "";
+  document.getElementById("tarif-unite").value = tarif ? tarif.unite : "";
+  document.getElementById("tarif-prix-materiel").value = tarif && tarif.prixMateriel != null ? tarif.prixMateriel : "";
+  document.getElementById("tarif-prix-main-oeuvre").value = tarif && tarif.prixMainOeuvre != null ? tarif.prixMainOeuvre : "";
+  document.getElementById("tarif-prix-vente").value = tarif ? tarif.prixVenteHT : "";
+  document.getElementById("tarif-fournisseur").value = tarif && tarif.fournisseurRef ? tarif.fournisseurRef : "";
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+window.ouvrirFormulaireTarif = ouvrirFormulaireTarif;
+
+function ouvrirFormulaireTarifParId(id) {
+  const tarif = tarifsParId.get(id);
+  if (tarif) ouvrirFormulaireTarif(tarif);
+}
+window.ouvrirFormulaireTarifParId = ouvrirFormulaireTarifParId;
+
+document.getElementById("btn-nouveau-tarif").addEventListener("click", () => ouvrirFormulaireTarif(null));
+document.getElementById("btn-annuler-tarif").addEventListener("click", reinitialiserFormulaireTarif);
+
+document.getElementById("form-tarif").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = document.getElementById("tarif-id").value;
+  const nombreOuVide = (valeur) => (valeur === "" ? null : Number(valeur));
+  const corps = {
+    metier: document.getElementById("tarif-metier").value,
+    categorie: document.getElementById("tarif-categorie").value,
+    designation: document.getElementById("tarif-designation").value,
+    unite: document.getElementById("tarif-unite").value,
+    prixMateriel: nombreOuVide(document.getElementById("tarif-prix-materiel").value),
+    prixMainOeuvre: nombreOuVide(document.getElementById("tarif-prix-main-oeuvre").value),
+    prixVenteHT: Number(document.getElementById("tarif-prix-vente").value),
+    fournisseurRef: document.getElementById("tarif-fournisseur").value || null,
+    source: "verifie",
+  };
+
+  const erreurDiv = document.getElementById("erreur-tarif");
+  erreurDiv.hidden = true;
+
+  try {
+    const res = await fetch(id ? `/api/tarifs/${id}` : "/api/tarifs", {
+      method: id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corps),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      erreurDiv.textContent = data.erreur || "Échec de l'enregistrement.";
+      erreurDiv.hidden = false;
+      return;
+    }
+    reinitialiserFormulaireTarif();
+    await chargerTarifs();
+  } catch (err) {
+    erreurDiv.textContent = err.message;
+    erreurDiv.hidden = false;
+  }
+});
+
+async function supprimerTarif(id) {
+  if (!confirm("Supprimer cette ligne du tarifier ?")) return;
+  try {
+    const res = await fetch(`/api/tarifs/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.erreur || "Échec de la suppression.");
+      return;
+    }
+    await chargerTarifs();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+window.supprimerTarif = supprimerTarif;
+
+async function chargerTarifs() {
+  const params = tarifMetierActuel ? `?metier=${encodeURIComponent(tarifMetierActuel)}` : "";
+  const res = await fetch(`/api/tarifs${params}`);
+  const tarifs = await res.json();
+  const liste = document.getElementById("liste-tarifs");
+
+  if (tarifs.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune ligne de tarifier pour le moment.</p>`;
+    return;
+  }
+
+  tarifsParId = new Map(tarifs.map((t) => [t.id, t]));
+
+  const groupes = new Map();
+  for (const t of tarifs) {
+    const cle = `${LIBELLE_METIER[t.metier] || t.metier} — ${t.categorie}`;
+    if (!groupes.has(cle)) groupes.set(cle, []);
+    groupes.get(cle).push(t);
+  }
+
+  liste.innerHTML = [...groupes.entries()]
+    .map(
+      ([titre, lignes]) => `
+    <div class="tarif-groupe">
+      <div class="tarif-groupe-titre">${echapper(titre)}</div>
+      ${lignes
+        .map(
+          (t) => `
+        <div class="tarif-carte">
+          <div class="tarif-ligne-haut">
+            <span class="tarif-designation">${echapper(t.designation)}</span>
+            <span class="tarif-prix">${fmtMontant(t.prixVenteHT)} HT / ${echapper(t.unite)}</span>
+          </div>
+          <div class="tarif-meta">
+            ${t.prixMateriel != null ? `matériel ${fmtMontant(t.prixMateriel)}` : ""}${t.prixMateriel != null && t.prixMainOeuvre != null ? " · " : ""}${t.prixMainOeuvre != null ? `main d'œuvre ${fmtMontant(t.prixMainOeuvre)}` : ""}
+            ${t.fournisseurRef ? ` · réf. ${echapper(t.fournisseurRef)}` : ""}
+            ${t.source === "estimation_marche" ? ` · <span class="badge badge-estimation">estimation marché</span>` : t.source === "verifie" ? ` · <span class="badge badge-verifie">vérifié</span>` : ""}
+          </div>
+          <div class="tarif-actions">
+            <button type="button" class="ghost" onclick="ouvrirFormulaireTarifParId('${t.id}')">Modifier</button>
+            <button type="button" class="ghost" onclick="supprimerTarif('${t.id}')">Supprimer</button>
+          </div>
+        </div>`
+        )
+        .join("")}
+    </div>`
+    )
+    .join("");
+}
+
 // --- Relances -----------------------------------------------------------
 
 const LIBELLE_PALIER_CLASSE = { rappel: "neutre", relance: "ambre", mise_en_demeure: "critique" };
@@ -735,7 +889,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal(), chargerTarifs()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

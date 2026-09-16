@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=13" />
+  <link rel="stylesheet" href="/styles.css?v=16" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -118,6 +118,45 @@
       <div id="liste-fournisseurs"></div>
     </section>
 
+    <section class="carte accent-violet">
+      <h2>Tarifier plomberie / électricité / serrurerie</h2>
+      <p class="aide">
+        Grille de prix indicatifs pour établir un devis rapidement. Les prix marqués
+        <span class="badge badge-estimation">estimation marché</span> ne proviennent pas d'une récupération automatique
+        chez Cedeo, La Plateforme du Bâtiment, Foussier ou Richardson (comptes professionnels, tarifs non accessibles sans
+        connexion) — à vérifier et ajuster avec vos propres comptes fournisseurs avant utilisation pour un devis client.
+      </p>
+      <div class="tarifs-filtres">
+        <button type="button" class="ghost tarifs-onglet actif" data-metier="">Tous</button>
+        <button type="button" class="ghost tarifs-onglet" data-metier="plomberie">Plomberie</button>
+        <button type="button" class="ghost tarifs-onglet" data-metier="electricite">Électricité</button>
+        <button type="button" class="ghost tarifs-onglet" data-metier="serrurerie">Serrurerie</button>
+        <button type="button" class="ghost" id="btn-nouveau-tarif" style="margin-left:auto">+ Ajouter une ligne</button>
+      </div>
+      <form id="form-tarif" class="tarif-formulaire" hidden>
+        <input type="hidden" id="tarif-id" />
+        <select id="tarif-metier" required>
+          <option value="">Métier…</option>
+          <option value="plomberie">Plomberie</option>
+          <option value="electricite">Électricité</option>
+          <option value="serrurerie">Serrurerie</option>
+        </select>
+        <input type="text" id="tarif-categorie" placeholder="Catégorie (ex. Robinetterie)" required />
+        <input type="text" id="tarif-designation" placeholder="Désignation de la prestation" required />
+        <input type="text" id="tarif-unite" placeholder="Unité (u, forfait, heure, ml…)" required />
+        <input type="number" id="tarif-prix-materiel" placeholder="Prix matériel HT (€)" step="0.01" min="0" />
+        <input type="number" id="tarif-prix-main-oeuvre" placeholder="Prix main d'œuvre HT (€)" step="0.01" min="0" />
+        <input type="number" id="tarif-prix-vente" placeholder="Prix de vente HT (€)" step="0.01" min="0" required />
+        <input type="text" id="tarif-fournisseur" placeholder="Fournisseur de référence (optionnel)" />
+        <div class="ligne-boutons">
+          <button type="submit">Enregistrer</button>
+          <button type="button" class="ghost" id="btn-annuler-tarif">Annuler</button>
+        </div>
+        <div id="erreur-tarif" class="aide-inline" hidden></div>
+      </form>
+      <div id="liste-tarifs"></div>
+    </section>
+
     <section class="carte accent-neutre">
       <h2>Derniers imports</h2>
       <div class="table-scroll">
@@ -147,6 +186,6 @@
     <iframe id="iframe-document" class="modal-document-iframe" title="Aperçu du document"></iframe>
   </div>
 
-  <script src="/app.js?v=18"></script>
+  <script src="/app.js?v=19"></script>
 </body>
 </html>

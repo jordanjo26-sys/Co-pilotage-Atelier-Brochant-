@@ -341,6 +341,30 @@ premier document reçu :
 - `GET /api/fournisseurs` : liste avec résumé d'activité.
 - `GET /api/fournisseurs/:id` : détail d'un fournisseur et historique complet de ses documents.
 
+## Tarifier plomberie / électricité / serrurerie
+
+Grille de prix indicatifs (matériel + main d'œuvre) pour les prestations
+courantes des trois métiers, consultable et modifiable directement depuis
+l'interface (section « Tarifier ») pour établir un devis rapidement.
+
+> ⚠️ **Les prix ne sont pas récupérés automatiquement chez les fournisseurs**
+> (Cedeo, La Plateforme du Bâtiment, Foussier, Richardson...). Ce sont des
+> enseignes réservées aux professionnels (compte + KBIS) dont les tarifs sont
+> masqués sans connexion, et dont les sites bloquent de toute façon l'accès
+> automatisé (403 constaté sur cedeo.fr lors d'une tentative). Le jeu de
+> données initial (`npm run seed:tarifs`, voir `scripts/seed-tarifs.ts`) ne
+> contient donc que des **estimations de marché** (badge « estimation marché »
+> dans l'interface), à vérifier et ajuster avec vos propres comptes
+> fournisseurs avant utilisation pour un devis client — soit directement
+> depuis l'interface (bouton « Modifier »), soit en corrigeant les montants
+> dans `scripts/seed-tarifs.ts` et en relançant le script (idempotent).
+
+- `GET /api/tarifs?metier=plomberie&categorie=Robinetterie` : liste des
+  lignes du tarifier, filtrable par métier et/ou catégorie.
+- `POST /api/tarifs` : ajoute une ligne.
+- `PATCH /api/tarifs/:id` : modifie une ligne existante.
+- `DELETE /api/tarifs/:id` : supprime une ligne.
+
 ## Relances de factures impayées
 
 Moteur de règles (section 4.3 du cahier des charges, Phase 5) qui détermine
@@ -410,6 +434,10 @@ texte proposé tel quel, via la boîte Gmail connectée.
 | `GET /api/fournisseurs/:id` | Détail d'un fournisseur et historique de ses documents |
 | `GET /api/relances` | Factures ayant atteint un nouveau palier de retard, avec texte de relance proposé |
 | `POST /api/relances/:factureId/envoyer` | Envoie la relance proposée pour cette facture |
+| `GET /api/tarifs?metier=&categorie=` | Grille de tarifs plomberie/électricité/serrurerie (filtrable) |
+| `POST /api/tarifs` | Ajoute une ligne au tarifier |
+| `PATCH /api/tarifs/:id` | Modifie une ligne du tarifier |
+| `DELETE /api/tarifs/:id` | Supprime une ligne du tarifier |
 
 ## Modèle de données
 
@@ -417,7 +445,8 @@ texte proposé tel quel, via la boîte Gmail connectée.
 (« Données principales à stocker ») : `Client`, `Facture`, `Paiement`,
 `Payout`, `MouvementBancaire`, `Fournisseur`, `DocumentFournisseur`,
 `FactureFournisseur`, `Decision`, `Anomalie`, `JournalEvenement`,
-`GmailConnexion` (jeton OAuth chiffré), en plus de `ImportBatch` qui trace
+`GmailConnexion` (jeton OAuth chiffré), `TarifPrestation` (tarifier
+plomberie/électricité/serrurerie), en plus de `ImportBatch` qui trace
 chaque fichier reçu.
 
 PostgreSQL partout (section 16), y compris en développement local, pour ne
