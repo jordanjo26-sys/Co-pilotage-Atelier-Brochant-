@@ -14,8 +14,13 @@ import {
   listerRelancesDues,
 } from "../services/prospection/campagnes";
 import { historiqueEnvois, repartitionParStatut, statistiquesCampagnes } from "../services/prospection/dashboard";
+import { enregistrerPieceJointe, supprimerPieceJointe, typeAutorise } from "../services/prospection/pieceJointe";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+// Plaquette commerciale (PDF/image) : plus volumineuse qu'un CSV, mais
+// plafonnee pour rester raisonnable une fois jointe a chaque envoi (limite
+// Gmail ~25 Mo par message, encodage base64 inclus).
+const uploadPieceJointe = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 // Pixel de suivi 1x1 transparent (section 2.5 : ouverture d'un envoi).
 const PIXEL_TRANSPARENT = Buffer.from(
@@ -136,8 +141,40 @@ export function buildProspectionRouter(prisma: PrismaClient): Router {
   });
 
   router.delete("/templates/:id", async (req, res) => {
+    const template = await prisma.emailTemplate.findUnique({ where: { id: req.params.id } });
+    await supprimerPieceJointe(template?.pieceJointeChemin);
     await prisma.emailTemplate.delete({ where: { id: req.params.id } });
     res.status(204).send();
+  });
+
+  router.post("/templates/:id/piece-jointe", uploadPieceJointe.single("pieceJointe"), async (req, res) => {
+    if (!req.file) return res.status(400).json({ erreur: "Aucun fichier recu (champ attendu : 'pieceJointe')." });
+    if (!typeAutorise(req.file.mimetype)) {
+      return res.status(400).json({ erreur: "Format non accepte : PDF, PNG ou JPEG uniquement." });
+    }
+    try {
+      const template = await prisma.emailTemplate.findUniqueOrThrow({ where: { id: req.params.id } });
+      await supprimerPieceJointe(template.pieceJointeChemin);
+      const piece = await enregistrerPieceJointe(req.file.originalname, req.file.mimetype, req.file.buffer);
+      const misAJour = await prisma.emailTemplate.update({
+        where: { id: req.params.id },
+        data: { pieceJointeChemin: piece.chemin, pieceJointeNom: piece.nom, pieceJointeType: piece.type },
+      });
+      res.status(200).json(misAJour);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.delete("/templates/:id/piece-jointe", async (req, res) => {
+    const template = await prisma.emailTemplate.findUnique({ where: { id: req.params.id } });
+    if (!template) return res.status(404).json({ erreur: "Modele introuvable." });
+    await supprimerPieceJointe(template.pieceJointeChemin);
+    const misAJour = await prisma.emailTemplate.update({
+      where: { id: req.params.id },
+      data: { pieceJointeChemin: null, pieceJointeNom: null, pieceJointeType: null },
+    });
+    res.json(misAJour);
   });
 
   // --- Campagnes (section 2.4) ---------------------------------------------
@@ -147,7 +184,7 @@ export function buildProspectionRouter(prisma: PrismaClient): Router {
   });
 
   router.post("/campagnes", async (req, res) => {
-    const { nom, templateId, segmentFiltre, relanceApresJours, arretSiReponse } = req.body;
+    const { nom, templateId, segmentFiltre, relanceApresJours, arretSiReponse, automatique } = req.body;
     if (!nom || !templateId) return res.status(400).json({ erreur: "nom et templateId sont requis." });
     const campagne = await prisma.campagne.create({
       data: {
@@ -156,9 +193,27 @@ export function buildProspectionRouter(prisma: PrismaClient): Router {
         segmentFiltre: JSON.stringify(segmentFiltre || {}),
         relanceApresJours: relanceApresJours ?? null,
         arretSiReponse: arretSiReponse ?? true,
+        automatique: automatique ?? false,
       },
     });
     res.status(201).json(campagne);
+  });
+
+  router.patch("/campagnes/:id", async (req, res) => {
+    const { automatique, relanceApresJours, arretSiReponse } = req.body;
+    try {
+      const campagne = await prisma.campagne.update({
+        where: { id: req.params.id },
+        data: {
+          automatique: typeof automatique === "boolean" ? automatique : undefined,
+          relanceApresJours: relanceApresJours === undefined ? undefined : relanceApresJours,
+          arretSiReponse: typeof arretSiReponse === "boolean" ? arretSiReponse : undefined,
+        },
+      });
+      res.json(campagne);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   router.get("/campagnes/:id/prospects-dus", async (req, res) => {

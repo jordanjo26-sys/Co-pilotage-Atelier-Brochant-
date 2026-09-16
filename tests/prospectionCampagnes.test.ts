@@ -94,3 +94,25 @@ test("listerRelancesDues : due seulement apres le delai, jamais si deja repondu"
 
   await prisma.$disconnect();
 });
+
+test("executerEnvoisAutomatiques : sans boite Gmail connectee, ne cree aucun envoi meme avec une campagne automatique due", async () => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { executerEnvoisAutomatiques } = await import("../src/services/prospection/campagnes");
+  const prisma = new PrismaClient();
+  await reinitialiser(prisma);
+  await prisma.gmailConnexion.deleteMany();
+
+  const template = await prisma.emailTemplate.create({
+    data: { nom: "Test", objet: "Bonjour {{entreprise}}", corpsHtml: "<p>Bonjour</p>" },
+  });
+  await prisma.campagne.create({
+    data: { nom: "Campagne auto", templateId: template.id, segmentFiltre: "{}", automatique: true },
+  });
+  await prisma.prospect.create({ data: { type: "syndic", entreprise: "Prospect du", email: "a@test.fr" } });
+
+  const resultat = await executerEnvoisAutomatiques(prisma);
+  assert.deepEqual(resultat, { nbEnvoyes: 0, nbRelances: 0, nbEchecs: 0 });
+  assert.equal(await prisma.envoiCampagne.count(), 0);
+
+  await prisma.$disconnect();
+});

@@ -10,6 +10,7 @@ import {
   demarrerRecapQuotidien,
   demarrerSurveillanceStripe,
   demarrerDetectionReponsesProspection,
+  demarrerEnvoiAutomatiqueCampagnes,
 } from "./services/scheduler";
 
 dotenv.config();
@@ -37,6 +38,7 @@ demarrerSurveillanceGmail(prisma);
 demarrerRecapQuotidien(prisma);
 demarrerSurveillanceStripe(prisma);
 demarrerDetectionReponsesProspection(prisma);
+demarrerEnvoiAutomatiqueCampagnes(prisma);
 
 process.on("SIGINT", async () => {
   await prisma.$disconnect();

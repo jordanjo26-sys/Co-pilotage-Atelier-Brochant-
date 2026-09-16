@@ -357,6 +357,13 @@ model EmailTemplate {
   service   String?
   objet     String
   corpsHtml String
+  // Plaquette commerciale (PDF/image) jointe a chaque envoi utilisant ce
+  // modele. Fichier stocke hors du depot (uploads/prospection/, voir
+  // .gitignore et src/services/prospection/pieceJointe.ts) : seul le chemin
+  // est persiste en base.
+  pieceJointeChemin String?
+  pieceJointeNom    String? // nom d'origine, affiche dans l'interface et a l'envoi
+  pieceJointeType   String? // type MIME
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   campagnes Campagne[]
@@ -374,6 +381,12 @@ model Campagne {
   statut          String   @default("brouillon") // brouillon | en_cours | terminee
   relanceApresJours Int?   // ex. 7 : delai avant relance automatique (section 2.4)
   arretSiReponse  Boolean  @default(true)
+  // Envoi sans geste humain (premier envoi comme relance), demande
+  // explicitement par l'exploitant - voir l'en-tete de campagnes.ts pour le
+  // garde-fou de quota qui s'applique quel que soit ce reglage. Desactive
+  // par defaut : une campagne nouvellement creee reste manuelle tant que ce
+  // champ n'est pas active explicitement depuis l'interface.
+  automatique     Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   envois          EnvoiCampagne[]

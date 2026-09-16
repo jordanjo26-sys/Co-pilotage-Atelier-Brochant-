@@ -109,6 +109,9 @@
             <textarea name="corpsHtml" required placeholder="Bonjour {{contact}}, ..."></textarea>
           </label>
           <p class="aide-inline champ-pleine-largeur">Variables disponibles : {{contact}}, {{entreprise}}, {{marque}}, {{service}}. Lien de désinscription et suivi ajoutés automatiquement à l'envoi.</p>
+          <label class="champ-pleine-largeur">Plaquette commerciale à joindre (PDF, PNG ou JPEG — optionnel)
+            <input type="file" name="pieceJointe" accept="application/pdf,image/png,image/jpeg" />
+          </label>
           <div class="champ-pleine-largeur"><button type="submit">Créer le modèle</button></div>
         </form>
       </details>
@@ -135,6 +138,10 @@
             </select>
           </label>
           <label>Segment — code postal<input name="segCodePostal" placeholder="ex. 77" /></label>
+          <label class="champ-pleine-largeur">
+            <input type="checkbox" name="automatique" style="width:auto;display:inline-block;margin-right:6px" />
+            Envoi automatique (premiers envois et relances envoyés sans clic, dans la limite du quota quotidien)
+          </label>
           <div class="champ-pleine-largeur"><button type="submit">Créer la campagne (brouillon)</button></div>
         </form>
       </details>

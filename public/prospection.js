@@ -235,23 +235,55 @@ async function chargerTemplates() {
   const templates = await appelApi("/api/prospection/templates");
   document.getElementById("liste-templates").innerHTML =
     templates
-      .map((t) => `<div class="historique-ligne"><strong>${echapper(t.nom)}</strong> — ${echapper(t.objet)}</div>`)
+      .map(
+        (t) => `
+    <div class="historique-ligne" data-template="${t.id}">
+      <strong>${echapper(t.nom)}</strong> — ${echapper(t.objet)}
+      ${
+        t.pieceJointeNom
+          ? `<br/><span class="aide-inline">📎 ${echapper(t.pieceJointeNom)} <button type="button" class="ghost btn-retirer-piece-jointe" style="padding:2px 8px;margin-left:6px">Retirer</button></span>`
+          : ""
+      }
+    </div>`
+      )
       .join("") || `<p class="liste-vide">Aucun modèle créé pour le moment.</p>`;
 
+  document.querySelectorAll(".btn-retirer-piece-jointe").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.closest("[data-template]").dataset.template;
+      await appelApi(`/api/prospection/templates/${id}/piece-jointe`, { method: "DELETE" });
+      await chargerTemplates();
+    });
+  });
+
   const select = document.getElementById("select-template-campagne");
-  select.innerHTML = templates.map((t) => `<option value="${t.id}">${echapper(t.nom)}</option>`).join("");
+  select.innerHTML = templates.map((t) => `<option value="${t.id}">${echapper(t.nom)}${t.pieceJointeNom ? " (avec plaquette)" : ""}</option>`).join("");
 }
 
 document.getElementById("form-template").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const data = Object.fromEntries(new FormData(e.target).entries());
-  await appelApi("/api/prospection/templates", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  e.target.reset();
-  await chargerTemplates();
+  const form = new FormData(e.target);
+  const fichier = form.get("pieceJointe");
+  const data = { nom: form.get("nom"), marque: form.get("marque"), objet: form.get("objet"), corpsHtml: form.get("corpsHtml") };
+
+  try {
+    const template = await appelApi("/api/prospection/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    if (fichier && fichier.size > 0) {
+      const formPieceJointe = new FormData();
+      formPieceJointe.append("pieceJointe", fichier);
+      await appelApi(`/api/prospection/templates/${template.id}/piece-jointe`, { method: "POST", body: formPieceJointe });
+    }
+
+    e.target.reset();
+    await chargerTemplates();
+  } catch (err) {
+    alert(err.message);
+  }
 });
 
 // --- Campagnes ---------------------------------------------------------
@@ -265,12 +297,33 @@ async function chargerCampagnes() {
         (c) => `
     <div class="historique-ligne" data-campagne="${c.id}">
       <strong>${echapper(c.nom)}</strong> — modèle "${echapper(c.template.nom)}" — statut ${echapper(c.statut)}
+      — <span class="pastille-statut ${c.automatique ? "pastille-client" : "pastille-a_contacter"}">${c.automatique ? "Automatique" : "Manuel"}</span>
       <div class="ligne-boutons" style="margin-top:6px">
         <button type="button" class="ghost btn-envoyer-campagne" data-id="${c.id}">Envoyer aux prospects dus</button>
+        <button type="button" class="ghost btn-basculer-auto" data-id="${c.id}" data-auto="${c.automatique}">${c.automatique ? "Repasser en manuel" : "Activer l'envoi automatique"}</button>
       </div>
     </div>`
       )
       .join("") || `<p class="liste-vide">Aucune campagne créée pour le moment.</p>`;
+
+  div.querySelectorAll(".btn-basculer-auto").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const activerAuto = btn.dataset.auto !== "true";
+      if (activerAuto && !confirm("Les prochains e-mails de cette campagne (premiers envois et relances) seront envoyés automatiquement, sans validation, dans la limite du quota quotidien. Confirmer ?")) {
+        return;
+      }
+      try {
+        await appelApi(`/api/prospection/campagnes/${btn.dataset.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ automatique: activerAuto }),
+        });
+        await chargerCampagnes();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 
   div.querySelectorAll(".btn-envoyer-campagne").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -298,6 +351,11 @@ document.getElementById("form-campagne").addEventListener("submit", async (e) =>
   if (form.get("segStatut")) segmentFiltre.statut = form.get("segStatut");
   if (form.get("segCodePostal")) segmentFiltre.codePostal = form.get("segCodePostal");
 
+  const automatique = form.get("automatique") === "on";
+  if (automatique && !confirm("Les e-mails de cette campagne (premiers envois et relances) seront envoyés automatiquement, sans validation, dans la limite du quota quotidien. Confirmer ?")) {
+    return;
+  }
+
   await appelApi("/api/prospection/campagnes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -306,6 +364,7 @@ document.getElementById("form-campagne").addEventListener("submit", async (e) =>
       templateId: form.get("templateId"),
       relanceApresJours: form.get("relanceApresJours") ? Number(form.get("relanceApresJours")) : null,
       segmentFiltre,
+      automatique,
     }),
   });
   e.target.reset();

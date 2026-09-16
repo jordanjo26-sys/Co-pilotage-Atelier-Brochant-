@@ -29,11 +29,20 @@ Accès : lien « Prospection commerciale » depuis le cockpit principal
   tiers (Hunter.io) câblé mais désactivé sans `HUNTER_API_KEY` —
   `src/services/prospection/enrichissement.ts`.
 - **Campagnes (section 2.4)** : modèles de mail avec variables
-  (`{{contact}}`, `{{entreprise}}`, `{{marque}}`, `{{service}}`), segments
-  réévalués à chaque envoi, envoi réel via la boîte Gmail déjà connectée
-  (aucun abonnement supplémentaire nécessaire pour démarrer), lien de
-  désinscription et pixel de suivi insérés automatiquement, quota d'envoi
-  quotidien (`PROSPECTION_ENVOI_QUOTIDIEN_MAX`) — `src/services/prospection/campagnes.ts`.
+  (`{{contact}}`, `{{entreprise}}`, `{{marque}}`, `{{service}}`), pièce
+  jointe optionnelle par modèle (plaquette commerciale PDF/PNG/JPEG, 15 Mo
+  max — stockée hors dépôt dans `uploads/prospection/`, voir
+  `src/services/prospection/pieceJointe.ts`), segments réévalués à chaque
+  envoi, envoi réel via la boîte Gmail déjà connectée (aucun abonnement
+  supplémentaire nécessaire pour démarrer), lien de désinscription et pixel
+  de suivi insérés automatiquement, quota d'envoi quotidien
+  (`PROSPECTION_ENVOI_QUOTIDIEN_MAX`) — `src/services/prospection/campagnes.ts`.
+  Chaque campagne peut être **manuelle** (un clic envoie aux prospects dus)
+  ou **automatique** (bascule explicite depuis l'interface, avec
+  confirmation) : un planificateur envoie alors seul les premiers envois et
+  les relances dues, toutes les heures par défaut
+  (`PROSPECTION_ENVOI_AUTO_INTERVAL_MS`), toujours dans la limite du même
+  quota quotidien partagé avec les envois manuels.
 - **Suivi et reporting (section 2.5)** : ouverture (pixel), clic (lien
   réécrit), réponse (détection automatique par lecture du fil Gmail,
   planifiée toutes les 15 minutes), désinscription — tout est tracé sur
@@ -50,13 +59,20 @@ Accès : lien « Prospection commerciale » depuis le cockpit principal
   (~500/j sur un compte Workspace) — largement suffisant pour le volume de
   démarrage visé sur la Seine-et-Marne. Migrer vers Brevo/Mailjet plus tard
   ne change que `envoyerMail()` dans `campagnes.ts`, pas le reste du module.
-- **Premier envoi et relance toujours déclenchés manuellement** (un clic),
-  jamais par le planificateur — même principe de prudence que les relances
-  de factures impayées (`src/services/relances.ts`) : un envoi de masse a un
-  impact externe (image de l'entreprise, RGPD) qui justifie un geste humain
-  volontaire. Le moteur calcule automatiquement *qui* est dû
-  (`listerProspectsDus`, `listerRelancesDues`), jamais n'envoie de lui-même.
-  La détection de réponse, elle, est automatique (lecture seule, aucun envoi).
+- **Envoi manuel par défaut, automatique sur demande explicite par
+  campagne** — même principe de prudence que les relances de factures
+  impayées (`src/services/relances.ts`) au départ (un envoi de masse a un
+  impact externe qui justifie un geste humain), mais l'exploitant a
+  explicitement demandé de pouvoir automatiser l'envoi des e-mails de
+  prospection : chaque campagne reste manuelle à la création
+  (`Campagne.automatique = false` par défaut), et n'est envoyée sans clic
+  qu'une fois ce réglage activé volontairement depuis l'interface (avec
+  confirmation explicite du risque). Le quota quotidien reste le garde-fou
+  commun aux deux modes. Les relances de factures, elles, restent
+  inchangées : toujours manuelles, la sensibilité relationnelle d'un impayé
+  étant d'une autre nature qu'une prospection commerciale à froid.
+  La détection de réponse, elle, est automatique dans tous les cas (lecture
+  seule, aucun envoi).
 - **Import Excel non implémenté** : le seul paquet npm disponible pour lire
   les `.xlsx` (`xlsx`/SheetJS) a des vulnérabilités connues non corrigées sur
   le registre npm (pollution de prototype, ReDoS — voir `npm audit`), pour un
@@ -78,6 +94,14 @@ Accès : lien « Prospection commerciale » depuis le cockpit principal
 - **Nombre d'utilisateurs** : l'application n'a actuellement aucune
   authentification (comme le reste du dépôt) — à ajouter si plusieurs
   personnes doivent y accéder avec des droits différents (section 2.2).
+
+## Stockage des pièces jointes
+
+`uploads/prospection/` (hors dépôt, voir `.gitignore`) doit **persister sur
+le serveur entre deux déploiements** : le workflow de déploiement
+(`.github/workflows/deploy.yml`) exclut ce dossier du `rsync --delete` au
+même titre que `.env`, pour ne pas effacer les plaquettes commerciales
+déjà envoyées à chaque mise à jour du code.
 
 ## Modèle de données
 

@@ -12,11 +12,16 @@ import { logEvenement } from "../journalService";
  * demarrer, au prix d'un volume plus limite (quota Gmail) - a reconsiderer
  * avec le developpeur si le volume mensuel vise le justifie (point 7).
  *
- * Dans le meme esprit de prudence que src/services/relances.ts (jamais
- * d'envoi de masse declenche automatiquement) : le premier envoi d'une
- * campagne et chaque relance restent un geste humain volontaire (un clic),
- * le moteur se contentant de determiner QUI est du (listerProspectsDus /
- * listerRelancesDues), jamais d'envoyer de lui-meme.
+ * Envoi manuel (envoyerCampagne / envoyerRelance, un clic) ou automatique
+ * (executerEnvoisAutomatiques, appelee par le planificateur - voir
+ * src/services/scheduler.ts) selon le champ Campagne.automatique, active
+ * explicitement au cas par cas depuis l'interface : demande expresse de
+ * l'exploitant, qui accepte le risque d'un envoi sans relecture prealable
+ * pour la prospection (a la difference des relances de factures impayees,
+ * src/services/relances.ts, ou l'aspect relationnel plus sensible justifie
+ * de garder un geste humain systematique). Le garde-fou qui reste dans tous
+ * les cas : le quota quotidien (PROSPECTION_ENVOI_QUOTIDIEN_MAX), partage
+ * entre premiers envois et relances, manuels et automatiques.
  */
 
 const VARIABLE_PATTERN = /\{\{\s*(contact|entreprise|marque|service)\s*\}\}/g;
@@ -99,16 +104,35 @@ export async function listerProspectsDus(prisma: PrismaClient, campagneId: strin
   });
 }
 
-async function envoyerMail(prisma: PrismaClient, prospectEmail: string, objet: string, corpsHtml: string) {
+async function envoyerMail(
+  prisma: PrismaClient,
+  prospectEmail: string,
+  objet: string,
+  corpsHtml: string,
+  pieceJointe?: { chemin: string; nom: string }
+) {
   const connexionGmail = await getGmailClient(prisma);
   if (!connexionGmail) throw new Error("Aucune boite Gmail connectee (voir /auth/google).");
   const { gmail } = connexionGmail;
 
-  const composer = new MailComposer({ to: prospectEmail, subject: objet, html: corpsHtml });
+  const composer = new MailComposer({
+    to: prospectEmail,
+    subject: objet,
+    html: corpsHtml,
+    attachments: pieceJointe ? [{ filename: pieceJointe.nom, path: pieceJointe.chemin }] : undefined,
+  });
   const message = await composer.compile().build();
   const raw = message.toString("base64url");
   const envoi = await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
   return { messageId: envoi.data.id ?? null, threadId: envoi.data.threadId ?? null };
+}
+
+/** Places quotidiennes restantes avant PROSPECTION_ENVOI_QUOTIDIEN_MAX (section 3), tous envois confondus. */
+async function quotaRestantAujourdhui(prisma: PrismaClient): Promise<number> {
+  const dejaEnvoyesAujourdhui = await prisma.envoiCampagne.count({
+    where: { dateEnvoi: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
+  });
+  return Math.max(quotaQuotidien() - dejaEnvoyesAujourdhui, 0);
 }
 
 /**
@@ -126,10 +150,7 @@ export async function envoyerCampagne(prisma: PrismaClient, campagneId: string):
   }
 
   const dus = await listerProspectsDus(prisma, campagneId);
-  const dejaEnvoyesAujourdhui = await prisma.envoiCampagne.count({
-    where: { dateEnvoi: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
-  });
-  const restant = Math.max(quotaQuotidien() - dejaEnvoyesAujourdhui, 0);
+  const restant = await quotaRestantAujourdhui(prisma);
   const aEnvoyer = dus.slice(0, restant);
 
   let nbEnvoyes = 0;
@@ -175,8 +196,12 @@ async function envoyerUnMessage(
 
   const objet = rendre(template.objet, prospect);
   const corps = composerCorps(rendre(template.corpsHtml, prospect), envoi.tokenSuivi);
+  const pieceJointe =
+    template.pieceJointeChemin && template.pieceJointeNom
+      ? { chemin: template.pieceJointeChemin, nom: template.pieceJointeNom }
+      : undefined;
 
-  const { messageId, threadId } = await envoyerMail(prisma, prospect.email!, objet, corps);
+  const { messageId, threadId } = await envoyerMail(prisma, prospect.email!, objet, corps, pieceJointe);
 
   await prisma.envoiCampagne.update({
     where: { id: envoi.id },
@@ -257,6 +282,93 @@ export async function envoyerRelance(prisma: PrismaClient, campagneId: string, p
     evenement: "campagne_relance",
     action: `Relance de "${prospect.entreprise}" pour la campagne "${campagne.nom}"`,
   });
+}
+
+export interface ResultatEnvoisAutomatiques {
+  nbEnvoyes: number;
+  nbRelances: number;
+  nbEchecs: number;
+}
+
+/**
+ * Envoie automatiquement les premiers envois puis les relances dues, pour
+ * les seules campagnes ou automatique=true (bascule explicite par
+ * campagne, jamais un reglage global) - voir l'en-tete du fichier. Appelee
+ * par le planificateur (src/services/scheduler.ts), jamais par une route
+ * HTTP : il n'y a personne a informer d'un echec autrement que le journal.
+ *
+ * Ne fait rien silencieusement si Gmail n'est pas connecte ou si le quota
+ * du jour est deja epuise, plutot que d'echouer bruyamment a chaque
+ * execution planifiee.
+ */
+export async function executerEnvoisAutomatiques(prisma: PrismaClient): Promise<ResultatEnvoisAutomatiques> {
+  const resultat: ResultatEnvoisAutomatiques = { nbEnvoyes: 0, nbRelances: 0, nbEchecs: 0 };
+
+  if (!(await getGmailClient(prisma))) return resultat;
+
+  const campagnesAuto = await prisma.campagne.findMany({
+    where: { automatique: true, statut: { not: "terminee" } },
+    include: { template: true },
+  });
+  if (campagnesAuto.length === 0) return resultat;
+
+  let restant = await quotaRestantAujourdhui(prisma);
+
+  for (const campagne of campagnesAuto) {
+    if (restant <= 0) break;
+    const dus = await listerProspectsDus(prisma, campagne.id);
+    for (const prospect of dus.slice(0, restant)) {
+      try {
+        await envoyerUnMessage(prisma, campagne, campagne.template, prospect, false);
+        resultat.nbEnvoyes++;
+        restant--;
+      } catch (err) {
+        resultat.nbEchecs++;
+        await logEvenement(prisma, {
+          evenement: "campagne_envoi_auto_echec",
+          action: `Envoi automatique de la campagne "${campagne.nom}" a ${prospect.entreprise}`,
+          resultat: (err as Error).message,
+        });
+      }
+    }
+    if (campagne.statut === "brouillon" && resultat.nbEnvoyes > 0) {
+      await prisma.campagne.update({ where: { id: campagne.id }, data: { statut: "en_cours" } });
+    }
+  }
+
+  if (restant > 0) {
+    const idsCampagnesAuto = new Set(campagnesAuto.map((c) => c.id));
+    const campagneParId = new Map(campagnesAuto.map((c) => [c.id, c]));
+    const relancesDues = (await listerRelancesDues(prisma)).filter((r) => idsCampagnesAuto.has(r.campagneId));
+
+    for (const due of relancesDues) {
+      if (restant <= 0) break;
+      try {
+        const campagne = campagneParId.get(due.campagneId)!;
+        const prospect = await prisma.prospect.findUniqueOrThrow({ where: { id: due.prospectId } });
+        await envoyerUnMessage(prisma, campagne, campagne.template, prospect, true);
+        resultat.nbRelances++;
+        restant--;
+      } catch (err) {
+        resultat.nbEchecs++;
+        await logEvenement(prisma, {
+          evenement: "campagne_relance_auto_echec",
+          action: `Relance automatique de "${due.entreprise}" pour la campagne "${due.campagneNom}"`,
+          resultat: (err as Error).message,
+        });
+      }
+    }
+  }
+
+  if (resultat.nbEnvoyes > 0 || resultat.nbRelances > 0) {
+    await logEvenement(prisma, {
+      evenement: "campagne_envoi_auto",
+      action: "Envoi automatique de campagnes de prospection",
+      resultat: `${resultat.nbEnvoyes} premier(s) envoi(s), ${resultat.nbRelances} relance(s), ${resultat.nbEchecs} echec(s).`,
+    });
+  }
+
+  return resultat;
 }
 
 // --- Suivi (section 2.5 : ouverture, clic, reponse, desinscription) --------
