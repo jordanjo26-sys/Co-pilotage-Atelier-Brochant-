@@ -3,7 +3,7 @@ import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
 import { getDashboardSummary } from "../services/dashboardService";
-import { synchroniserGmail, envoyerDocumentFournisseurVersDext, DocumentFournisseurEnvoiError } from "../services/gmailSync";
+import { synchroniserGmail, resumerErreurs, envoyerDocumentFournisseurVersDext, DocumentFournisseurEnvoiError } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
@@ -175,7 +175,11 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.post("/gmail/sync", async (_req, res) => {
     try {
       const resultat = await synchroniserGmail(prisma);
-      res.json(resultat);
+      // resumeErreurs : version groupee/lisible de "erreurs" pour
+      // l'affichage direct dans l'interface (une meme panne affectant de
+      // nombreux messages a la fois, ex. quota Gmail depasse, produisait
+      // sinon un mur de texte quasi identique repete ligne par ligne).
+      res.json({ ...resultat, resumeErreurs: resumerErreurs(resultat.erreurs) });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }

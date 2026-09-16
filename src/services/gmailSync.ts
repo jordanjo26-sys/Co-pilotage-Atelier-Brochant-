@@ -26,6 +26,37 @@ export interface ResultatSyncGmail {
   erreurs: string[];
 }
 
+/**
+ * Regroupe les erreurs identiques (chacune de la forme "identifiant :
+ * message") en une ligne par message distinct, avec un compte plutot
+ * qu'une repetition individuelle au-dela de quelques occurrences. Sans
+ * cela, une panne affectant beaucoup de messages a la fois (ex. quota
+ * Gmail depasse) produisait un mur de texte quasi identique, ligne par
+ * ligne, dans le Journal - illisible et peu professionnel pour un
+ * utilisateur non technique (signale en production).
+ */
+export function resumerErreurs(erreurs: string[]): string {
+  if (erreurs.length === 0) return "";
+
+  const groupes = new Map<string, string[]>();
+  for (const entree of erreurs) {
+    const separateur = entree.indexOf(" : ");
+    const identifiant = separateur === -1 ? entree : entree.slice(0, separateur);
+    const message = separateur === -1 ? entree : entree.slice(separateur + 3);
+    if (!groupes.has(message)) groupes.set(message, []);
+    groupes.get(message)!.push(identifiant);
+  }
+
+  return [...groupes.entries()]
+    .map(([message, identifiants]) => {
+      const messageCourt = message.length > 160 ? `${message.slice(0, 160)}…` : message;
+      return identifiants.length <= 3
+        ? `${identifiants.join(", ")} : ${messageCourt}`
+        : `${identifiants.length} document(s)/message(s) : ${messageCourt}`;
+    })
+    .join(" | ");
+}
+
 interface PieceJointeExtraite extends PieceJointe {
   attachmentId: string;
 }
@@ -71,6 +102,31 @@ export function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | und
 
 function extraireEntete(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, nom: string): string {
   return headers?.find((h) => h.name?.toLowerCase() === nom.toLowerCase())?.value || "";
+}
+
+function attendre(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Reessaie un appel a l'API Gmail avec un delai croissant en cas de quota
+ * depasse ("Quota exceeded... Units per minute per user"). Bug reel
+ * constate en production : l'elargissement de la fenetre de recherche
+ * (voir plus bas) a fait passer le nombre de messages examines par
+ * synchronisation bien au-dela de ce que Gmail accepte sans throttling
+ * (204 messages, 119 erreurs de quota en un seul passage) - la plupart de
+ * ces appels reussiraient s'ils etaient simplement espaces dans le temps
+ * plutot que tous tentes en rafale.
+ */
+async function appelAvecRetryQuota<T>(appel: () => Promise<T>, tentativesRestantes = 3, delaiMs = 2000): Promise<T> {
+  try {
+    return await appel();
+  } catch (err) {
+    const quotaDepasse = /quota exceeded|rate limit/i.test((err as Error).message || "");
+    if (!quotaDepasse || tentativesRestantes <= 0) throw err;
+    await attendre(delaiMs);
+    return appelAvecRetryQuota(appel, tentativesRestantes - 1, delaiMs * 3);
+  }
 }
 
 /**
@@ -149,34 +205,39 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
   }
   const { gmail, connexion } = connexionGmail;
 
-  // Fenetre de recherche volontairement large (30 jours, alignee sur celle
-  // de la synchronisation Stripe) : la deduplication par hash de piece
-  // jointe rend le re-balayage de messages deja traites sans consequence,
-  // et evite de manquer un message en cas d'arret prolonge du service
-  // entre deux synchronisations (ex. jeton Google expire plusieurs jours,
-  // deja constate en production - une fenetre de 7 jours court alors le
-  // risque reel qu'un e-mail recu tot dans la panne sorte de la fenetre
-  // avant meme d'avoir pu etre rattrape). On exclut d'office les e-mails
-  // de Dext lui-meme (accuses de reception, recapitulatif quotidien) : ce
-  // sont des notifications sortantes de Dext, jamais des documents
-  // fournisseurs a router.
+  // Fenetre de recherche volontairement large (14 jours) : la deduplication
+  // par hash de piece jointe rend le re-balayage de messages deja traites
+  // sans consequence, et evite de manquer un message en cas d'arret
+  // prolonge du service entre deux synchronisations (ex. jeton Google
+  // expire plusieurs jours, deja constate en production). On exclut
+  // d'office les e-mails de Dext lui-meme (accuses de reception,
+  // recapitulatif quotidien) : ce sont des notifications sortantes de
+  // Dext, jamais des documents fournisseurs a router.
   //
   // Pagination complete (pageToken) plutot qu'un seul appel limite a
   // maxResults : sans cela, au-dela du premier lot (ordonne du plus recent
   // au plus ancien par Gmail), les messages plus anciens dans la fenetre
   // n'etaient JAMAIS examines, sans la moindre erreur ni trace - bug reel
-  // trouve en relisant ce fichier (aucun signalement direct de
-  // l'utilisateur, mais un e-mail par ailleurs correctement classifiable
-  // aurait pu ainsi n'etre simplement jamais vu si la boite a recu plus de
-  // 50 e-mails avec piece jointe en 7 jours). Garde-fou a 1000 messages
-  // pour eviter une boucle non bornee en cas de resultat anormalement
-  // volumineux.
+  // trouve en relisant ce fichier. Garde-fou a 1000 messages pour eviter
+  // une boucle non bornee en cas de resultat anormalement volumineux.
+  //
+  // ⚠️ Historique : une premiere version utilisait 30 jours (alignee sur
+  // Stripe), pour une securite maximale contre un arret prolonge du
+  // service. En conditions reelles, cela a fait passer le nombre de
+  // messages examines par synchronisation bien au-dela de ce que l'API
+  // Gmail accepte sans throttling (204 messages, 119 erreurs "Quota
+  // exceeded... Units per minute per user" en un seul passage, visible
+  // dans le Journal). Reduit a 14 jours (toujours 2x la fenetre de 7 jours
+  // qui posait probleme) et combine desormais avec une pause entre chaque
+  // message et des nouvelles tentatives automatiques en cas de quota
+  // depasse (voir appelAvecRetryQuota) plutot que de se reposer uniquement
+  // sur une fenetre large.
   const messages: gmail_v1.Schema$Message[] = [];
   let pageToken: string | undefined;
   do {
     const liste = await gmail.users.messages.list({
       userId: "me",
-      q: "has:attachment newer_than:30d -from:dext.cc",
+      q: "has:attachment newer_than:14d -from:dext.cc",
       maxResults: 100,
       pageToken,
     });
@@ -189,9 +250,13 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
   for (const ref of messages) {
     if (!ref.id) continue;
     resultat.messagesExamines++;
+    // Pause volontaire entre chaque message (voir la note ci-dessus sur le
+    // quota Gmail) : etale les appels dans le temps plutot que de les
+    // tenter tous en rafale, cause reelle du depassement de quota constate.
+    await attendre(150);
 
     try {
-      const msg = await gmail.users.messages.get({ userId: "me", id: ref.id, format: "full" });
+      const msg = await appelAvecRetryQuota(() => gmail.users.messages.get({ userId: "me", id: ref.id!, format: "full" }));
       const headers = msg.data.payload?.headers;
       const sujet = extraireEntete(headers, "Subject");
       const expediteur = extraireEntete(headers, "From");
@@ -230,11 +295,9 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
 
       for (const piece of piecesBrutes) {
         try {
-          const attachment = await gmail.users.messages.attachments.get({
-            userId: "me",
-            messageId: ref.id,
-            id: piece.attachmentId,
-          });
+          const attachment = await appelAvecRetryQuota(() =>
+            gmail.users.messages.attachments.get({ userId: "me", messageId: ref.id!, id: piece.attachmentId })
+          );
           const donnees = Buffer.from(attachment.data.data || "", "base64url");
           const hashFichier = sha256Hex(donnees);
 

@@ -260,10 +260,26 @@ document deja envoye a Dext.
 > recent au plus ancien - les messages plus anciens dans la fenetre
 > n'etaient jamais examines, sans la moindre erreur ni trace visible.
 > Corrige par une boucle de pagination complete (`pageToken`, plafonnee a
-> 1000 messages par prudence) et un elargissement de la fenetre a 30 jours
-> (alignee sur celle de la synchronisation Stripe), pour absorber une
-> panne de connexion prolongee sans jamais perdre silencieusement un
-> e-mail recu tot dans la periode d'indisponibilite.
+> 1000 messages par prudence).
+>
+> Un premier elargissement de la fenetre a 30 jours (alignee sur celle de
+> Stripe) a fait passer le nombre de messages examines par synchronisation
+> bien au-dela de ce que l'API Gmail accepte sans throttling : 204
+> messages, 119 erreurs "Quota exceeded... Units per minute per user" en
+> un seul passage, visible dans le Journal (signale par l'utilisateur,
+> capture a l'appui). Corrige en reduisant la fenetre a 14 jours (toujours
+> 2x la fenetre de 7 jours qui posait probleme a l'origine), en espacant
+> chaque appel Gmail d'une courte pause (150 ms) plutot que de les tenter
+> tous en rafale, et en reessayant automatiquement avec un delai croissant
+> (`appelAvecRetryQuota`) en cas de nouveau depassement.
+>
+> Le meme signalement a aussi revele qu'un mur de texte d'erreurs quasi
+> identiques (une ligne par message touche par le meme quota depasse)
+> s'affichait tel quel dans le Journal - illisible pour un utilisateur non
+> technique. `resumerErreurs()` regroupe desormais les messages d'erreur
+> identiques (compte plutot que repetition individuelle au-dela de
+> quelques occurrences), utilisee a la fois par le Journal et par
+> l'affichage d'une synchronisation manuelle.
 
 > ⚠️ Historique : la deduplication par empreinte de fichier ne s'appliquait
 > initialement qu'aux documents reconnus (facture, avoir...), pas aux

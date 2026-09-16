@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { synchroniserGmail } from "./gmailSync";
+import { synchroniserGmail, resumerErreurs } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { logEvenement } from "./journalService";
@@ -43,7 +43,7 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
           action: `Synchronisation automatique (${resultat.messagesExamines} message(s) examine(s))`,
           resultat:
             `${resultat.documentsTraites} traite(s), ${resultat.documentsDoublons} doublon(s), ${resultat.documentsAmbigus} ambigu(s), ${resultat.erreurs.length} erreur(s).` +
-            (resultat.erreurs.length > 0 ? ` Details : ${resultat.erreurs.join(" | ")}` : ""),
+            (resultat.erreurs.length > 0 ? ` Details : ${resumerErreurs(resultat.erreurs)}` : ""),
         });
       }
     } catch (err) {
