@@ -48,7 +48,7 @@ jobs:
       - name: Synchroniser le code vers le serveur
         run: |
           rsync -az --delete \
-            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" \
+            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude="uploads" \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
             ./ "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:/opt/copilote-brochant/"
 

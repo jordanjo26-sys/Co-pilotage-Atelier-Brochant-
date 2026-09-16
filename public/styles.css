@@ -378,3 +378,64 @@ tbody tr:hover { background: var(--surface-2); }
   .grille-cockpit { grid-template-columns: repeat(4, 1fr); }
   form#form-import { flex-wrap: nowrap; }
 }
+
+/* ---------- Prospection ---------- */
+.nav-liens { display: flex; gap: 14px; margin-top: 6px; }
+.nav-liens a { font-size: 12.5px; font-weight: 700; color: var(--brand-blue); text-decoration: none; }
+.nav-liens a:hover { text-decoration: underline; }
+
+.form-grille {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+@media (min-width: 640px) {
+  .form-grille { grid-template-columns: repeat(2, 1fr); }
+  .form-grille.colonnes-3 { grid-template-columns: repeat(3, 1fr); }
+}
+.form-grille label { font-size: 11.5px; font-weight: 600; color: var(--ink-muted); display: flex; flex-direction: column; gap: 3px; }
+.form-grille input, .form-grille select, .form-grille textarea, .barre-filtres select, .barre-filtres input {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.form-grille textarea { min-height: 90px; resize: vertical; font-family: inherit; }
+.form-grille.pleine-largeur, .champ-pleine-largeur { grid-column: 1 / -1; }
+
+.barre-filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.barre-filtres select, .barre-filtres input { flex: 1 1 140px; min-width: 0; }
+
+.pastille-statut {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pastille-a_contacter { background: var(--surface-2); color: var(--ink-muted); }
+.pastille-contacte { background: color-mix(in srgb, var(--brand-blue) 16%, transparent); color: var(--brand-blue); }
+.pastille-relance { background: var(--warning-soft); color: var(--warning); }
+.pastille-rdv { background: color-mix(in srgb, var(--brand-violet) 18%, transparent); color: var(--brand-violet); }
+.pastille-client { background: var(--good-soft); color: var(--good); }
+.pastille-sans_suite { background: var(--critical-soft); color: var(--critical); }
+
+.ligne-prospect { cursor: pointer; }
+.fiche-prospect {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.fiche-prospect h3 { font-size: 14px; margin: 0 0 8px; }
+.fiche-section { margin-top: 12px; }
+.fiche-section h4 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-muted); margin: 0 0 6px; }
+.historique-ligne { font-size: 12px; color: var(--ink-2); padding: 4px 0; border-top: 1px solid var(--line); }
+.historique-ligne:first-child { border-top: none; }
+.tuile-statuts { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.tuile-statut { flex: 1 1 100px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.tuile-statut .valeur { font-size: 19px; font-weight: 800; color: var(--ink); }
+.tuile-statut .label { font-size: 10.5px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
