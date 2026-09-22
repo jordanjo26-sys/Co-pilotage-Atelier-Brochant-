@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atelier Brochant — Rénovation énergétique : isolez, économisez, valorisez</title>
+<meta name="description" content="Isolation, pompe à chaleur, fenêtres : jusqu'à 90% financé par les aides de l'État. Devis gratuit sous 48h par des artisans certifiés RGE." />
+
+<!-- Open Graph / partage réseaux sociaux -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Atelier Brochant — Rénovation énergétique" />
+<meta property="og:description" content="Isolation, pompe à chaleur, fenêtres : jusqu'à 90% financé par les aides de l'État. Devis gratuit sous 48h." />
+<meta property="og:image" content="assets/logo.png" />
+<meta property="og:locale" content="fr_FR" />
+<meta name="twitter:card" content="summary" />
+
+<link rel="icon" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="styles.css" />
+
+<!--
+  TODO TRACKING (à activer avant de lancer les campagnes) :
+  - Google Ads / GA4 : coller le snippet gtag.js fourni par Google ici,
+    puis déclencher un événement de conversion dans script.js (voir TODO CONVERSION).
+  - Meta Pixel (Facebook/Instagram Ads) : coller le snippet Pixel de Meta Events Manager ici,
+    puis appeler fbq('track', 'Lead') dans script.js au moment de l'envoi du formulaire.
+-->
+</head>
+<body>
+
+<a class="lien-evitement" href="#formulaire">Aller au formulaire de devis</a>
+
+<header class="entete">
+  <div class="conteneur entete-inner">
+    <a href="#" class="marque">
+      <img src="assets/logo.png" alt="Atelier Brochant" />
+      <span>Atelier Brochant</span>
+    </a>
+    <a class="tel-header" href="tel:+33100000000">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      <span>01 00 00 00 00</span>
+    </a>
+    <a class="btn btn-primaire btn-header" href="#formulaire">Devis gratuit</a>
+  </div>
+</header>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="conteneur hero-inner">
+      <div class="hero-texte">
+        <p class="badge-eco">🏡 Rénovation énergétique</p>
+        <h1>Réduisez vos factures de chauffage jusqu'à 60%, financé par les aides de l'État</h1>
+        <p class="hero-sous-titre">
+          Isolation, pompe à chaleur, fenêtres performantes : nos artisans certifiés RGE
+          s'occupent de tout, du diagnostic aux aides financières. Étude gratuite et sans engagement.
+        </p>
+        <ul class="hero-points">
+          <li>✔️ Jusqu'à 90% financé (MaPrimeRénov', CEE, éco-PTZ)</li>
+          <li>✔️ Artisans certifiés RGE, garantie décennale</li>
+          <li>✔️ Devis gratuit sous 48h, sans avance de frais</li>
+        </ul>
+        <div class="hero-cta">
+          <a href="#formulaire" class="btn btn-primaire btn-large">Estimation gratuite en 2 min</a>
+          <a href="tel:+33100000000" class="btn btn-fantome btn-large">Appeler maintenant</a>
+        </div>
+        <p class="hero-mention">Réponse sous 24h ouvrées · Aucun engagement</p>
+      </div>
+      <div class="hero-visuel" aria-hidden="true">
+        <div class="carte-flottante carte-1">
+          <span class="icone">💶</span>
+          <div><strong>Jusqu'à 90%</strong><small>financé par les aides</small></div>
+        </div>
+        <div class="carte-flottante carte-2">
+          <span class="icone">🌡️</span>
+          <div><strong>-60%</strong><small>sur la facture de chauffage*</small></div>
+        </div>
+        <div class="illustration-maison"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BANDEAU CONFIANCE -->
+  <section class="bandeau-confiance">
+    <div class="conteneur bandeau-confiance-inner">
+      <span>RGE Qualibat</span>
+      <span>MaPrimeRénov'</span>
+      <span>Garantie décennale</span>
+      <span>Éco-conditionnalité CEE</span>
+      <span>Assurance décennale</span>
+    </div>
+  </section>
+
+  <!-- SERVICES -->
+  <section class="section" id="services">
+    <div class="conteneur">
+      <h2 class="titre-section">Nos solutions de rénovation énergétique</h2>
+      <p class="sous-titre-section">Une équipe, un interlocuteur unique, de l'audit à la pose.</p>
+      <div class="grille-services">
+        <article class="carte-service">
+          <span class="icone-service">🧱</span>
+          <h3>Isolation thermique</h3>
+          <p>Combles, murs, sols : la solution la plus rentable pour arrêter les déperditions de chaleur.</p>
+        </article>
+        <article class="carte-service">
+          <span class="icone-service">🔥</span>
+          <h3>Pompe à chaleur</h3>
+          <p>Remplacez votre chaudière au fioul ou au gaz par une PAC air/eau performante et éligible aux aides.</p>
+        </article>
+        <article class="carte-service">
+          <span class="icone-service">🪟</span>
+          <h3>Fenêtres &amp; menuiseries</h3>
+          <p>Double ou triple vitrage à haute performance thermique et phonique.</p>
+        </article>
+        <article class="carte-service">
+          <span class="icone-service">🌬️</span>
+          <h3>Ventilation (VMC)</h3>
+          <p>Une bonne isolation exige une ventilation performante pour préserver la qualité de l'air.</p>
+        </article>
+        <article class="carte-service">
+          <span class="icone-service">📋</span>
+          <h3>Audit énergétique</h3>
+          <p>Un diagnostic complet de votre logement pour prioriser les travaux les plus rentables.</p>
+        </article>
+        <article class="carte-service">
+          <span class="icone-service">🗂️</span>
+          <h3>Montage des aides</h3>
+          <p>On s'occupe des démarches administratives : MaPrimeRénov', CEE, éco-PTZ, TVA à 5,5%.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- AIDES -->
+  <section class="section section-aides" id="aides">
+    <div class="conteneur">
+      <h2 class="titre-section">Jusqu'à 90% de vos travaux pris en charge</h2>
+      <p class="sous-titre-section">Nous montons votre dossier d'aides de A à Z, sans que vous ayez à avancer les frais.</p>
+      <div class="grille-aides">
+        <div class="carte-aide">
+          <h3>MaPrimeRénov'</h3>
+          <p>Aide de l'État versée selon vos revenus et le gain énergétique des travaux.</p>
+        </div>
+        <div class="carte-aide">
+          <h3>Primes CEE</h3>
+          <p>Certificats d'économies d'énergie financés par les fournisseurs d'énergie.</p>
+        </div>
+        <div class="carte-aide">
+          <h3>Éco-PTZ</h3>
+          <p>Prêt à taux zéro jusqu'à 50 000 € pour financer le reste à charge.</p>
+        </div>
+        <div class="carte-aide">
+          <h3>TVA à 5,5%</h3>
+          <p>Taux réduit applicable sur l'ensemble des travaux de rénovation énergétique.</p>
+        </div>
+      </div>
+      <div class="centre">
+        <a href="#formulaire" class="btn btn-primaire">Vérifier mon éligibilité</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROCESSUS -->
+  <section class="section" id="processus">
+    <div class="conteneur">
+      <h2 class="titre-section">Comment ça se passe</h2>
+      <div class="grille-etapes">
+        <div class="etape">
+          <span class="numero-etape">1</span>
+          <h3>Diagnostic gratuit</h3>
+          <p>Un conseiller étudie votre logement et votre éligibilité aux aides.</p>
+        </div>
+        <div class="etape">
+          <span class="numero-etape">2</span>
+          <h3>Devis personnalisé</h3>
+          <p>Vous recevez un devis clair, aides déduites, sous 48h.</p>
+        </div>
+        <div class="etape">
+          <span class="numero-etape">3</span>
+          <h3>Travaux réalisés</h3>
+          <p>Nos artisans RGE interviennent avec garantie décennale.</p>
+        </div>
+        <div class="etape">
+          <span class="numero-etape">4</span>
+          <h3>Aides versées</h3>
+          <p>Nous gérons le dossier administratif jusqu'au versement des aides.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AVIS -->
+  <!-- PLACEHOLDER : remplacer ces témoignages par de vrais avis clients (Google, Trustpilot...) avant mise en ligne. -->
+  <section class="section section-avis">
+    <div class="conteneur">
+      <h2 class="titre-section">Ce qu'en pensent nos clients</h2>
+      <div class="grille-avis">
+        <blockquote class="carte-avis">
+          <p>« Une équipe sérieuse, le dossier d'aides a été géré du début à la fin. Facture de chauffage divisée par deux. »</p>
+          <cite>— Client, Paris 17e</cite>
+        </blockquote>
+        <blockquote class="carte-avis">
+          <p>« Devis clair, chantier propre et dans les délais. Je recommande. »</p>
+          <cite>— Client, Clichy</cite>
+        </blockquote>
+        <blockquote class="carte-avis">
+          <p>« Ils ont trouvé des aides auxquelles je ne pensais pas avoir droit. »</p>
+          <cite>— Client, Levallois-Perret</cite>
+        </blockquote>
+      </div>
+    </div>
+  </section>
+
+  <!-- FORMULAIRE -->
+  <section class="section section-formulaire" id="formulaire">
+    <div class="conteneur conteneur-etroit">
+      <h2 class="titre-section">Votre étude gratuite et sans engagement</h2>
+      <p class="sous-titre-section">Réponse d'un conseiller sous 24h ouvrées.</p>
+
+      <form id="form-devis" class="formulaire-devis" novalidate>
+        <div class="champ">
+          <label for="nom">Nom et prénom *</label>
+          <input type="text" id="nom" name="nom" required autocomplete="name" />
+        </div>
+        <div class="ligne-champs">
+          <div class="champ">
+            <label for="telephone">Téléphone *</label>
+            <input type="tel" id="telephone" name="telephone" required autocomplete="tel" />
+          </div>
+          <div class="champ">
+            <label for="email">Email *</label>
+            <input type="email" id="email" name="email" required autocomplete="email" />
+          </div>
+        </div>
+        <div class="ligne-champs">
+          <div class="champ">
+            <label for="code-postal">Code postal *</label>
+            <input type="text" id="code-postal" name="codePostal" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" required />
+          </div>
+          <div class="champ">
+            <label for="projet">Votre projet *</label>
+            <select id="projet" name="projet" required>
+              <option value="" disabled selected>Sélectionnez…</option>
+              <option value="isolation">Isolation</option>
+              <option value="pompe-a-chaleur">Pompe à chaleur</option>
+              <option value="fenetres">Fenêtres / menuiseries</option>
+              <option value="audit">Audit énergétique</option>
+              <option value="autre">Autre / je ne sais pas encore</option>
+            </select>
+          </div>
+        </div>
+        <div class="champ">
+          <label for="message">Message (facultatif)</label>
+          <textarea id="message" name="message" rows="3"></textarea>
+        </div>
+        <label class="champ-case">
+          <input type="checkbox" id="consentement" name="consentement" required />
+          <span>J'accepte d'être recontacté(e) par Atelier Brochant au sujet de mon projet de rénovation énergétique. *</span>
+        </label>
+
+        <button type="submit" class="btn btn-primaire btn-large btn-full">Recevoir mon étude gratuite</button>
+        <p class="mention-rgpd">
+          Vos données sont utilisées uniquement pour traiter votre demande et ne sont jamais revendues à des tiers.
+        </p>
+        <div id="message-etat" class="message-etat" role="status" aria-live="polite" hidden></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="section" id="faq">
+    <div class="conteneur conteneur-etroit">
+      <h2 class="titre-section">Questions fréquentes</h2>
+      <div class="accordeon">
+        <details>
+          <summary>Combien coûte le diagnostic ?</summary>
+          <p>Le diagnostic initial et l'étude de vos aides sont entièrement gratuits et sans engagement.</p>
+        </details>
+        <details>
+          <summary>Suis-je éligible aux aides ?</summary>
+          <p>L'éligibilité dépend de vos revenus, de votre logement et des travaux envisagés. Nous vérifions votre situation gratuitement.</p>
+        </details>
+        <details>
+          <summary>Quel est le délai moyen des travaux ?</summary>
+          <p>Selon le projet, comptez entre 1 et 6 semaines entre la signature du devis et la fin du chantier.</p>
+        </details>
+        <details>
+          <summary>Dans quelles zones intervenez-vous ?</summary>
+          <p>Nous intervenons à Paris et en petite couronne. Indiquez votre code postal dans le formulaire pour vérifier notre disponibilité.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="pied-de-page">
+  <div class="conteneur pied-inner">
+    <div class="pied-marque">
+      <img src="assets/logo.png" alt="Atelier Brochant" />
+      <span>Atelier Brochant</span>
+    </div>
+    <div class="pied-contact">
+      <a href="tel:+33100000000">01 00 00 00 00</a>
+      <a href="mailto:contact@atelier-brochant.fr">contact@atelier-brochant.fr</a>
+      <span>Zone d'intervention : Paris &amp; petite couronne</span>
+    </div>
+    <p class="pied-mentions">
+      © <span id="annee"></span> Atelier Brochant — Tous droits réservés ·
+      <!-- TODO : remplacer par vos vraies mentions légales / SIRET / lien politique de confidentialité -->
+      Mentions légales
+    </p>
+  </div>
+</footer>
+
+<a class="bouton-whatsapp" href="https://wa.me/33600000000" target="_blank" rel="noopener" aria-label="Contacter sur WhatsApp">
+  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M17.5 14.4c-.3-.1-1.7-.8-1.9-.9-.3-.1-.4-.1-.6.1-.2.3-.7.9-.8 1-.2.2-.3.2-.5.1-.3-.1-1.2-.4-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6.1-.1.3-.3.4-.5.1-.1.2-.3.3-.4.1-.2 0-.3 0-.5s-.6-1.6-.9-2.1c-.2-.5-.5-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.1 4.9 4.3.7.3 1.2.5 1.7.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.3.2-.7.2-1.2.2-1.3-.1-.1-.3-.2-.6-.3z"/><path d="M12 2C6.5 2 2 6.5 2 12c0 1.9.5 3.7 1.5 5.3L2 22l4.8-1.4c1.5.8 3.3 1.3 5.2 1.3 5.5 0 10-4.5 10-10S17.5 2 12 2zm0 18.2c-1.7 0-3.4-.5-4.8-1.3l-.3-.2-3 .9.9-2.9-.2-.3C3.7 15 3.2 13.5 3.2 12 3.2 7.1 7.1 3.2 12 3.2s8.8 3.9 8.8 8.8-3.9 8.2-8.8 8.2z"/></svg>
+</a>
+
+<script src="script.js"></script>
+</body>
+</html>
