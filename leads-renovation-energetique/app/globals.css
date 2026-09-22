@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  --background: #faf8f4;
+  --foreground: #1f2a24;
+
+  --color-primary: #0e6b57;
+  --color-primary-dark: #0a4f41;
+  --color-primary-light: #e6f2ee;
+  --color-accent: #f2a93b;
+  --color-accent-dark: #d88f1f;
+  --color-paper: #faf8f4;
+  --color-ink: #1f2a24;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--color-primary);
+  --color-primary-dark: var(--color-primary-dark);
+  --color-primary-light: var(--color-primary-light);
+  --color-accent: var(--color-accent);
+  --color-accent-dark: var(--color-accent-dark);
+  --color-paper: var(--color-paper);
+  --color-ink: var(--color-ink);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Grande cible tactile pour tous les boutons du parcours de conversion :
+   priorité mobile, cf. cahier des charges.
+   Déclarées dans la couche "components" pour que les utilitaires Tailwind
+   (ex. sm:hidden) restent prioritaires sur ces classes, quel que soit
+   l'ordre d'apparition dans ce fichier. */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    padding: 1rem 1.75rem;
+    font-weight: 600;
+    font-size: 1.0625rem;
+    line-height: 1.2;
+    min-height: 3.25rem;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+    text-align: center;
+  }
+
+  .btn:active {
+    transform: scale(0.98);
+  }
+
+  .btn-accent {
+    background-color: var(--color-accent);
+    color: var(--color-ink);
+  }
+
+  .btn-accent:hover {
+    background-color: var(--color-accent-dark);
+  }
+
+  .btn-outline {
+    background-color: transparent;
+    color: var(--color-primary);
+    border: 2px solid var(--color-primary);
+  }
+
+  .btn-outline:hover {
+    background-color: var(--color-primary-light);
+  }
+}
