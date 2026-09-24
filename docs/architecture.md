@@ -295,6 +295,25 @@ document deja envoye a Dext.
 > notable s'est produit) : un cycle qui ne rencontre que des doublons
 > connus n'ecrit desormais plus aucune ligne dans le Journal.
 
+**Previsualisation d'un document (bouton "Voir") : extension du nom de
+fichier prioritaire sur le mimeType declare.** `fileType.ts` -
+`typeMimePourAffichage()` - determine le Content-Type servi par
+`GET /api/anomalies/:id/document` et `GET /api/documents-fournisseurs/:id/document`.
+
+> ⚠️ Historique : un document envoye par certaines plateformes tierces de
+> distribution (expediteur du type "dataflow@...cloud", constate en
+> production avec un fournisseur reel) restait telechargeable mais jamais
+> affichable, quel que soit le mecanisme de previsualisation cote
+> navigateur (plusieurs tentatives successives documentees dans
+> public/app.js). Cause reelle, distincte de toutes les precedentes :
+> Gmail rapportait un mimeType generique/incorrect pour la piece jointe -
+> aucun navigateur ne sait afficher "application/octet-stream" nativement,
+> contrairement a "application/pdf", quel que soit par ailleurs le
+> mecanisme d'affichage utilise. Corrige en deduisant le Content-Type de
+> l'EXTENSION du nom de fichier en priorite (pdf, jpg/jpeg, png, gif,
+> tif/tiff) plutot que du mimeType declare par l'expediteur/Gmail, bien
+> plus fiable en pratique pour ces formats courants.
+
 > ⚠️ Historique : la deduplication par empreinte de fichier ne s'appliquait
 > initialement qu'aux documents reconnus (facture, avoir...), pas aux
 > documents "ambigus" — une piece jointe non reconnue (image de newsletter,

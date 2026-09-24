@@ -13,6 +13,7 @@ import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
 import { getGmailClient } from "../services/googleAuth";
+import { typeMimePourAffichage } from "../services/fileType";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -301,7 +302,7 @@ export function buildRouter(prisma: PrismaClient): Router {
         id: document.gmailAttachmentId,
       });
       const donnees = Buffer.from(attachment.data.data || "", "base64url");
-      res.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+      res.setHeader("Content-Type", typeMimePourAffichage(document.fichierNom, document.mimeType));
       res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.fichierNom || "document")}"`);
       res.send(donnees);
     } catch (err) {
@@ -362,7 +363,7 @@ export function buildRouter(prisma: PrismaClient): Router {
         id: preuves.attachmentId,
       });
       const donnees = Buffer.from(attachment.data.data || "", "base64url");
-      res.setHeader("Content-Type", preuves.mimeType || "application/octet-stream");
+      res.setHeader("Content-Type", typeMimePourAffichage(preuves.fichier, preuves.mimeType));
       res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(preuves.fichier || "document")}"`);
       res.send(donnees);
     } catch (err) {
