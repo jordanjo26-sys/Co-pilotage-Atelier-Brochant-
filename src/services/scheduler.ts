@@ -3,6 +3,7 @@ import { synchroniserGmail, resumerErreurs } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { logEvenement } from "./journalService";
+import { detecterReponses, executerEnvoisAutomatiques } from "./prospection/campagnes";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVALLE_VERIF_RECAP_MS = 5 * 60 * 1000; // 5 minutes
@@ -11,6 +12,14 @@ const HEURE_RECAP_PAR_DEFAUT = 19; // 19h, heure locale du serveur
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
 const INTERVALLE_STRIPE_PAR_DEFAUT_MS = 60 * 60 * 1000; // 1 heure
+// Detection de reponse aux campagnes de prospection (section 2.5) : lecture
+// seule des fils Gmail, aucun envoi -> peut tourner automatiquement sans
+// enfreindre le principe de prudence applique aux envois eux-memes.
+const INTERVALLE_REPONSES_PROSPECTION_MS = 15 * 60 * 1000; // 15 minutes
+// Envoi automatique des campagnes marquees "automatique" (section 2.4,
+// demande explicite de l'exploitant) : un intervalle espace suffit, le
+// quota quotidien etant de toute facon partage avec les envois manuels.
+const INTERVALLE_ENVOI_AUTO_PROSPECTION_MS = Number(process.env.PROSPECTION_ENVOI_AUTO_INTERVAL_MS) || 60 * 60 * 1000; // 1 heure
 
 /**
  * Demarre la surveillance continue de la boite Gmail connectee (section 3 :
@@ -125,4 +134,50 @@ export function demarrerSurveillanceStripe(prisma: PrismaClient): void {
       }).catch(() => {});
     }
   }, intervalle);
+}
+
+/**
+ * Detecte automatiquement les reponses aux campagnes de prospection en
+ * cours (section 2.5), pour tenir le statut de chaque envoi a jour sans
+ * action manuelle. N'envoie jamais rien elle-meme (voir campagnes.ts) : se
+ * contente de lire les fils Gmail concernes.
+ */
+export function demarrerDetectionReponsesProspection(prisma: PrismaClient): void {
+  setInterval(async () => {
+    try {
+      await detecterReponses(prisma);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Detection des reponses de prospection en echec :", (err as Error).message);
+      await logEvenement(prisma, {
+        evenement: "prospection_reponses_erreur",
+        action: "Detection automatique des reponses",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
+    }
+  }, INTERVALLE_REPONSES_PROSPECTION_MS);
+}
+
+/**
+ * Envoie automatiquement les campagnes de prospection marquees
+ * "automatique" (section 2.4) : premiers envois puis relances dues, dans
+ * la limite du quota quotidien partage avec les envois manuels. Voir
+ * l'en-tete de src/services/prospection/campagnes.ts pour le contexte de
+ * cette derogation, explicitement demandee, au principe de prudence
+ * applique par ailleurs (relances de factures notamment).
+ */
+export function demarrerEnvoiAutomatiqueCampagnes(prisma: PrismaClient): void {
+  setInterval(async () => {
+    try {
+      await executerEnvoisAutomatiques(prisma);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Envoi automatique de campagnes en echec :", (err as Error).message);
+      await logEvenement(prisma, {
+        evenement: "campagne_envoi_auto_erreur",
+        action: "Envoi automatique de campagnes de prospection",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
+    }
+  }, INTERVALLE_ENVOI_AUTO_PROSPECTION_MS);
 }
