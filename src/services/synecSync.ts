@@ -113,10 +113,34 @@ async function seConnecter(page: import("playwright").Page, identifiant: string,
  * Atteint l'écran "Factures". Utilise en priorité SYNEC_URL_FACTURES
  * (adresse exacte fournie par l'utilisateur, ex.
  * https://app.synec.io/connect/billing_invoice/<id>/) ; à défaut (variable
- * absente, ou devenue invalide), retombe sur une navigation devinée (lien
- * direct puis menu hamburger) avant d'abandonner avec un message précis
- * sur ce qui a été essayé.
+ * absente ou devenue invalide), tente un lien "Factures" directement
+ * visible. Abandonne volontairement sans deviner plus loin (ex. un menu
+ * hamburger jamais inspecté) : les tentatives précédentes de ce type ont
+ * navigué vers des endroits imprévisibles sans jamais aider au diagnostic
+ * - mieux vaut un échec clair avec un aperçu de la page réellement
+ * chargée (voir capturerDiagnostic) qu'une cascade de clics à l'aveugle.
  */
+/**
+ * Capture un etat de la page (URL, titre, extrait du texte visible) pour
+ * diagnostic en cas d'echec de navigation - sans ca, un echec ne dit que
+ * "Factures introuvable" sans jamais montrer CE QUI a ete charge a la
+ * place (page de connexion encore affichee, erreur Synec, tableau de bord
+ * different de celui attendu...), obligeant a deviner a l'aveugle a
+ * chaque nouvel echec (deja arrive deux fois). Le texte est tronque et les
+ * espaces/retours a la ligne repetes compresses pour rester lisible dans
+ * la carte Synec de l'interface.
+ */
+async function capturerDiagnostic(page: import("playwright").Page): Promise<string> {
+  const url = page.url();
+  const titre = await page.title().catch(() => "?");
+  const texte = await page
+    .locator("body")
+    .innerText()
+    .then((t) => t.replace(/\s+/g, " ").trim().slice(0, 400))
+    .catch(() => "(texte illisible)");
+  return `URL actuelle : ${url} — titre : "${titre}" — texte visible : "${texte}"`;
+}
+
 async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
   // Recherche par TEXTE visible plutot que par role d'accessibilite
   // ("button"/"link") : constate en production que ce repere echouait en
@@ -161,22 +185,21 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
     if (await dejaSurFactures()) return;
   }
 
+  // Diagnostic pris ICI (apres la strategie principale, avant toute
+  // strategie de repli hasardeuse) : c'est l'information la plus utile en
+  // cas d'echec final - ce qui s'affichait reellement apres la tentative
+  // la plus fiable, avant que les strategies de repli ne naviguent
+  // ailleurs et ne rendent ce constat impossible a reconstituer.
+  const diagnostic = await capturerDiagnostic(page);
+
   const lienDirect = page.getByText(/^factures$/i).first();
   if (await lienDirect.isVisible().catch(() => false)) {
     await lienDirect.click();
-  } else {
-    // Menu hamburger (icone ≡ en haut a gauche sur les captures fournies) :
-    // premier bouton du bandeau superieur n'ayant pas de nom accessible
-    // (pas de texte), hypothese la plus probable en l'absence du HTML reel.
-    const boutonMenu = page.locator("header button, nav button, .navbar button").first();
-    await boutonMenu.click({ timeout: 10000 }).catch(() => {});
-    await page.getByText(/^factures$/i).first().click({ timeout: 10000 });
+    await page.waitForLoadState("networkidle");
+    if (await dejaSurFactures()) return;
   }
 
-  await page.waitForLoadState("networkidle");
-  if (!(await dejaSurFactures())) {
-    throw new Error(`Écran "Factures" introuvable (page actuelle : ${page.url()}).`);
-  }
+  throw new Error(`Écran "Factures" introuvable. ${diagnostic}`);
 }
 
 /**
