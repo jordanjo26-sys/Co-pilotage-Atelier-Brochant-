@@ -26,6 +26,7 @@ const etatIndicateurs = {
   aValiderImports: 0,
   gmailMotif: null,
   stripeMotif: null,
+  synecMotif: null,
 };
 
 function definirBadge(onglet, valeur) {
@@ -44,6 +45,7 @@ function mettreAJourAlerteBandeau() {
   const problemes = [];
   if (etatIndicateurs.gmailMotif) problemes.push(`Gmail : ${etatIndicateurs.gmailMotif}`);
   if (etatIndicateurs.stripeMotif) problemes.push(`Stripe : ${etatIndicateurs.stripeMotif}`);
+  if (etatIndicateurs.synecMotif) problemes.push(`Synec : ${etatIndicateurs.synecMotif}`);
   if (problemes.length === 0) {
     bandeau.hidden = true;
     bandeau.innerHTML = "";
@@ -59,6 +61,7 @@ function mettreAJourActionsRequises() {
   const actions = [];
   if (etatIndicateurs.gmailMotif) actions.push({ libelle: `Reconnecter Gmail (${etatIndicateurs.gmailMotif})`, onglet: "systeme" });
   if (etatIndicateurs.stripeMotif) actions.push({ libelle: `Reconnecter Stripe (${etatIndicateurs.stripeMotif})`, onglet: "tresorerie" });
+  if (etatIndicateurs.synecMotif) actions.push({ libelle: `Reconnecter Synec (${etatIndicateurs.synecMotif})`, onglet: "tresorerie" });
   if (etatIndicateurs.anomalies > 0) actions.push({ libelle: "document(s) à classer manuellement", compte: etatIndicateurs.anomalies, onglet: "fournisseurs" });
   if (etatIndicateurs.relances > 0) actions.push({ libelle: "relance(s) client à envoyer", compte: etatIndicateurs.relances, onglet: "factures" });
   if (etatIndicateurs.facturesFournisseurs > 0) actions.push({ libelle: "facture(s) fournisseur en attente d'envoi à Dext", compte: etatIndicateurs.facturesFournisseurs, onglet: "factures" });
@@ -84,8 +87,8 @@ function mettreAJourActionsRequises() {
 function mettreAJourBadges() {
   definirBadge("fournisseurs", etatIndicateurs.anomalies);
   definirBadge("factures", etatIndicateurs.relances + etatIndicateurs.facturesFournisseurs);
-  definirBadge("tresorerie", etatIndicateurs.aValiderImports);
-  definirBadge("systeme", (etatIndicateurs.gmailMotif ? 1 : 0) + (etatIndicateurs.stripeMotif ? 1 : 0));
+  definirBadge("tresorerie", etatIndicateurs.aValiderImports + (etatIndicateurs.stripeMotif ? 1 : 0) + (etatIndicateurs.synecMotif ? 1 : 0));
+  definirBadge("systeme", etatIndicateurs.gmailMotif ? 1 : 0);
   mettreAJourAlerteBandeau();
   mettreAJourActionsRequises();
 }
@@ -268,6 +271,53 @@ async function chargerStatutStripe() {
       resultatDiv.innerHTML =
         `${d.payoutsNouveaux} payout(s) nouveau(x), ${d.paiementsNouveaux} paiement(s) nouveau(x), ${d.erreurs.length} erreur(s).` +
         (d.erreurs.length > 0 ? `<br/><span class="anomalie-meta">${d.erreurs.map(echapper).join("<br/>")}</span>` : "");
+      await rafraichirTout();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
+// --- Synec (aucune API : automatisation par navigateur headless cote serveur) ---
+
+async function chargerStatutSynec() {
+  const res = await fetch("/api/synec/status");
+  const data = await res.json();
+  const div = document.getElementById("synec-statut");
+
+  if (!data.connecte) {
+    div.innerHTML = `<p class="statut-dot off">${data.motif ? echapper(data.motif) : "Non connecté — identifiants à ajouter (voir docs/mise-en-service.md)."}</p>`;
+    etatIndicateurs.synecMotif = data.motif || null;
+    mettreAJourBadges();
+    return;
+  }
+
+  div.innerHTML = `
+    <p class="gmail-connecte">
+      <span class="statut-dot">Connecté</span><br/>
+      Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}
+    </p>
+    <button type="button" id="btn-sync-synec" class="ghost">Synchroniser maintenant</button>
+    <div id="resultat-sync-synec"></div>
+  `;
+
+  etatIndicateurs.synecMotif = null;
+  mettreAJourBadges();
+
+  document.getElementById("btn-sync-synec").addEventListener("click", async () => {
+    const resultatDiv = document.getElementById("resultat-sync-synec");
+    // Plus long qu'une synchronisation Stripe/Gmail (ouverture d'un
+    // navigateur complet et connexion reelle au site, pas un simple appel
+    // API) : prevenir explicitement evite de penser l'interface figee.
+    resultatDiv.textContent = "Synchronisation en cours (peut prendre jusqu'à une minute)…";
+    try {
+      const r = await fetch("/api/synec/sync", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) {
+        resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+        return;
+      }
+      resultatDiv.innerHTML = `${d.nbNouveaux} nouveau(x), ${d.nbDoublons} doublon(s), ${d.nbErreurs} erreur(s).`;
       await rafraichirTout();
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
@@ -873,7 +923,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

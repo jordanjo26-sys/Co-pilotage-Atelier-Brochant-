@@ -403,12 +403,68 @@ s'applique inconditionnellement. Corrigé en ajoutant pour chacun un
 `[selecteur][hidden] { display: none; }` — a reproduire pour toute
 nouvelle classe combinée à l'attribut `hidden`.
 
-**Connexion directe à Synec : toujours impossible.** Confirmé à nouveau
-par l'utilisateur (section 14, jamais deviner) : Synec n'expose aucune
-API. Le dépôt de fichier CSV reste donc l'unique voie d'entrée des
-factures et règlements Synec ; le modèle de données (`Facture`,
-`Paiement.source`) ne distingue pas la provenance au-delà du champ
-`source`, donc un branchement API futur n'impliquerait pas de migration.
+## Automatisation Synec par navigateur headless (section 11)
+
+Synec ne propose aucune API (confirmé à nouveau par l'utilisateur, qui a
+aussi explicitement demandé une connexion directe malgré cette
+contrainte). Seule voie technique restante : `src/services/synecSync.ts`
+pilote un navigateur Chromium headless (Playwright) qui se connecte au
+site avec un compte dédié, va chercher la liste des factures, clique
+"Réinitialiser tous les filtres" puis "Export CSV", et transmet le
+fichier obtenu tel quel à `receiveCsv()` — **le même pipeline que le
+dépôt manuel**, aucune logique de détection/normalisation/déduplication
+dupliquée. Le fichier est volontairement récupéré sans filtrer sur
+"facture non payée" (menu déroulant personnalisé, plus risqué à piloter
+sans avoir pu inspecter son HTML réel) : `receiveCsv` sait déjà
+déterminer seul le statut payé/impayé via la colonne "règlements", et
+récupérer la totalité des factures a l'avantage supplémentaire de mettre
+à jour le statut d'une facture qui vient d'être payée.
+
+**Identifiants : même circuit que Stripe/Gmail, jamais dans cette
+conversation.** `SYNEC_URL`/`SYNEC_IDENTIFIANT`/`SYNEC_MOT_DE_PASSE`
+suivent exactement le chemin secrets GitHub → argument de
+`bootstrap.sh` → `.env` serveur (voir `.github/workflows/deploy.yml`) —
+jamais tapés dans le chat avec l'utilisateur, contrairement à sa
+proposition initiale ("je te donne un accès avec mot de passe").
+Compte dédié en lecture seule recommandé (section 17, moindre
+privilège). Pas de 2FA sur ce compte (confirmé par l'utilisateur) : si
+ça change un jour, l'automatisation casserait silencieusement au niveau
+de `seConnecter()`, qui ne gère aucun code TOTP.
+
+**Statut non vérifié en direct, contrairement à Gmail/Stripe.** Une
+vérification "en direct" impliquerait de lancer un navigateur complet à
+chaque fois — bien trop coûteux pour `/api/synec/status`, appelé toutes
+les 2 minutes par le rafraîchissement automatique du tableau de bord.
+Le statut reflète donc le résultat de la dernière tentative réelle
+(journal `synec_sync`/`synec_sync_erreur`), pas un test à la demande.
+
+**Navigation vers "Factures" devinée, pas confirmée.** L'utilisateur
+semblant utiliser l'application Synec plutôt qu'un navigateur avec
+barre d'adresse visible, l'URL exacte de l'écran des factures n'a pas
+pu être obtenue — `allerAuxFactures()` tente plusieurs stratégies
+(lien direct, puis menu hamburger) avant d'abandonner avec un message
+précis. Point le plus fragile de toute l'automatisation : premier
+endroit à vérifier dans le Journal en cas d'échec, et probablement le
+premier à corriger une fois le vrai HTML observé après un premier essai
+en production.
+
+**Playwright sur le serveur : installation en deux temps.** `bootstrap.sh`
+installe les dépendances système (`playwright install-deps`, en root,
+car `apt-get`) séparément du téléchargement du navigateur lui-même
+(`playwright install chromium`, sous l'utilisateur applicatif
+`$APP_USER`) : installer les deux en root aurait place le navigateur
+dans le cache de root, introuvable au demarrage du serveur (execute
+sous `$APP_USER` par systemd).
+
+**Pas d'API Synec, mais une automatisation par navigateur depuis.**
+Confirmé deux fois par l'utilisateur (section 14, jamais deviner) :
+Synec n'expose aucune API. Le dépôt manuel de fichier CSV reste
+possible en complément (voir `receiveCsv`, jamais de duplication par
+hash de fichier), mais n'est plus l'unique voie d'entrée depuis
+l'automatisation par navigateur headless décrite ci-dessus. Le modèle
+de données (`Facture`, `Paiement.source`) ne distingue pas la
+provenance au-delà du champ `source`, donc un futur branchement API
+Synec (si un jour disponible) n'impliquerait pas de migration.
 
 ## Déploiement via GitHub Actions, pas en direct
 

@@ -1,0 +1,225 @@
+import { chromium } from "playwright";
+import { readFile } from "fs/promises";
+import { PrismaClient } from "@prisma/client";
+import { logEvenement } from "./journalService";
+import { receiveCsv } from "./importService";
+
+/**
+ * Récupération automatique des factures Synec (Phase 11, demande explicite
+ * de l'utilisateur de connecter "le pack office Synec" une fois la refonte
+ * de l'interface livrée). Synec ne propose aucune API (confirmé deux fois
+ * par l'utilisateur) : la seule voie d'automatisation possible est de
+ * piloter un navigateur headless qui se connecte au site avec un compte
+ * dédié, exactement comme un utilisateur le ferait à la main, puis
+ * récupère le même export CSV qu'un dépôt manuel.
+ *
+ * Reprend ensuite exactement le pipeline d'import CSV existant
+ * (`receiveCsv`) : aucune logique de détection/normalisation/déduplication
+ * dupliquée, le fichier récupéré automatiquement est traité à l'identique
+ * d'un fichier déposé à la main (même déduplication par hash de fichier et
+ * par référence de facture).
+ *
+ * Fragile par nature (contrairement à une vraie API) : toute évolution de
+ * l'interface Synec peut casser cette automatisation. Chaque étape est
+ * individuellement journalisée en cas d'échec pour permettre un diagnostic
+ * rapide depuis l'onglet "Système" de l'application, sans accès SSH.
+ */
+
+export interface ResultatSyncSynec {
+  fichierNom: string;
+  nbNouveaux: number;
+  nbDoublons: number;
+  nbErreurs: number;
+}
+
+export function synecEstConfigure(): boolean {
+  return Boolean(process.env.SYNEC_URL && process.env.SYNEC_IDENTIFIANT && process.env.SYNEC_MOT_DE_PASSE);
+}
+
+/**
+ * À la différence de Gmail/Stripe (un simple appel API suffit à vérifier un
+ * jeton), une vérification "en direct" de Synec impliquerait de lancer un
+ * navigateur complet et de s'y connecter — bien trop coûteux pour être
+ * appelé à chaque chargement du tableau de bord (toutes les 2 minutes avec
+ * le rafraîchissement automatique). Le statut reflète donc le résultat de
+ * la dernière tentative réelle de synchronisation (programmée ou
+ * manuelle), consultée dans le journal — même principe que
+ * `derniereSynchroStripe`, mais sans appel réseau supplémentaire.
+ */
+export async function verifierConnexionSynec(prisma: PrismaClient): Promise<{ ok: true } | { ok: false; motif: string }> {
+  if (!synecEstConfigure()) return { ok: false, motif: "Identifiants Synec non configurés." };
+
+  const dernierEvenement = await prisma.journalEvenement.findFirst({
+    where: { evenement: { in: ["synec_sync", "synec_sync_erreur"] } },
+    orderBy: { horodatage: "desc" },
+  });
+
+  if (dernierEvenement?.evenement === "synec_sync_erreur") {
+    return { ok: false, motif: dernierEvenement.resultat || "Dernière synchronisation Synec en échec." };
+  }
+  return { ok: true };
+}
+
+function obtenirIdentifiants(): { url: string; identifiant: string; motDePasse: string } {
+  const url = process.env.SYNEC_URL;
+  const identifiant = process.env.SYNEC_IDENTIFIANT;
+  const motDePasse = process.env.SYNEC_MOT_DE_PASSE;
+  if (!url || !identifiant || !motDePasse) {
+    throw new Error("Identifiants Synec non configurés (SYNEC_URL/SYNEC_IDENTIFIANT/SYNEC_MOT_DE_PASSE).");
+  }
+  return { url, identifiant, motDePasse };
+}
+
+/**
+ * Connexion au formulaire Synec (identifiant/mot de passe, pas de 2FA sur
+ * le compte dédié - confirmé par l'utilisateur). Le bouton de soumission
+ * reste `disabled` tant que le script client de Synec (chiffrement du mot
+ * de passe côté navigateur avant envoi, observé via sodium.js/crypto.js
+ * sur la page de connexion publique) n'a pas validé la saisie : on attend
+ * qu'il se déverrouille plutôt que de cliquer immédiatement après avoir
+ * rempli les champs.
+ */
+async function seConnecter(page: import("playwright").Page, identifiant: string, motDePasse: string): Promise<void> {
+  await page.fill('input[name="login"]', identifiant);
+  await page.fill('input[name="password"]', motDePasse);
+
+  const boutonConnexion = page.locator('button[type="submit"]').first();
+  await boutonConnexion.waitFor({ state: "visible", timeout: 15000 });
+  // Exprime en chaine (evaluee cote navigateur par Playwright) plutot qu'en
+  // fonction TypeScript : ce code ne s'execute jamais dans ce process Node
+  // (pas de lib DOM dans tsconfig) mais dans la page, une fois serialise.
+  await page
+    .waitForFunction(
+      "(() => { const b = document.querySelector('button[type=\"submit\"]'); return b && !b.hasAttribute('disabled'); })()",
+      undefined,
+      { timeout: 15000 }
+    )
+    .catch(() => {
+      // Si le bouton ne se deverrouille jamais (page differente de celle
+      // inspectee), on tente quand meme le clic : Playwright echouera alors
+      // avec un message explicite plutot que de bloquer indefiniment.
+    });
+
+  await Promise.all([page.waitForLoadState("networkidle"), boutonConnexion.click()]);
+
+  const erreurLogin = page.locator("#login_error, #password_error").first();
+  if (await erreurLogin.isVisible().catch(() => false)) {
+    const texte = (await erreurLogin.textContent().catch(() => null))?.trim();
+    throw new Error(`Connexion Synec refusée${texte ? " : " + texte : " (identifiant ou mot de passe incorrect)"}.`);
+  }
+}
+
+/**
+ * Atteint l'écran "Factures". L'adresse exacte de cet écran n'est pas
+ * connue (l'utilisateur semble utiliser l'application Synec plutôt qu'un
+ * navigateur avec barre d'adresse visible) : plusieurs stratégies sont
+ * tentées dans l'ordre, de la plus directe à la plus large, avant
+ * d'abandonner avec un message précis sur ce qui a été essayé.
+ */
+async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
+  const dejaSurFactures = async () =>
+    page
+      .getByRole("button", { name: /export csv/i })
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+  if (await dejaSurFactures()) return;
+
+  const lienDirect = page.getByRole("link", { name: /^factures$/i }).first();
+  if (await lienDirect.isVisible().catch(() => false)) {
+    await lienDirect.click();
+  } else {
+    // Menu hamburger (icone ≡ en haut a gauche sur les captures fournies) :
+    // premier bouton du bandeau superieur n'ayant pas de nom accessible
+    // (pas de texte), hypothese la plus probable en l'absence du HTML reel.
+    const boutonMenu = page.locator("header button, nav button, .navbar button").first();
+    await boutonMenu.click({ timeout: 10000 }).catch(() => {});
+    await page.getByText(/^factures$/i).first().click({ timeout: 10000 });
+  }
+
+  await page.waitForLoadState("networkidle");
+  if (!(await dejaSurFactures())) {
+    throw new Error(`Écran "Factures" introuvable (page actuelle : ${page.url()}).`);
+  }
+}
+
+/**
+ * Réinitialise les filtres puis déclenche l'export CSV. Volontairement
+ * SANS filtrer sur "facture non payée" : un menu déroulant personnalisé
+ * (pas un <select> natif, vu sur les captures d'écran fournies) est plus
+ * risqué à piloter sans avoir pu inspecter son HTML réel, alors que
+ * `receiveCsv` sait déjà déterminer seul le statut payé/impayé de chaque
+ * facture à partir de la colonne "règlements" de l'export - exporter la
+ * totalité des factures a aussi l'avantage de mettre à jour le statut
+ * d'une facture qui vient d'être payée, pas seulement de découvrir les
+ * nouvelles factures impayées.
+ */
+async function exporterCsv(page: import("playwright").Page): Promise<{ nomFichier: string; buffer: Buffer }> {
+  const boutonReset = page.getByRole("button", { name: /r[ée]initialiser tous les filtres/i }).first();
+  if (await boutonReset.isVisible().catch(() => false)) {
+    await boutonReset.click();
+    await page.waitForLoadState("networkidle");
+  }
+
+  const boutonExport = page.getByRole("button", { name: /export csv/i }).first();
+  const [telechargement] = await Promise.all([
+    page.waitForEvent("download", { timeout: 30000 }),
+    boutonExport.click(),
+  ]);
+
+  const chemin = await telechargement.path();
+  if (!chemin) throw new Error("Échec du téléchargement de l'export CSV Synec.");
+  const buffer = await readFile(chemin);
+  const nomFichier = telechargement.suggestedFilename() || `synec_factures_${new Date().toISOString().slice(0, 10)}.csv`;
+  return { nomFichier, buffer };
+}
+
+/**
+ * Synchronise les factures Synec : connexion, navigation, export CSV, puis
+ * traitement par le pipeline d'import existant. Toute étape en échec
+ * interrompt la synchronisation (contrairement à la synchronisation Gmail
+ * qui continue message par message) : il n'y a pas de résultat partiel
+ * possible une fois la connexion ou la navigation en échec.
+ */
+export async function synchroniserSynec(prisma: PrismaClient): Promise<ResultatSyncSynec> {
+  const { url, identifiant, motDePasse } = obtenirIdentifiants();
+
+  const navigateur = await chromium.launch({ headless: true });
+  try {
+    const page = await navigateur.newPage();
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+
+    await seConnecter(page, identifiant, motDePasse);
+    await allerAuxFactures(page);
+    const { nomFichier, buffer } = await exporterCsv(page);
+
+    const resume = await receiveCsv(prisma, nomFichier, buffer);
+
+    await logEvenement(prisma, {
+      evenement: "synec_sync",
+      action: "Synchronisation Synec (export automatique des factures)",
+      resultat: `${resume.nbNouveaux} nouveau(x), ${resume.nbDoublons} doublon(s), ${resume.nbErreurs} erreur(s) (statut : ${resume.statut}).`,
+    });
+
+    return { fichierNom: nomFichier, nbNouveaux: resume.nbNouveaux, nbDoublons: resume.nbDoublons, nbErreurs: resume.nbErreurs };
+  } catch (err) {
+    await logEvenement(prisma, {
+      evenement: "synec_sync_erreur",
+      action: "Synchronisation Synec",
+      resultat: `Échec : ${(err as Error).message}`,
+    }).catch(() => {});
+    throw err;
+  } finally {
+    await navigateur.close();
+  }
+}
+
+/** Date de la dernière synchronisation Synec réussie, pour affichage dans l'interface. */
+export async function derniereSynchroSynec(prisma: PrismaClient): Promise<Date | null> {
+  const dernier = await prisma.journalEvenement.findFirst({
+    where: { evenement: "synec_sync" },
+    orderBy: { horodatage: "desc" },
+  });
+  return dernier?.horodatage || null;
+}

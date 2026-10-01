@@ -12,6 +12,7 @@ import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, Fournisse
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
+import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec } from "../services/synecSync";
 import { getGmailClient } from "../services/googleAuth";
 import { typeMimePourAffichage } from "../services/fileType";
 
@@ -120,6 +121,27 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/stripe/paiements", async (_req, res) => {
     const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 100 });
     res.json(paiements);
+  });
+
+  // --- Synec : recuperation automatique des factures (aucune API chez
+  // Synec - automatisation par navigateur headless, voir synecSync.ts) ---
+
+  router.get("/synec/status", async (_req, res) => {
+    if (!synecEstConfigure()) return res.json({ connecte: false });
+    const verification = await verifierConnexionSynec(prisma);
+    res.json(
+      verification.ok
+        ? { connecte: true, derniereSynchro: await derniereSynchroSynec(prisma) }
+        : { connecte: false, motif: verification.motif }
+    );
+  });
+
+  router.post("/synec/sync", async (_req, res) => {
+    try {
+      res.json(await synchroniserSynec(prisma));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {

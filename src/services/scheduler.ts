@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { synchroniserGmail, resumerErreurs } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
+import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -11,6 +12,11 @@ const HEURE_RECAP_PAR_DEFAUT = 19; // 19h, heure locale du serveur
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
 const INTERVALLE_STRIPE_PAR_DEFAUT_MS = 60 * 60 * 1000; // 1 heure
+// Les factures Synec changent au rythme de l'activite de l'atelier, jamais
+// en continu : un intervalle large suffit et evite de solliciter un
+// navigateur headless complet trop souvent (bien plus couteux qu'un simple
+// appel API comme Stripe ou Gmail).
+const INTERVALLE_SYNEC_PAR_DEFAUT_MS = 3 * 60 * 60 * 1000; // 3 heures
 
 /**
  * Demarre la surveillance continue de la boite Gmail connectee (section 3 :
@@ -123,6 +129,29 @@ export function demarrerSurveillanceStripe(prisma: PrismaClient): void {
         action: "Synchronisation automatique Stripe",
         resultat: `Echec : ${(err as Error).message}`,
       }).catch(() => {});
+    }
+  }, intervalle);
+}
+
+/**
+ * Synchronise automatiquement les factures Synec (remplace le depot manuel
+ * d'export CSV une fois SYNEC_URL/SYNEC_IDENTIFIANT/SYNEC_MOT_DE_PASSE
+ * configures). synchroniserSynec journalise deja elle-meme le detail de
+ * l'echec (etape precise : connexion, navigation, export...) - ce
+ * planificateur se contente de ne jamais laisser une erreur interrompre le
+ * serveur, meme principe que les autres planificateurs.
+ */
+export function demarrerSurveillanceSynec(prisma: PrismaClient): void {
+  if (!synecEstConfigure()) return; // rien a synchroniser sans identifiants
+
+  const intervalle = Number(process.env.SYNEC_POLL_INTERVAL_MS) || INTERVALLE_SYNEC_PAR_DEFAUT_MS;
+
+  setInterval(async () => {
+    try {
+      await synchroniserSynec(prisma);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Synchronisation Synec planifiee en echec :", (err as Error).message);
     }
   }, intervalle);
 }

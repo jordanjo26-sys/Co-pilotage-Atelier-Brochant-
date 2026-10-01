@@ -181,6 +181,16 @@ sudo -u "$APP_USER" npm ci
 # rejoue explicitement par securite : sans client Prisma genere, le serveur
 # plante immediatement au demarrage (systemd le redemarre en boucle).
 sudo -u "$APP_USER" npx prisma generate
+# Chromium pour Playwright (section 11, automatisation Synec : aucune API
+# disponible). Deux etapes separees car elles n'ecrivent pas au meme
+# endroit : "install-deps" installe les bibliotheques systeme partagees
+# (libnss3, libatk..., absentes d'une image Ubuntu minimale) via apt-get,
+# donc en root ; le navigateur lui-meme doit etre telecharge sous
+# l'utilisateur applicatif ($APP_USER), sinon il atterrirait dans le cache
+# de root et resterait introuvable au demarrage du serveur (execute sous
+# $APP_USER par le service systemd). Sans effet si deja installe.
+npx playwright install-deps chromium
+sudo -u "$APP_USER" npx playwright install chromium
 sudo -u "$APP_USER" npm run build
 sudo -u "$APP_USER" npx prisma migrate deploy
 
