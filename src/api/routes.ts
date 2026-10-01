@@ -17,6 +17,7 @@ import { existsSync } from "fs";
 import { getGmailClient } from "../services/googleAuth";
 import { typeMimePourAffichage } from "../services/fileType";
 import { genererPdfFacturesImpayees } from "../services/facturesPdf";
+import { genererPdfPaiements } from "../services/paiementsPdf";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -142,6 +143,16 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/stripe/paiements", async (_req, res) => {
     const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 100 });
     res.json(paiements);
+  });
+
+  // Export PDF des paiements captés (demande explicite de l'utilisateur,
+  // même logique que l'export PDF des factures impayées).
+  router.get("/stripe/paiements/export-pdf", async (_req, res) => {
+    const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 100 });
+    const pdf = await genererPdfPaiements(paiements);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="paiements-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
   });
 
   // --- Synec : recuperation automatique des factures (aucune API chez

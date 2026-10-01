@@ -249,6 +249,9 @@ async function chargerStatutStripe() {
     <div id="resultat-sync-stripe"></div>
     <details class="fournisseur-documents">
       <summary>Voir les paiements captés</summary>
+      <div class="ligne-boutons" style="margin: 10px 0;">
+        <a class="ghost bouton-lien" href="/api/stripe/paiements/export-pdf">Exporter en PDF</a>
+      </div>
       <div id="liste-paiements-stripe">Chargement…</div>
     </details>
   `;
