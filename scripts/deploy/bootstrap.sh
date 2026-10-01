@@ -27,6 +27,15 @@ ANTHROPIC_API_KEY_ARG="${5:-}"
 # par API. Absente -> la section Stripe reste desactivee, l'import CSV
 # manuel continue de fonctionner normalement.
 STRIPE_API_KEY_ARG="${6:-}"
+# Identifiants Synec (compte dedie, de preference en lecture seule - section
+# 14/16), pour l'automatisation de recuperation des factures non reglees par
+# navigateur headless (Synec n'offre aucune API, confirme par l'utilisateur).
+# Memes garanties que les secrets ci-dessus : jamais commis, jamais ecrits
+# dans un journal. URL non sensible mais transmise de la meme facon, pour
+# pouvoir la changer sans modifier le code.
+SYNEC_URL_ARG="${7:-}"
+SYNEC_IDENTIFIANT_ARG="${8:-}"
+SYNEC_MOT_DE_PASSE_ARG="${9:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -77,6 +86,9 @@ DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}
 DAILY_RECAP_HOUR=19
 ANTHROPIC_API_KEY=
 STRIPE_API_KEY=
+SYNEC_URL=
+SYNEC_IDENTIFIANT=
+SYNEC_MOT_DE_PASSE=
 EOF
   echo "-- .env cree avec des secrets generes automatiquement (mot de passe base, cle de chiffrement)."
   echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."
@@ -126,6 +138,29 @@ if [ -n "$STRIPE_API_KEY_ARG" ]; then
     sed -i "s#^STRIPE_API_KEY=.*#STRIPE_API_KEY=${STRIPE_API_KEY_ARG}#" "$ENV_FILE"
   else
     echo "STRIPE_API_KEY=${STRIPE_API_KEY_ARG}" >> "$ENV_FILE"
+  fi
+fi
+
+# Identifiants Synec : meme logique "ajouter si absente, sinon remplacer".
+if [ -n "$SYNEC_URL_ARG" ]; then
+  if grep -q '^SYNEC_URL=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^SYNEC_URL=.*#SYNEC_URL=${SYNEC_URL_ARG}#" "$ENV_FILE"
+  else
+    echo "SYNEC_URL=${SYNEC_URL_ARG}" >> "$ENV_FILE"
+  fi
+fi
+if [ -n "$SYNEC_IDENTIFIANT_ARG" ]; then
+  if grep -q '^SYNEC_IDENTIFIANT=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^SYNEC_IDENTIFIANT=.*#SYNEC_IDENTIFIANT=${SYNEC_IDENTIFIANT_ARG}#" "$ENV_FILE"
+  else
+    echo "SYNEC_IDENTIFIANT=${SYNEC_IDENTIFIANT_ARG}" >> "$ENV_FILE"
+  fi
+fi
+if [ -n "$SYNEC_MOT_DE_PASSE_ARG" ]; then
+  if grep -q '^SYNEC_MOT_DE_PASSE=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^SYNEC_MOT_DE_PASSE=.*#SYNEC_MOT_DE_PASSE=${SYNEC_MOT_DE_PASSE_ARG}#" "$ENV_FILE"
+  else
+    echo "SYNEC_MOT_DE_PASSE=${SYNEC_MOT_DE_PASSE_ARG}" >> "$ENV_FILE"
   fi
 fi
 
