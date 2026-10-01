@@ -178,13 +178,14 @@ change son interface), mais évite le dépôt manuel de CSV.
 1. Si possible, créer dans Synec un **second utilisateur avec des droits
    limités** (lecture seule / consultation) plutôt que d'utiliser le
    compte principal — moindre privilège, comme pour la clé Stripe.
-2. Ajouter trois secrets GitHub (même écran que les précédents) :
+2. Ajouter ces secrets GitHub (même écran que les précédents) :
 
    | Nom du secret | Valeur |
    |---|---|
    | `SYNEC_URL` | L'URL de la page de connexion à Synec |
    | `SYNEC_IDENTIFIANT` | L'identifiant de connexion (compte dédié de préférence) |
    | `SYNEC_MOT_DE_PASSE` | Le mot de passe correspondant |
+   | `SYNEC_URL_FACTURES` | L'adresse exacte de l'écran "Factures" une fois connecté (optionnel, mais très recommandé : évite de deviner la navigation par menu) |
 
 3. Redéployer : la synchronisation Synec se met alors en route
    automatiquement, comme Gmail et Stripe. Le dépôt manuel de CSV reste

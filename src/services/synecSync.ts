@@ -110,11 +110,12 @@ async function seConnecter(page: import("playwright").Page, identifiant: string,
 }
 
 /**
- * Atteint l'écran "Factures". L'adresse exacte de cet écran n'est pas
- * connue (l'utilisateur semble utiliser l'application Synec plutôt qu'un
- * navigateur avec barre d'adresse visible) : plusieurs stratégies sont
- * tentées dans l'ordre, de la plus directe à la plus large, avant
- * d'abandonner avec un message précis sur ce qui a été essayé.
+ * Atteint l'écran "Factures". Utilise en priorité SYNEC_URL_FACTURES
+ * (adresse exacte fournie par l'utilisateur, ex.
+ * https://app.synec.io/connect/billing_invoice/<id>/) ; à défaut (variable
+ * absente, ou devenue invalide), retombe sur une navigation devinée (lien
+ * direct puis menu hamburger) avant d'abandonner avec un message précis
+ * sur ce qui a été essayé.
  */
 async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
   const dejaSurFactures = async () =>
@@ -125,6 +126,16 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
       .catch(() => false);
 
   if (await dejaSurFactures()) return;
+
+  // Strategie principale : adresse directe fournie par l'utilisateur
+  // (ex. https://app.synec.io/connect/billing_invoice/<id>/), bien plus
+  // fiable qu'une navigation devinee par menu. SYNEC_URL_FACTURES est
+  // optionnelle : a defaut, on retombe sur les strategies ci-dessous.
+  const urlFactures = process.env.SYNEC_URL_FACTURES;
+  if (urlFactures) {
+    await page.goto(urlFactures, { waitUntil: "networkidle", timeout: 30000 });
+    if (await dejaSurFactures()) return;
+  }
 
   const lienDirect = page.getByRole("link", { name: /^factures$/i }).first();
   if (await lienDirect.isVisible().catch(() => false)) {
