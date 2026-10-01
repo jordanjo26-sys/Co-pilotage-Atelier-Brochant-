@@ -110,25 +110,14 @@ async function seConnecter(page: import("playwright").Page, identifiant: string,
 }
 
 /**
- * Atteint l'écran "Factures". Utilise en priorité SYNEC_URL_FACTURES
- * (adresse exacte fournie par l'utilisateur, ex.
- * https://app.synec.io/connect/billing_invoice/<id>/) ; à défaut (variable
- * absente ou devenue invalide), tente un lien "Factures" directement
- * visible. Abandonne volontairement sans deviner plus loin (ex. un menu
- * hamburger jamais inspecté) : les tentatives précédentes de ce type ont
- * navigué vers des endroits imprévisibles sans jamais aider au diagnostic
- * - mieux vaut un échec clair avec un aperçu de la page réellement
- * chargée (voir capturerDiagnostic) qu'une cascade de clics à l'aveugle.
- */
-/**
  * Capture un etat de la page (URL, titre, extrait du texte visible) pour
  * diagnostic en cas d'echec de navigation - sans ca, un echec ne dit que
  * "Factures introuvable" sans jamais montrer CE QUI a ete charge a la
  * place (page de connexion encore affichee, erreur Synec, tableau de bord
  * different de celui attendu...), obligeant a deviner a l'aveugle a
- * chaque nouvel echec (deja arrive deux fois). Le texte est tronque et les
- * espaces/retours a la ligne repetes compresses pour rester lisible dans
- * la carte Synec de l'interface.
+ * chaque nouvel echec. Le texte est tronque et les espaces/retours a la
+ * ligne repetes compresses pour rester lisible dans la carte Synec de
+ * l'interface.
  */
 async function capturerDiagnostic(page: import("playwright").Page): Promise<string> {
   const url = page.url();
@@ -141,17 +130,31 @@ async function capturerDiagnostic(page: import("playwright").Page): Promise<stri
   return `URL actuelle : ${url} — titre : "${titre}" — texte visible : "${texte}"`;
 }
 
+/**
+ * Atteint l'écran "Factures". Deux enseignements d'échecs réels successifs
+ * en production :
+ * 1. L'adresse directe SYNEC_URL_FACTURES (fournie par l'utilisateur comme
+ *    favori dans son propre navigateur) renvoie une 404 lorsqu'on y
+ *    navigue directement dans une session fraîche — vraisemblablement une
+ *    route qui n'existe côté serveur que via la navigation interne de
+ *    l'application, pas comme lien profond. Abandonnée comme stratégie
+ *    principale.
+ * 2. Le menu est replié par défaut ("Toggle navigation" visible sur l'état
+ *    initial, confirmé par capturerDiagnostic) : l'utilisateur confirme
+ *    cliquer un bouton de menu avant que "Facture" (singulier sur le menu,
+ *    différent du titre "Factures" au pluriel une fois sur l'écran)
+ *    n'apparaisse. D'où une correspondance de texte large (/factur/i,
+ *    jamais une égalité exacte) pour couvrir "Facture"/"Factures"/toute
+ *    variante.
+ */
 async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
   // Recherche par TEXTE visible plutot que par role d'accessibilite
   // ("button"/"link") : constate en production que ce repere echouait en
   // permanence meme en etant sur la bonne page, "Export CSV" n'etant
   // vraisemblablement pas un <button> au sens strict (lien stylise ou
-  // composant personnalise, invisible pour getByRole). Le texte visible
-  // est le seul repere confirme par les captures d'ecran fournies.
-  // Attend jusqu'a 5s que le texte apparaisse plutot qu'un controle
-  // instantane : juste apres un goto()/networkidle, un rendu cote client
-  // (React ou equivalent) peut encore finir de s'afficher quelques
-  // centaines de ms, ce qu'un isVisible() immediat manquerait a tort.
+  // composant personnalise, invisible pour getByRole). Attend jusqu'a 5s
+  // que le texte apparaisse plutot qu'un controle instantane : un rendu
+  // cote client peut encore finir de s'afficher juste apres le networkidle.
   const dejaSurFactures = async () =>
     page
       .getByText(/export csv/i)
@@ -162,44 +165,24 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
 
   if (await dejaSurFactures()) return;
 
-  // Strategie principale : adresse directe fournie par l'utilisateur
-  // (ex. https://app.synec.io/connect/billing_invoice/<id>/), bien plus
-  // fiable qu'une navigation devinee par menu. SYNEC_URL_FACTURES est
-  // optionnelle : a defaut, on retombe sur les strategies ci-dessous.
-  const urlFactures = process.env.SYNEC_URL_FACTURES;
-  if (urlFactures) {
-    // Observe en production (premier essai reel) : Synec effectue sa
-    // propre redirection cote client juste apres la connexion (vers son
-    // tableau de bord par defaut), qui entre parfois en collision avec ce
-    // goto() s'il est tente trop tot ("Navigation... interrupted by
-    // another navigation..."). Une tentative suffit generalement une fois
-    // cette redirection terminee ; en cas de collision, on la laisse
-    // simplement se terminer puis on reessaie une fois.
-    try {
-      await page.goto(urlFactures, { waitUntil: "networkidle", timeout: 30000 });
-    } catch (err) {
-      if (!/interrupted by another navigation/i.test((err as Error).message)) throw err;
-      await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
-      await page.goto(urlFactures, { waitUntil: "networkidle", timeout: 30000 });
-    }
-    if (await dejaSurFactures()) return;
+  // Ouvre le menu s'il est replie - "Toggle navigation" est le texte reel
+  // observe sur l'etat initial apres connexion (voir diagnostic ci-dessus),
+  // pas une hypothese.
+  const boutonMenu = page.getByText(/toggle navigation/i).first();
+  if (await boutonMenu.isVisible().catch(() => false)) {
+    await boutonMenu.click();
+    await page.waitForTimeout(300); // laisse l'animation d'ouverture du menu se terminer
   }
 
-  // Diagnostic pris ICI (apres la strategie principale, avant toute
-  // strategie de repli hasardeuse) : c'est l'information la plus utile en
-  // cas d'echec final - ce qui s'affichait reellement apres la tentative
-  // la plus fiable, avant que les strategies de repli ne naviguent
-  // ailleurs et ne rendent ce constat impossible a reconstituer.
-  const diagnostic = await capturerDiagnostic(page);
-
-  const lienDirect = page.getByText(/^factures$/i).first();
-  if (await lienDirect.isVisible().catch(() => false)) {
-    await lienDirect.click();
+  const lienFactures = page.getByText(/factur/i).first();
+  if (await lienFactures.isVisible().catch(() => false)) {
+    await lienFactures.click();
     await page.waitForLoadState("networkidle");
     if (await dejaSurFactures()) return;
   }
 
-  throw new Error(`Écran "Factures" introuvable. ${diagnostic}`);
+  const diagnostic = await capturerDiagnostic(page);
+  throw new Error(`Écran "Factures" introuvable après clic sur le menu. ${diagnostic}`);
 }
 
 /**

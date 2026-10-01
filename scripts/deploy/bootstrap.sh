@@ -36,13 +36,6 @@ STRIPE_API_KEY_ARG="${6:-}"
 SYNEC_URL_ARG="${7:-}"
 SYNEC_IDENTIFIANT_ARG="${8:-}"
 SYNEC_MOT_DE_PASSE_ARG="${9:-}"
-# Adresse directe de l'ecran "Factures" une fois connecte (ex.
-# https://app.synec.io/connect/billing_invoice/<identifiant>/), fournie par
-# l'utilisateur : evite de deviner la navigation (menu hamburger) apres la
-# connexion, bien plus fiable. Non sensible en soi (inutilisable sans la
-# session de connexion), mais transmise par le meme circuit pour pouvoir la
-# changer sans toucher au code.
-SYNEC_URL_FACTURES_ARG="${10:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -94,7 +87,6 @@ DAILY_RECAP_HOUR=19
 ANTHROPIC_API_KEY=
 STRIPE_API_KEY=
 SYNEC_URL=
-SYNEC_URL_FACTURES=
 SYNEC_IDENTIFIANT=
 SYNEC_MOT_DE_PASSE=
 EOF
@@ -155,13 +147,6 @@ if [ -n "$SYNEC_URL_ARG" ]; then
     sed -i "s#^SYNEC_URL=.*#SYNEC_URL=${SYNEC_URL_ARG}#" "$ENV_FILE"
   else
     echo "SYNEC_URL=${SYNEC_URL_ARG}" >> "$ENV_FILE"
-  fi
-fi
-if [ -n "$SYNEC_URL_FACTURES_ARG" ]; then
-  if grep -q '^SYNEC_URL_FACTURES=' "$ENV_FILE" 2>/dev/null; then
-    sed -i "s#^SYNEC_URL_FACTURES=.*#SYNEC_URL_FACTURES=${SYNEC_URL_FACTURES_ARG}#" "$ENV_FILE"
-  else
-    echo "SYNEC_URL_FACTURES=${SYNEC_URL_FACTURES_ARG}" >> "$ENV_FILE"
   fi
 fi
 if [ -n "$SYNEC_IDENTIFIANT_ARG" ]; then

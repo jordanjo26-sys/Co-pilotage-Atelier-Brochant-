@@ -438,15 +438,37 @@ les 2 minutes par le rafraîchissement automatique du tableau de bord.
 Le statut reflète donc le résultat de la dernière tentative réelle
 (journal `synec_sync`/`synec_sync_erreur`), pas un test à la demande.
 
-**Navigation vers "Factures" devinée, pas confirmée.** L'utilisateur
-semblant utiliser l'application Synec plutôt qu'un navigateur avec
-barre d'adresse visible, l'URL exacte de l'écran des factures n'a pas
-pu être obtenue — `allerAuxFactures()` tente plusieurs stratégies
-(lien direct, puis menu hamburger) avant d'abandonner avec un message
-précis. Point le plus fragile de toute l'automatisation : premier
-endroit à vérifier dans le Journal en cas d'échec, et probablement le
-premier à corriger une fois le vrai HTML observé après un premier essai
-en production.
+> ⚠️ Historique : trois itérations réelles pour atteindre l'écran
+> "Factures" de façon fiable.
+> 1. Détection par rôle d'accessibilité (`getByRole("button", ...)`) sur
+>    "Export CSV" : échouait en permanence, y compris en étant sur la
+>    bonne page — "Export CSV" n'est vraisemblablement pas un `<button>`
+>    au sens strict. Corrigé par une recherche par texte visible
+>    (`getByText`), seul repère confirmé par les captures d'écran de
+>    l'utilisateur.
+> 2. Navigation directe vers l'adresse de l'écran des factures
+>    (fournie par l'utilisateur comme favori de son propre navigateur,
+>    ex. `https://app.synec.io/connect/billing_invoice/<id>/`) :
+>    renvoyait une 404 dans une session fraîche — route accessible
+>    seulement via la navigation interne de l'application, pas comme
+>    lien profond. Abandonnée (la configuration `SYNEC_URL_FACTURES`
+>    correspondante a été retirée).
+> 3. Un `capturerDiagnostic()` (URL, titre, texte visible de la page)
+>    ajouté au point d'échec a montré "Toggle navigation" visible juste
+>    après connexion : le menu est replié par défaut. L'utilisateur a
+>    confirmé cliquer ce bouton puis un lien "Facture" (singulier,
+>    différent du titre "Factures" au pluriel une fois sur l'écran).
+
+**Navigation vers "Factures" : clic réel sur le menu, pas une URL
+devinée.** `allerAuxFactures()` clique le bouton "Toggle navigation"
+s'il est visible, puis un lien dont le texte contient "factur"
+(`/factur/i`, jamais une égalité exacte, pour couvrir
+"Facture"/"Factures"/toute variante) — reproduit le chemin de clics
+réel de l'utilisateur plutôt que de deviner une structure HTML jamais
+inspectée. `capturerDiagnostic()` reste en place : en cas de nouvel
+échec, le Journal affichera l'URL/titre/texte visible réels plutôt
+qu'un message générique, pour éviter de deviner à l'aveugle une
+quatrième fois.
 
 **Playwright sur le serveur : installation en deux temps.** `bootstrap.sh`
 installe les dépendances système (`playwright install-deps`, en root,
