@@ -118,11 +118,22 @@ async function seConnecter(page: import("playwright").Page, identifiant: string,
  * sur ce qui a été essayé.
  */
 async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
+  // Recherche par TEXTE visible plutot que par role d'accessibilite
+  // ("button"/"link") : constate en production que ce repere echouait en
+  // permanence meme en etant sur la bonne page, "Export CSV" n'etant
+  // vraisemblablement pas un <button> au sens strict (lien stylise ou
+  // composant personnalise, invisible pour getByRole). Le texte visible
+  // est le seul repere confirme par les captures d'ecran fournies.
+  // Attend jusqu'a 5s que le texte apparaisse plutot qu'un controle
+  // instantane : juste apres un goto()/networkidle, un rendu cote client
+  // (React ou equivalent) peut encore finir de s'afficher quelques
+  // centaines de ms, ce qu'un isVisible() immediat manquerait a tort.
   const dejaSurFactures = async () =>
     page
-      .getByRole("button", { name: /export csv/i })
+      .getByText(/export csv/i)
       .first()
-      .isVisible()
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(() => true)
       .catch(() => false);
 
   if (await dejaSurFactures()) return;
@@ -150,7 +161,7 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
     if (await dejaSurFactures()) return;
   }
 
-  const lienDirect = page.getByRole("link", { name: /^factures$/i }).first();
+  const lienDirect = page.getByText(/^factures$/i).first();
   if (await lienDirect.isVisible().catch(() => false)) {
     await lienDirect.click();
   } else {
@@ -180,13 +191,15 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
  * nouvelles factures impayées.
  */
 async function exporterCsv(page: import("playwright").Page): Promise<{ nomFichier: string; buffer: Buffer }> {
-  const boutonReset = page.getByRole("button", { name: /r[ée]initialiser tous les filtres/i }).first();
+  // Meme choix que dejaSurFactures() : texte visible plutot que role
+  // d'accessibilite, plus fiable sans connaitre la structure HTML reelle.
+  const boutonReset = page.getByText(/r[ée]initialiser tous les filtres/i).first();
   if (await boutonReset.isVisible().catch(() => false)) {
     await boutonReset.click();
     await page.waitForLoadState("networkidle");
   }
 
-  const boutonExport = page.getByRole("button", { name: /export csv/i }).first();
+  const boutonExport = page.getByText(/export csv/i).first();
   const [telechargement] = await Promise.all([
     page.waitForEvent("download", { timeout: 30000 }),
     boutonExport.click(),
