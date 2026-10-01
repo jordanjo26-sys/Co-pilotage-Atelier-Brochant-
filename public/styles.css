@@ -276,6 +276,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .tuile.alerte .valeur { color: var(--critical); }
 
 /* ---------- Anomalies : liste de cartes plutot qu'un tableau (mobile) ---------- */
+.barre-actions-masse[hidden] { display: none; }
 .barre-actions-masse {
   display: flex;
   align-items: center;
@@ -378,3 +379,125 @@ tbody tr:hover { background: var(--surface-2); }
   .grille-cockpit { grid-template-columns: repeat(4, 1fr); }
   form#form-import { flex-wrap: nowrap; }
 }
+@media (min-width: 900px) {
+  main { max-width: 900px; }
+}
+
+/* ---------- Navigation par onglets (refonte apres 1 mois d'usage : la
+   page unique a 13 sections empilees obligeait a defiler longuement pour
+   retrouver une information precise - "trop de cartes/sections a faire
+   defiler" signale par l'utilisateur). Chaque <section> existante est
+   desormais regroupee par theme dans un panneau, affiche un a la fois ;
+   aucun id ni comportement JS existant n'est modifie, seul l'affichage
+   (hidden) change au clic. ---------- */
+.onglets {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--line);
+}
+.onglets::-webkit-scrollbar { display: none; }
+.onglet {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  color: var(--ink-muted);
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 13px 13px 10px;
+  margin-bottom: -1px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  min-height: auto;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.onglet:hover { opacity: 1; color: var(--ink); background: none; }
+.onglet:active { opacity: 1; }
+.onglet.actif { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+.onglet-badge[hidden] { display: none; }
+.onglet-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--critical);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.onglet-panneau { display: grid; gap: 14px; }
+.onglet-panneau[hidden] { display: none; }
+
+/* ---------- Bandeau d'alerte (connexions Gmail/Stripe en panne) ---------- */
+.alerte-bandeau[hidden] { display: none; }
+.alerte-bandeau {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--critical-soft);
+  color: var(--critical);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--critical) 35%, transparent);
+}
+.alerte-bandeau span { flex: 1; }
+.alerte-bandeau button { flex: none; }
+
+/* ---------- Actions requises (tableau de bord) ---------- */
+.action-requise {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  min-height: auto;
+}
+.action-requise:first-of-type { border-top: none; }
+.action-requise:hover { opacity: 1; color: var(--brand-blue); background: var(--surface-2); }
+.action-requise .pastille {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 12.5px;
+  flex: none;
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+.action-requise .libelle { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.action-requise .fleche { color: var(--ink-muted); flex: none; }

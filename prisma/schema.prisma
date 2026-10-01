@@ -100,6 +100,13 @@ model Paiement {
   // paye par Stripe est reconnu comme paye"). Jamais rempli par l'import
   // CSV (absent de cet export), uniquement par la synchronisation directe.
   description    String?
+  // Moyen de paiement cote Stripe ("card_present" = Tap to Pay/terminal,
+  // "card" = carte en ligne) : demande explicite de l'utilisateur de
+  // distinguer les deux dans la liste des reglements Stripe. Rempli
+  // uniquement par la synchronisation directe (payment_method_details.type
+  // de la Charge Stripe, deja inclus dans l'objet source expanse - aucun
+  // appel API supplementaire). Jamais rempli par l'import CSV.
+  moyenPaiement  String?
   // Identifiant de payout Stripe (texte libre, pas de cle etrangere) :
   // le rapprochement se fait par requete applicative, pas a l'import, car
   // paiements et payouts peuvent arriver dans un ordre quelconque selon

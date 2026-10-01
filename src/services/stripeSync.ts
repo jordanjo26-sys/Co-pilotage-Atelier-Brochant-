@@ -123,6 +123,17 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
         const description =
           bt.source && typeof bt.source !== "string" && "description" in bt.source ? bt.source.description || null : null;
 
+        // payment_method_details.type vaut "card_present" pour un paiement
+        // capte via un terminal/Tap to Pay, "card" pour un paiement par
+        // carte en ligne (section "trésorerie" de l'application, demande
+        // explicite de l'utilisateur de lister les deux separement). Deja
+        // present sur l'objet Charge expanse ci-dessus (data.source), donc
+        // sans appel API supplementaire.
+        const moyenPaiement =
+          bt.source && typeof bt.source !== "string" && "payment_method_details" in bt.source
+            ? bt.source.payment_method_details?.type || null
+            : null;
+
         // L'adresse e-mail du client n'est pas disponible sur la transaction
         // elle-meme (il faudrait un appel supplementaire par transaction
         // vers l'objet Charge/Customer) : laissee vide plutot que de
@@ -136,6 +147,7 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
           date: new Date(bt.created * 1000),
           clientEmail: null,
           description,
+          moyenPaiement,
           payoutRef: payout.id,
         };
 

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=14" />
+  <link rel="stylesheet" href="/styles.css?v=17" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -13,132 +13,185 @@
       <img src="/logo.png" alt="Atelier Brochant" />
       <div>
         <h1>Copilote Atelier Brochant</h1>
-        <p class="sous-titre">Réception CSV, Gmail → Dext et cockpit du jour</p>
+        <p class="sous-titre">Gestion commerciale, facturation et trésorerie</p>
       </div>
     </div>
   </div>
 
+  <!-- Refonte (Phase 11, demande explicite apres 1 mois d'usage : "trop de
+       cartes a faire defiler", "pas assez d'automatisation", "allure
+       amateur", "difficile de voir l'essentiel"). Navigation par onglets
+       thematiques plutot qu'une seule longue page : chaque <section>
+       existante est conservee a l'identique (memes id, jamais touches par
+       app.js) mais regroupee dans un panneau d'onglet. Un badge numerique
+       sur chaque onglet (mis a jour par app.js) indique en un coup d'oeil
+       ce qui attend une action, sans avoir a ouvrir l'onglet. -->
+  <nav class="onglets" role="tablist" aria-label="Sections du copilote">
+    <button type="button" class="onglet actif" data-onglet="tableau-de-bord" role="tab" aria-selected="true">
+      <span class="onglet-libelle">Tableau de bord</span>
+    </button>
+    <button type="button" class="onglet" data-onglet="factures" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Factures</span>
+      <span class="onglet-badge" data-badge="factures" hidden>0</span>
+    </button>
+    <button type="button" class="onglet" data-onglet="fournisseurs" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Fournisseurs</span>
+      <span class="onglet-badge" data-badge="fournisseurs" hidden>0</span>
+    </button>
+    <button type="button" class="onglet" data-onglet="tresorerie" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Trésorerie</span>
+      <span class="onglet-badge" data-badge="tresorerie" hidden>0</span>
+    </button>
+    <button type="button" class="onglet" data-onglet="systeme" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Système</span>
+      <span class="onglet-badge" data-badge="systeme" hidden>0</span>
+    </button>
+  </nav>
+
   <main>
-    <section class="carte accent-violet">
-      <h2>Morgane</h2>
-      <p class="aide">Assistante IA du copilote : pose une question sur l'activité ou délègue-lui une tâche (synchroniser Gmail, envoyer le bilan, ignorer une anomalie...).</p>
-      <div id="morgane-fil" class="morgane-fil">
-        <div class="morgane-message morgane-bulle-assistant">Bonjour, je suis Morgane. Comment puis-je t'aider ?</div>
-      </div>
-      <form id="form-morgane" class="morgane-formulaire">
-        <input type="text" id="morgane-saisie" placeholder="Écris à Morgane…" autocomplete="off" />
-        <button type="submit">Envoyer</button>
-      </form>
-    </section>
+    <div id="alerte-bandeau" class="alerte-bandeau" hidden></div>
 
-    <section class="carte accent-violet">
-      <h2>Mémoire de Morgane</h2>
-      <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>
-      <div id="liste-decisions"></div>
-    </section>
+    <!-- ===== Tableau de bord ===== -->
+    <div class="onglet-panneau" data-panneau="tableau-de-bord">
+      <section class="carte accent-bleu carte-cockpit">
+        <h2>Cockpit du jour</h2>
+        <div id="cockpit" class="grille-cockpit"></div>
+      </section>
 
-    <section class="carte accent-bleu">
-      <h2>Cockpit du jour</h2>
-      <div id="cockpit" class="grille-cockpit"></div>
-    </section>
+      <section class="carte accent-ambre">
+        <h2>Actions requises</h2>
+        <p class="aide">Tout ce qui attend une décision de ta part, réuni au même endroit.</p>
+        <div id="actions-requises"></div>
+      </section>
 
-    <section class="carte accent-ambre">
-      <h2>Anomalies à valider</h2>
-      <p class="aide">Documents ambigus reçus par e-mail, en attente de classification manuelle.</p>
-      <div id="barre-actions-anomalies" class="barre-actions-masse" hidden>
-        <label><input type="checkbox" id="case-tout-selectionner" /> Tout sélectionner</label>
-        <span class="compte" id="compte-selection"></span>
-        <button type="button" class="ghost" id="btn-ignorer-selection" style="margin-left:auto">Ignorer la sélection</button>
-      </div>
-      <div id="liste-anomalies"></div>
-    </section>
+      <section class="carte accent-violet">
+        <h2>Morgane</h2>
+        <p class="aide">Assistante IA du copilote : pose une question sur l'activité ou délègue-lui une tâche (synchroniser Gmail, envoyer le bilan, ignorer une anomalie...).</p>
+        <div id="morgane-fil" class="morgane-fil">
+          <div class="morgane-message morgane-bulle-assistant">Bonjour, je suis Morgane. Comment puis-je t'aider ?</div>
+        </div>
+        <form id="form-morgane" class="morgane-formulaire">
+          <input type="text" id="morgane-saisie" placeholder="Écris à Morgane…" autocomplete="off" />
+          <button type="submit">Envoyer</button>
+        </form>
+      </section>
+    </div>
 
-    <section class="carte accent-teal">
-      <h2>Gmail → Dext</h2>
-      <p class="aide">Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext.</p>
-      <div id="gmail-statut"></div>
-    </section>
+    <!-- ===== Factures ===== -->
+    <div class="onglet-panneau" data-panneau="factures" hidden>
+      <section class="carte accent-critique">
+        <h2>Factures impayées</h2>
+        <div class="table-scroll">
+          <table id="table-factures">
+            <thead>
+              <tr><th>Référence</th><th>Client</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
 
-    <section class="carte accent-violet">
-      <h2>Bilan de santé</h2>
-      <p class="aide">Synthèse de l'activité : chiffre d'affaires, impayés par ancienneté, documents fournisseurs en attente, points de vigilance.</p>
-      <div class="ligne-boutons">
-        <button type="button" class="ghost" id="btn-generer-bilan">Générer le bilan</button>
-        <button type="button" class="ghost" id="btn-envoyer-bilan">Envoyer par e-mail</button>
-      </div>
-      <pre id="contenu-bilan" class="bloc-texte" hidden></pre>
-    </section>
+      <section class="carte accent-ambre">
+        <h2>Relances à envoyer</h2>
+        <p class="aide">Factures ayant atteint un nouveau palier de retard (rappel, relance, mise en demeure). L'envoi reste toujours un geste volontaire, facture par facture — rien n'est envoyé automatiquement.</p>
+        <div id="liste-relances"></div>
+      </section>
 
-    <section class="carte accent-teal">
-      <h2>Stripe</h2>
-      <p class="aide">Récupération automatique des payouts et paiements par API — remplace le dépôt manuel d'export CSV Stripe une fois connecté.</p>
-      <div id="stripe-statut"></div>
-    </section>
+      <section class="carte accent-teal">
+        <h2>Factures fournisseurs reçues</h2>
+        <p class="aide">Factures reconnues par e-mail mais pas encore transmises à Dext — transfert automatique en pause ou envoi manuel groupé en fin de mois. "Voir" prévisualise le document, "Envoyer à Dext" le transmet tout de suite.</p>
+        <div id="liste-factures-fournisseurs"></div>
+      </section>
 
-    <section class="carte accent-bleu">
-      <h2>Déposer un fichier CSV</h2>
-      <p class="aide">
-        Synec (factures), Stripe (paiements ou payouts), relevé bancaire.
-        Le type est détecté automatiquement à partir des en-têtes de colonnes.
-      </p>
-      <form id="form-import">
-        <input type="file" id="input-fichier" accept=".csv" required />
-        <button type="submit">Importer</button>
-      </form>
-      <div id="resultat-import"></div>
-    </section>
+      <section class="carte accent-violet">
+        <h2>Bilan de santé</h2>
+        <p class="aide">Synthèse de l'activité : chiffre d'affaires, impayés par ancienneté, documents fournisseurs en attente, points de vigilance.</p>
+        <div class="ligne-boutons">
+          <button type="button" class="ghost" id="btn-generer-bilan">Générer le bilan</button>
+          <button type="button" class="ghost" id="btn-envoyer-bilan">Envoyer par e-mail</button>
+        </div>
+        <pre id="contenu-bilan" class="bloc-texte" hidden></pre>
+      </section>
+    </div>
 
-    <section class="carte accent-ambre">
-      <h2>Relances à envoyer</h2>
-      <p class="aide">Factures ayant atteint un nouveau palier de retard (rappel, relance, mise en demeure). L'envoi reste toujours un geste volontaire, facture par facture — rien n'est envoyé automatiquement.</p>
-      <div id="liste-relances"></div>
-    </section>
+    <!-- ===== Fournisseurs ===== -->
+    <div class="onglet-panneau" data-panneau="fournisseurs" hidden>
+      <section class="carte accent-ambre">
+        <h2>Anomalies à valider</h2>
+        <p class="aide">Documents ambigus reçus par e-mail, en attente de classification manuelle.</p>
+        <div id="barre-actions-anomalies" class="barre-actions-masse" hidden>
+          <label><input type="checkbox" id="case-tout-selectionner" /> Tout sélectionner</label>
+          <span class="compte" id="compte-selection"></span>
+          <button type="button" class="ghost" id="btn-ignorer-selection" style="margin-left:auto">Ignorer la sélection</button>
+        </div>
+        <div id="liste-anomalies"></div>
+      </section>
 
-    <section class="carte accent-critique">
-      <h2>Factures impayées</h2>
-      <div class="table-scroll">
-        <table id="table-factures">
-          <thead>
-            <tr><th>Référence</th><th>Client</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
+      <section class="carte accent-teal">
+        <h2>Fournisseurs</h2>
+        <p class="aide">Fiches créées automatiquement à partir des documents reçus par e-mail — un fournisseur par expéditeur.</p>
+        <div id="liste-fournisseurs"></div>
+      </section>
+    </div>
 
-    <section class="carte accent-teal">
-      <h2>Factures fournisseurs reçues</h2>
-      <p class="aide">Factures reconnues par e-mail mais pas encore transmises à Dext — transfert automatique en pause ou envoi manuel groupé en fin de mois. "Voir" prévisualise le document, "Envoyer à Dext" le transmet tout de suite.</p>
-      <div id="liste-factures-fournisseurs"></div>
-    </section>
+    <!-- ===== Trésorerie ===== -->
+    <div class="onglet-panneau" data-panneau="tresorerie" hidden>
+      <section class="carte accent-teal">
+        <h2>Stripe</h2>
+        <p class="aide">Récupération automatique des payouts et paiements par API (en ligne et Tap to Pay) — remplace le dépôt manuel d'export CSV Stripe une fois connecté.</p>
+        <div id="stripe-statut"></div>
+      </section>
 
-    <section class="carte accent-teal">
-      <h2>Fournisseurs</h2>
-      <p class="aide">Fiches créées automatiquement à partir des documents reçus par e-mail — un fournisseur par expéditeur.</p>
-      <div id="liste-fournisseurs"></div>
-    </section>
+      <section class="carte accent-bleu">
+        <h2>Déposer un fichier CSV</h2>
+        <p class="aide">
+          Synec (factures), Stripe (paiements ou payouts), relevé bancaire.
+          Le type est détecté automatiquement à partir des en-têtes de colonnes.
+        </p>
+        <form id="form-import">
+          <input type="file" id="input-fichier" accept=".csv" required />
+          <button type="submit">Importer</button>
+        </form>
+        <div id="resultat-import"></div>
+      </section>
 
-    <section class="carte accent-neutre">
-      <h2>Derniers imports</h2>
-      <div class="table-scroll">
-        <table id="table-imports">
-          <thead>
-            <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
+      <section class="carte accent-neutre">
+        <h2>Derniers imports</h2>
+        <div class="table-scroll">
+          <table id="table-imports">
+            <thead>
+              <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
 
-    <section class="carte accent-neutre">
-      <h2>Journal</h2>
-      <p class="aide">Historique des actions automatiques du copilote (synchronisations, envois, erreurs) — pour diagnostiquer une panne silencieuse sans accès au serveur.</p>
-      <div id="liste-journal"></div>
-    </section>
+    <!-- ===== Système ===== -->
+    <div class="onglet-panneau" data-panneau="systeme" hidden>
+      <section class="carte accent-teal">
+        <h2>Gmail → Dext</h2>
+        <p class="aide">Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext.</p>
+        <div id="gmail-statut"></div>
+      </section>
+
+      <section class="carte accent-violet">
+        <h2>Mémoire de Morgane</h2>
+        <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>
+        <div id="liste-decisions"></div>
+      </section>
+
+      <section class="carte accent-neutre">
+        <h2>Journal</h2>
+        <p class="aide">Historique des actions automatiques du copilote (synchronisations, envois, erreurs) — pour diagnostiquer une panne silencieuse sans accès au serveur.</p>
+        <div id="liste-journal"></div>
+      </section>
+    </div>
   </main>
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=20"></script>
+  <script src="/app.js?v=21"></script>
 </body>
 </html>

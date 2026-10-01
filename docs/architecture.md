@@ -343,6 +343,73 @@ vers l'adresse Dext, avec la piece jointe originale — le resultat pour Dext
 est identique (elle recoit la facture a l'adresse dediee), la mecanique
 est juste plus robuste a implementer et a tester.
 
+## Interface : onglets thématiques plutôt qu'une page unique (refonte)
+
+Après environ un mois d'usage, l'utilisateur a demandé une refonte
+explicite de `public/` : trop de cartes à faire défiler sur une seule
+page, pas assez d'automatisation visible, allure jugée amateur, et
+difficulté à voir l'essentiel en un coup d'œil. Quatre changements,
+aucun ne touchant aux routes API ni aux `id` HTML déjà utilisés par
+`app.js` (aucune régression fonctionnelle, uniquement une réorganisation
+de l'affichage) :
+
+1. **Navigation par onglets** (`public/index.html`) — les 13 `<section>`
+   existantes sont regroupées sans modification dans 5 panneaux
+   thématiques (Tableau de bord, Factures, Fournisseurs, Trésorerie,
+   Système), affichés un à la fois via l'attribut `hidden`. Le dernier
+   onglet consulté est mémorisé dans `localStorage` (clé
+   `copilote_onglet_actif`) pour éviter de re-naviguer à chaque
+   rechargement.
+2. **Badges et bandeau d'alerte** (`etatIndicateurs` dans `app.js`) —
+   chaque fonction de chargement existante (`chargerAnomalies`,
+   `chargerRelances`, `chargerFacturesFournisseurs`, `chargerCockpit`,
+   `chargerStatutGmail`, `chargerStatutStripe`) alimente un objet d'état
+   partagé, sans appel réseau supplémentaire, qui pilote : un badge
+   numérique sur l'onglet concerné, un bandeau rouge en haut du tableau
+   de bord si Gmail ou Stripe est en panne (motif non vide — jamais
+   affiché pour une intégration simplement pas encore configurée), et le
+   nouveau panneau "Actions requises".
+3. **"Actions requises"** — panneau unique sur le tableau de bord qui
+   consolide tout ce qui attend une décision (anomalies à classer,
+   relances à envoyer, factures fournisseurs en attente, imports à
+   vérifier, reconnexions Gmail/Stripe), chaque ligne bascule
+   directement vers l'onglet concerné au clic.
+4. **Rafraîchissement automatique** — `rafraichirTout()` est relancé
+   toutes les 2 minutes si l'onglet du navigateur est au premier plan
+   (`document.visibilityState`), pour un affichage plus "dynamique" sans
+   solliciter le serveur en arrière-plan ni interrompre une saisie en
+   cours (la fonction ne touche à aucun champ de formulaire).
+
+**Tap to Pay distingué des paiements en ligne.** Demande explicite ("CB
+Stripe Tap to Pay") : `payment_method_details.type` de la Charge Stripe
+(déjà présente sur l'objet `source` expansé par `balanceTransactions.list`,
+donc sans appel API supplémentaire) est stocké sur `Paiement.moyenPaiement`
+et affiché dans "Voir les paiements captés" (`card_present` → "Tap to Pay
+/ terminal", `card` → "Carte en ligne"). Les paiements Tap to Pay étaient
+déjà comptabilisés avant ce changement (même filtre `TYPES_PAIEMENT`),
+seule l'étiquette distincte manquait.
+
+**Piège CSS `[hidden]` : toute règle d'auteur fixant `display` sur le
+même élément gagne, même avec une spécificité identique** — l'origine
+"feuille d'agent utilisateur" (où vit la règle `[hidden] { display: none }`
+par défaut des navigateurs) perd systématiquement face à l'origine
+"feuille d'auteur", quelle que soit la spécificité. Repéré pendant les
+tests visuels de cette refonte (capture d'écran : tous les panneaux
+d'onglets s'affichaient empilés malgré `hidden`, un badge "0" restait
+visible, la barre de sélection des anomalies aussi) : `.onglet-panneau`,
+`.alerte-bandeau`, `.onglet-badge` et `.barre-actions-masse` (ce dernier
+préexistant à la refonte) déclarent chacun une règle `display` qui
+s'applique inconditionnellement. Corrigé en ajoutant pour chacun un
+`[selecteur][hidden] { display: none; }` — a reproduire pour toute
+nouvelle classe combinée à l'attribut `hidden`.
+
+**Connexion directe à Synec : toujours impossible.** Confirmé à nouveau
+par l'utilisateur (section 14, jamais deviner) : Synec n'expose aucune
+API. Le dépôt de fichier CSV reste donc l'unique voie d'entrée des
+factures et règlements Synec ; le modèle de données (`Facture`,
+`Paiement.source`) ne distingue pas la provenance au-delà du champ
+`source`, donc un branchement API futur n'impliquerait pas de migration.
+
 ## Déploiement via GitHub Actions, pas en direct
 
 L'environnement d'exécution de Claude Code ne peut sortir qu'en HTTPS (via
