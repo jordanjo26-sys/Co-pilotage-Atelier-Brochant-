@@ -66,25 +66,24 @@
 }
 
 * { box-sizing: border-box; }
-/* overflow-x: hidden sur html ET body (pas l'un sans l'autre, iOS Safari
-   ignore parfois l'un des deux selon le contexte) : un texte long sans
-   espace (ex. un message d'erreur de diagnostic technique, deja vu depasser
-   500 caracteres en production) peut sinon forcer toute la page a s'elargir
-   et a defiler horizontalement - signale par l'utilisateur comme "l'ecran
-   est coupe" sur mobile. Les conteneurs qui affichent ce genre de texte ont
-   par ailleurs leur propre word-break/overflow-wrap (voir plus bas), cette
-   regle est un filet de securite global au cas ou un cas non prevu
-   apparaisse ailleurs. */
-html, body {
-  overflow-x: hidden;
-  max-width: 100%;
-}
 body {
   margin: 0;
   background: var(--paper);
   color: var(--ink-2);
   font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Remplace l'ancien "overflow-x: hidden" global (html + body), qui
+     empechait aussi le defilement horizontal tactile des tableaux
+     (.table-scroll) sur iOS Safari : WebKit desactive le pan horizontal de
+     TOUT conteneur descendant, meme avec son propre overflow-x:auto, des
+     que html/body porte overflow-x:hidden - signale par l'utilisateur
+     ("je ne peux pas bouger" sur le tableau des factures). La vraie cause
+     du bug d'origine ("ecran coupe" par une longue URL sans espace dans un
+     message de diagnostic) est l'absence de cesure du texte, pas l'absence
+     de clip : overflow-wrap: anywhere ici regle la racine du probleme sans
+     bloquer le scroll volontaire d'un tableau (ses cellules restent en
+     white-space: nowrap, qui prime sur overflow-wrap). */
+  overflow-wrap: anywhere;
 }
 .num, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Manrope", sans-serif; }

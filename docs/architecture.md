@@ -497,6 +497,20 @@ de données (`Facture`, `Paiement.source`) ne distingue pas la
 provenance au-delà du champ `source`, donc un futur branchement API
 Synec (si un jour disponible) n'impliquerait pas de migration.
 
+> ⚠️ Historique : le correctif de l'écran "coupé" sur mobile (une longue
+> URL sans espace dans un message de diagnostic forçait toute la page à
+> s'élargir) avait d'abord posé `overflow-x: hidden` sur `html` ET `body`.
+> Cela a introduit une régression distincte, signalée ensuite par
+> l'utilisateur : impossible de faire défiler horizontalement le tableau
+> des factures impayées sur iPhone ("je ne peux pas bouger"). WebKit/iOS
+> désactive le pan tactile horizontal de **tout** conteneur descendant
+> (même avec son propre `overflow-x: auto`, comme `.table-scroll`) dès que
+> `html`/`body` porte `overflow-x: hidden`. Corrigé en retirant ce clip
+> global et en généralisant `overflow-wrap: anywhere` à `body` (déjà
+> appliqué à `.carte`/`.alerte-bandeau`) : cela règle la cause réelle (texte
+> non sécable) sans bloquer le défilement volontaire d'un tableau, dont les
+> cellules restent en `white-space: nowrap`.
+
 ## Déploiement via GitHub Actions, pas en direct
 
 L'environnement d'exécution de Claude Code ne peut sortir qu'en HTTPS (via
