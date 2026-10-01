@@ -133,7 +133,20 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
   // optionnelle : a defaut, on retombe sur les strategies ci-dessous.
   const urlFactures = process.env.SYNEC_URL_FACTURES;
   if (urlFactures) {
-    await page.goto(urlFactures, { waitUntil: "networkidle", timeout: 30000 });
+    // Observe en production (premier essai reel) : Synec effectue sa
+    // propre redirection cote client juste apres la connexion (vers son
+    // tableau de bord par defaut), qui entre parfois en collision avec ce
+    // goto() s'il est tente trop tot ("Navigation... interrupted by
+    // another navigation..."). Une tentative suffit generalement une fois
+    // cette redirection terminee ; en cas de collision, on la laisse
+    // simplement se terminer puis on reessaie une fois.
+    try {
+      await page.goto(urlFactures, { waitUntil: "networkidle", timeout: 30000 });
+    } catch (err) {
+      if (!/interrupted by another navigation/i.test((err as Error).message)) throw err;
+      await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+      await page.goto(urlFactures, { waitUntil: "networkidle", timeout: 30000 });
+    }
     if (await dejaSurFactures()) return;
   }
 
