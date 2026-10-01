@@ -613,3 +613,41 @@ export async function envoyerDocumentFournisseurVersDext(prisma: PrismaClient, d
     resultat: `Envoyee manuellement vers ${destinataire} depuis le centre de fournisseurs.`,
   });
 }
+
+export class AnomalieClassificationError extends Error {}
+
+/**
+ * Classification manuelle d'un document ambigu en facture fournisseur,
+ * depuis le centre de validation des anomalies (section 7.2) : le document
+ * rejoint "Factures fournisseurs reçues" (onglet Factures) comme une
+ * facture reconnue automatiquement, et attend le meme geste volontaire
+ * d'envoi vers Dext (voir envoyerDocumentFournisseurVersDext ci-dessus).
+ */
+export async function classerAnomalieCommeFacture(prisma: PrismaClient, anomalieId: string): Promise<void> {
+  const anomalie = await prisma.anomalie.findUnique({ where: { id: anomalieId } });
+  if (!anomalie) throw new AnomalieClassificationError("Anomalie introuvable.");
+  if (anomalie.statut !== "a_valider") throw new AnomalieClassificationError("Cette anomalie a deja ete traitee.");
+
+  let preuves: Record<string, string> = {};
+  try {
+    preuves = JSON.parse(anomalie.preuves || "{}");
+  } catch {
+    // preuves illisibles : traite comme absentes ci-dessous
+  }
+  if (!preuves.messageId || !preuves.attachmentId) {
+    throw new AnomalieClassificationError("Document associe introuvable (piece jointe plus ancienne).");
+  }
+
+  const document = await prisma.documentFournisseur.findFirst({
+    where: { gmailMessageId: preuves.messageId, gmailAttachmentId: preuves.attachmentId },
+  });
+  if (!document) throw new AnomalieClassificationError("Document associe introuvable.");
+
+  await prisma.documentFournisseur.update({ where: { id: document.id }, data: { type: "facture", statutDext: "a_valider" } });
+  await prisma.anomalie.update({ where: { id: anomalieId }, data: { statut: "validee" } });
+  await logEvenement(prisma, {
+    evenement: "gmail_document",
+    action: `Document reclasse en facture : ${document.fichierNom}`,
+    resultat: "Classification manuelle depuis le centre de validation des anomalies.",
+  });
+}

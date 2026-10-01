@@ -3,7 +3,14 @@ import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
 import { getDashboardSummary } from "../services/dashboardService";
-import { synchroniserGmail, resumerErreurs, envoyerDocumentFournisseurVersDext, DocumentFournisseurEnvoiError } from "../services/gmailSync";
+import {
+  synchroniserGmail,
+  resumerErreurs,
+  envoyerDocumentFournisseurVersDext,
+  DocumentFournisseurEnvoiError,
+  classerAnomalieCommeFacture,
+  AnomalieClassificationError,
+} from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
@@ -454,6 +461,23 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.json(anomalie);
     } catch (err) {
       res.status(404).json({ erreur: "Anomalie introuvable." });
+    }
+  });
+
+  // Classification manuelle d'un document ambigu en facture fournisseur
+  // (demande explicite de l'utilisateur : pouvoir faire apparaitre dans
+  // l'onglet Factures un document que le pipeline automatique n'a pas su
+  // reconnaitre). Rejoint ensuite "Factures fournisseurs reçues", au meme
+  // titre qu'une facture reconnue automatiquement.
+  router.post("/anomalies/:id/classer-facture", async (req, res) => {
+    try {
+      await classerAnomalieCommeFacture(prisma, req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof AnomalieClassificationError) {
+        return res.status(409).json({ erreur: err.message });
+      }
+      res.status(500).json({ erreur: (err as Error).message });
     }
   });
 

@@ -420,6 +420,24 @@ async function ignorerAnomalie(id) {
 }
 window.ignorerAnomalie = ignorerAnomalie;
 
+async function classerAnomalieFacture(id, bouton) {
+  bouton.disabled = true;
+  bouton.textContent = "Classement…";
+  try {
+    const res = await fetch(`/api/anomalies/${id}/classer-facture`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Classement impossible.");
+    }
+    await Promise.all([chargerAnomalies(), chargerCockpit(), chargerFacturesFournisseurs()]);
+  } catch (err) {
+    bouton.disabled = false;
+    bouton.textContent = "Classer en facture";
+    alert(err.message);
+  }
+}
+window.classerAnomalieFacture = classerAnomalieFacture;
+
 function majBarreSelection() {
   const cases = [...document.querySelectorAll(".case-anomalie")];
   const cochees = cases.filter((c) => c.checked);
@@ -465,6 +483,7 @@ async function chargerAnomalies() {
       </div>
       <div class="anomalie-actions">
         <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/anomalies/${a.id}/document')">Voir</button>
+        <button type="button" class="ghost" onclick="classerAnomalieFacture('${a.id}', this)">Classer en facture</button>
         <button type="button" class="ghost" onclick="ignorerAnomalie('${a.id}')">Ignorer</button>
       </div>
     </div>`;
