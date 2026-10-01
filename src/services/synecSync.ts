@@ -164,7 +164,17 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
 
   if (await dejaSurFactures()) return;
 
-  const boutonMenu = page.getByText(/toggle navigation/i).first();
+  // getByRole (pas getByText) : "Toggle navigation" est tres probablement
+  // un texte visuellement cache (accessibilite seule, pattern Bootstrap
+  // classique) a l'interieur du vrai bouton ☰. getByText cible le noeud de
+  // texte lui-meme (invisible => echec silencieux, constate en production -
+  // le clic n'avait jamais lieu, URL inchangee). getByRole resout le NOM
+  // ACCESSIBLE du bouton (qui inclut ce texte cache) et verifie la
+  // visibilite du bouton reel, pas du texte cache qu'il contient.
+  const boutonMenu = page
+    .getByRole("button", { name: /toggle navigation/i })
+    .or(page.locator(".navbar-toggler"))
+    .first();
   if (await boutonMenu.isVisible().catch(() => false)) {
     await boutonMenu.click();
     await page.waitForTimeout(300); // laisse l'animation d'ouverture du tiroir se terminer
