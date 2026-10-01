@@ -139,6 +139,42 @@ async function capturerDiagnostic(page: import("playwright").Page): Promise<stri
 }
 
 /**
+ * Liste tous les elements ressemblant a un bouton/lien de menu (texte,
+ * classes ou aria-label evoquant "toggle"/"navbar"/"menu"/"sidebar"/
+ * "drawer"/"hamburger") avec leur position et visibilite reelles.
+ *
+ * Remplace le pari sur un seul selecteur texte/role : un echec reel a
+ * montre qu'un clic "reussi" sur l'element trouve par
+ * `getByRole("button", { name: /toggle navigation/i })` ouvre un menu
+ * DIFFERENT de celui attendu (confirme par une video de l'utilisateur,
+ * qui clique bien le meme bouton ☰ visuellement mais obtient le bon
+ * resultat) - signe quasi certain qu'il existe PLUSIEURS elements
+ * candidats sur la page et que le mauvais a ete cible jusqu'ici. Cette
+ * liste permet de voir tous les candidats reels au lieu d'en deviner un
+ * seul a l'aveugle.
+ */
+async function listerCandidatsMenu(page: import("playwright").Page): Promise<string> {
+  const resultat = await page
+    .evaluate(
+      `(() => {
+        const selecteur = 'button, a, [role="button"], [class*="toggl" i], [class*="navbar" i], [class*="menu" i], [class*="sidebar" i], [class*="drawer" i], [class*="hamburger" i], [aria-label*="menu" i], [aria-label*="toggl" i]';
+        const els = Array.from(document.querySelectorAll(selecteur)).slice(0, 15);
+        return els.map((el, i) => {
+          const r = el.getBoundingClientRect();
+          const s = window.getComputedStyle(el);
+          const visible = r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+          const texte = (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 30);
+          const classes = typeof el.className === 'string' ? el.className.slice(0, 60) : '';
+          const aria = el.getAttribute('aria-label') || '';
+          return i + ':' + el.tagName + (el.id ? '#' + el.id : '') + (classes ? '.' + classes.replace(/ /g, '.') : '') + (aria ? ' aria=\"' + aria + '\"' : '') + (texte ? ' texte=\"' + texte + '\"' : '') + ' pos=(' + Math.round(r.x) + ',' + Math.round(r.y) + ') taille=' + Math.round(r.width) + 'x' + Math.round(r.height) + ' visible=' + visible;
+        }).join(' | ');
+      })()`
+    )
+    .catch((err) => `(introspection impossible : ${(err as Error).message})`);
+  return `Candidats menu : ${resultat}`;
+}
+
+/**
  * Atteint l'écran "Factures". Chemin confirmé par une vidéo fournie par
  * l'utilisateur montrant sa navigation réelle, en quatre étapes (pas trois
  * comme supposé précédemment - un échec réel en production a montré qu'on
@@ -192,6 +228,16 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
     await page.waitForLoadState("networkidle");
   }
 
+  // Liste des candidats AVANT tout clic : une video de l'utilisateur
+  // confirme qu'il clique bien le bouton ☰ visuellement identique a celui
+  // cible jusqu'ici, pour un resultat different (menu limite
+  // "Accueil/Tableau de bord" au lieu du vrai menu complet) - signe quasi
+  // certain qu'il existe PLUSIEURS elements candidats sur cette page et
+  // que le mauvais est cible depuis le debut. Capture a cet instant precis
+  // (dashboard fraichement charge, rien encore clique) pour voir tous les
+  // candidats reels plutot que d'en deviner un seul.
+  const candidatsAvant = await listerCandidatsMenu(page);
+
   // Chaque etape est tracee (reussie/absente) dans "etapes" : en cas
   // d'echec final, savoir PRECISEMENT laquelle des trois a coince (menu,
   // Facturation, Factures) plutot qu'un seul diagnostic global - deja
@@ -239,7 +285,7 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
 
   const diagnostic = await capturerDiagnostic(page);
   throw new Error(
-    `Écran "Factures" introuvable (étapes : ${etapes.join(", ")}).` +
+    `Écran "Factures" introuvable (étapes : ${etapes.join(", ")}). ${candidatsAvant}` +
       (diagnosticApresMenu ? ` Juste après le clic sur le menu : ${diagnosticApresMenu}` : "") +
       ` État final : ${diagnostic}`
   );
