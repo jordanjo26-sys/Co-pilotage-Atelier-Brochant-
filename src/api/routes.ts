@@ -16,6 +16,7 @@ import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierCon
 import { existsSync } from "fs";
 import { getGmailClient } from "../services/googleAuth";
 import { typeMimePourAffichage } from "../services/fileType";
+import { genererPdfFacturesImpayees } from "../services/facturesPdf";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -56,6 +57,25 @@ export function buildRouter(prisma: PrismaClient): Router {
       take: 500,
     });
     res.json(factures);
+  });
+
+  // Export PDF des factures impayees (demande explicite de l'utilisateur,
+  // apres avoir constate que Morgane ne peut pas generer de document - son
+  // jeu d'outils est volontairement limite a des actions/requetes precises).
+  // Par defaut "impayee" seule (pas "partiellement_payee" ni "cloturee") :
+  // c'est la demande initiale ("toutes les factures impayees"), le parametre
+  // reste ajustable si besoin plus tard sans changer la route.
+  router.get("/factures/export-pdf", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : "impayee";
+    const factures = await prisma.facture.findMany({
+      where: { statut },
+      orderBy: { dateEcheance: "asc" },
+      take: 500,
+    });
+    const pdf = await genererPdfFacturesImpayees(factures);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="factures-impayees-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
   });
 
   router.get("/paiements", async (_req, res) => {
