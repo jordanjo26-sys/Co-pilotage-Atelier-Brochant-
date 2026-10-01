@@ -47,8 +47,15 @@ jobs:
 
       - name: Synchroniser le code vers le serveur
         run: |
+          # .cache exclu : c'est la ou Playwright installe Chromium pour
+          # l'automatisation Synec (bootstrap.sh). Sans cette exclusion,
+          # --delete l'effacait a CHAQUE deploiement (absent du depot git),
+          # forcant un retelechargement complet a chaque fois et ouvrant une
+          # fenetre ou une synchronisation Synec en cours au meme moment
+          # echouait avec "Executable doesn't exist" (constate en
+          # production).
           rsync -az --delete \
-            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" \
+            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude=".cache" \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
             ./ "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:/opt/copilote-brochant/"
 

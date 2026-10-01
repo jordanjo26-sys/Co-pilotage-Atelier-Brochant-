@@ -456,6 +456,15 @@ car `apt-get`) séparément du téléchargement du navigateur lui-même
 dans le cache de root, introuvable au demarrage du serveur (execute
 sous `$APP_USER` par systemd).
 
+> ⚠️ Historique : `.cache` (où vit ce navigateur téléchargé) n'était pas
+> exclu du `rsync --delete` de `deploy.yml` — absent du dépôt git, il
+> était donc effacé à **chaque** déploiement, obligeant Chromium à se
+> retélécharger intégralement à chaque fois (déploiements plus lents) et
+> ouvrant une fenêtre où une synchronisation Synec lancée pendant qu'un
+> déploiement tournait échouait avec "Executable doesn't exist" (constaté
+> en production, confondu au départ avec une simple collision de
+> timing). Corrigé en ajoutant `--exclude=".cache"` au rsync.
+
 **Pas d'API Synec, mais une automatisation par navigateur depuis.**
 Confirmé deux fois par l'utilisateur (section 14, jamais deviner) :
 Synec n'expose aucune API. Le dépôt manuel de fichier CSV reste
