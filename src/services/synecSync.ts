@@ -132,8 +132,15 @@ async function capturerDiagnostic(page: import("playwright").Page): Promise<stri
 
 /**
  * Atteint l'écran "Factures". Chemin confirmé par une vidéo fournie par
- * l'utilisateur montrant sa navigation réelle (trois clics, pas deux comme
- * supposé précédemment) :
+ * l'utilisateur montrant sa navigation réelle, en quatre étapes (pas trois
+ * comme supposé précédemment - un échec réel en production a montré qu'on
+ * restait bloqué sur un écran intermédiaire jamais identifié avant) :
+ * 0. Juste après connexion : un sélecteur d'organisation ("Interface de
+ *    gestion", "Collaborateur sur les organisations") si le compte a accès
+ *    à plusieurs organisations (ici "Atelier Brochant" et "Groupe Belle
+ *    Énergie") - absent de la vidéo fournie (qui montrait déjà le menu
+ *    directement) mais bien réel, confirmé par capturerDiagnostic. Cliquer
+ *    le nom de l'organisation cible pour y entrer.
  * 1. Menu ☰ ("Toggle navigation", replié par défaut) → ouvre un tiroir
  *    latéral (nom, organisation, puis "Tableau de bord", "Administration",
  *    "Facturation", "Téléphonie").
@@ -163,6 +170,19 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
       .catch(() => false);
 
   if (await dejaSurFactures()) return;
+
+  // Selecteur d'organisation (etape 0) : le compte Synec a acces a
+  // plusieurs organisations ("Atelier Brochant" et "Groupe Belle
+  // Energie", confirme par capturerDiagnostic sur un echec reel) - un
+  // ecran intermediaire propose de choisir laquelle avant d'afficher le
+  // menu principal. Cliquer le nom de l'organisation cible si cet ecran
+  // est present ; ne fait rien si on est deja dans la bonne organisation
+  // (ecran absent).
+  const lienOrganisation = page.getByText(/atelier brochant/i).first();
+  if (await lienOrganisation.isVisible().catch(() => false)) {
+    await lienOrganisation.click();
+    await page.waitForLoadState("networkidle");
+  }
 
   // getByRole (pas getByText) : "Toggle navigation" est tres probablement
   // un texte visuellement cache (accessibilite seule, pattern Bootstrap
