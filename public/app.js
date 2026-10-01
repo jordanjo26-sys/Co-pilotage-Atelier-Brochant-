@@ -285,23 +285,32 @@ async function chargerStatutSynec() {
   const data = await res.json();
   const div = document.getElementById("synec-statut");
 
-  if (!data.connecte) {
-    div.innerHTML = `<p class="statut-dot off">${data.motif ? echapper(data.motif) : "Non connecté — identifiants à ajouter (voir docs/mise-en-service.md)."}</p>`;
-    etatIndicateurs.synecMotif = data.motif || null;
+  // Sans identifiants configures du tout (aucun motif) : rien a tenter,
+  // pas de bouton. Mais un echec de la DERNIERE tentative (motif present)
+  // ne veut pas dire que les identifiants sont invalides (contrairement a
+  // Gmail/Stripe) - l'automatisation par navigateur peut echouer pour
+  // d'autres raisons (navigation, mise a jour du site Synec...) sans que
+  // les identifiants ne soient en cause. Le bouton doit rester disponible
+  // pour reessayer, sinon un premier echec bloque definitivement toute
+  // nouvelle tentative depuis l'interface (constate en production).
+  if (!data.connecte && !data.motif) {
+    div.innerHTML = `<p class="statut-dot off">Non connecté — identifiants à ajouter (voir docs/mise-en-service.md).</p>`;
+    etatIndicateurs.synecMotif = null;
     mettreAJourBadges();
     return;
   }
 
   div.innerHTML = `
-    <p class="gmail-connecte">
-      <span class="statut-dot">Connecté</span><br/>
-      Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}
-    </p>
+    ${
+      data.connecte
+        ? `<p class="gmail-connecte"><span class="statut-dot">Connecté</span><br/>Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}</p>`
+        : `<p class="statut-dot off">${echapper(data.motif)}</p>`
+    }
     <button type="button" id="btn-sync-synec" class="ghost">Synchroniser maintenant</button>
     <div id="resultat-sync-synec"></div>
   `;
 
-  etatIndicateurs.synecMotif = null;
+  etatIndicateurs.synecMotif = data.connecte ? null : data.motif;
   mettreAJourBadges();
 
   document.getElementById("btn-sync-synec").addEventListener("click", async () => {
