@@ -511,6 +511,17 @@ Synec (si un jour disponible) n'impliquerait pas de migration.
 > non sécable) sans bloquer le défilement volontaire d'un tableau, dont les
 > cellules restent en `white-space: nowrap`.
 
+**Regroupement par mois dans "Factures fournisseurs reçues".** Demande
+explicite de l'utilisateur ("un dossier facture octobre pour classer mes
+factures d'octobre") : plutôt qu'un classement manuel (nouveau champ,
+action de déplacement), chaque document rejoint automatiquement son
+groupe mensuel dès sa réception, à partir de `dateReceptionMail` (déjà
+en base). Même format de libellé que `nomEtiquetteFacturesDuMois` côté
+Gmail ("Octobre 2026"), pour rester cohérent avec le libellé déjà visible
+dans la boîte mail. Implémenté côté client (`chargerFacturesFournisseurs`
+dans `app.js`) : aucun changement d'API, les documents arrivent déjà
+triés du plus récent au plus ancien.
+
 ## Déploiement via GitHub Actions, pas en direct
 
 L'environnement d'exécution de Claude Code ne peut sortir qu'en HTTPS (via

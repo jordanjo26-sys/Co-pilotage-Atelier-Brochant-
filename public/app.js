@@ -674,6 +674,13 @@ async function envoyerFactureFournisseurVersDext(id, bouton) {
 }
 window.envoyerFactureFournisseurVersDext = envoyerFactureFournisseurVersDext;
 
+// Libelle "Mois Annee" (ex. "Octobre 2026"), meme format que le libelle
+// Gmail cree par nomEtiquetteFacturesDuMois cote serveur (gmailSync.ts).
+function libelleMoisAnnee(date) {
+  const texte = new Date(date).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  return texte.charAt(0).toUpperCase() + texte.slice(1);
+}
+
 async function chargerFacturesFournisseurs() {
   const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=a_valider");
   const documents = await res.json();
@@ -687,21 +694,43 @@ async function chargerFacturesFournisseurs() {
     return;
   }
 
-  liste.innerHTML = documents
+  // Regroupement automatique par mois de reception (demande explicite de
+  // l'utilisateur : retrouver facilement "les factures d'octobre" sans
+  // classement manuel) : chaque document rejoint son mois des sa reception,
+  // sans aucune action de l'utilisateur. Les documents arrivent deja tries
+  // du plus recent au plus ancien (voir /documents-fournisseurs), donc les
+  // groupes apparaissent eux aussi du plus recent au plus ancien dans
+  // l'ordre ou Map les rencontre.
+  const groupes = new Map();
+  for (const d of documents) {
+    const cle = libelleMoisAnnee(d.dateReceptionMail || d.createdAt);
+    if (!groupes.has(cle)) groupes.set(cle, []);
+    groupes.get(cle).push(d);
+  }
+
+  liste.innerHTML = [...groupes.entries()]
     .map(
-      (d) => `
-    <div class="fournisseur-carte">
-      <div class="fournisseur-nom">${echapper(d.fichierNom || "Document")}</div>
-      <div class="anomalie-meta">
-        ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
-        ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
-        ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
-        ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
-      </div>
-      <div class="fournisseur-actions fournisseur-actions-ligne">
-        <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
-        <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
-      </div>
+      ([mois, docs]) => `
+    <div class="groupe-mois">
+      <h3 class="groupe-mois-titre">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></h3>
+      ${docs
+        .map(
+          (d) => `
+      <div class="fournisseur-carte">
+        <div class="fournisseur-nom">${echapper(d.fichierNom || "Document")}</div>
+        <div class="anomalie-meta">
+          ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
+          ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
+          ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
+          ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
+        </div>
+        <div class="fournisseur-actions fournisseur-actions-ligne">
+          <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
+          <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
+        </div>
+      </div>`
+        )
+        .join("")}
     </div>`
     )
     .join("");

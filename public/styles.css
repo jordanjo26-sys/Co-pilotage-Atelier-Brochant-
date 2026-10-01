@@ -344,6 +344,28 @@ button:disabled { opacity: 0.4; cursor: default; }
 .bouton-lien:hover { background: var(--surface); border-color: var(--brand-blue); }
 
 /* ---------- Fournisseurs ---------- */
+/* Regroupement par mois de reception ("Factures fournisseurs reçues") :
+   demande explicite de l'utilisateur pour retrouver facilement les
+   factures d'un mois donne, sans classement manuel - chaque document
+   rejoint son groupe des sa reception. */
+.groupe-mois + .groupe-mois { margin-top: 16px; }
+.groupe-mois-titre {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+  margin: 0 0 4px;
+}
+.groupe-mois-compte {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 700;
+}
 .fournisseur-carte { padding: 8px 0; border-top: 1px solid var(--line); }
 .fournisseur-carte:first-of-type { border-top: none; padding-top: 0; }
 .fournisseur-nom { font-size: 13px; font-weight: 600; color: var(--ink); }
