@@ -1,8 +1,16 @@
 import { chromium } from "playwright";
 import { readFile } from "fs/promises";
+import path from "path";
 import { PrismaClient } from "@prisma/client";
 import { logEvenement } from "./journalService";
 import { receiveCsv } from "./importService";
+
+// Capture d'ecran du dernier echec, servie par GET /api/synec/capture-echec
+// (meme protection globale par mot de passe que le reste du site) : un
+// diagnostic textuel seul (voir capturerDiagnostic) a montre ses limites
+// apres plusieurs essais infructueux a deviner la structure HTML reelle de
+// Synec sans jamais la voir - une image tranche instantanement.
+export const CHEMIN_CAPTURE_ECHEC = path.join(process.cwd(), "synec-derniere-capture.png");
 
 /**
  * Récupération automatique des factures Synec (Phase 11, demande explicite
@@ -281,8 +289,19 @@ export async function synchroniserSynec(prisma: PrismaClient): Promise<ResultatS
   const { url, identifiant, motDePasse } = obtenirIdentifiants();
 
   const navigateur = await chromium.launch({ headless: true });
+  let page: import("playwright").Page | undefined;
   try {
-    const page = await navigateur.newPage();
+    // Largeur d'ecran de telephone (comme l'utilisateur, iPhone), PAS la
+    // largeur de bureau par defaut de Playwright (1280x720) : plusieurs
+    // echecs reels en production ont montre un clic "reussi" sur le bouton
+    // de menu sans aucun effet visible ensuite - tres probablement parce
+    // qu'a une largeur de bureau, Synec affiche son menu differemment (un
+    // bouton "Toggle navigation" present mais sans action reelle a cette
+    // largeur, pattern Bootstrap courant ou le menu replie n'existe qu'en
+    // dessous d'un certain seuil de largeur). Cette largeur reproduit
+    // exactement le contexte dans lequel la navigation manuelle de
+    // l'utilisateur (vue par video) fonctionne reellement.
+    page = await navigateur.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
     await seConnecter(page, identifiant, motDePasse);
@@ -299,6 +318,10 @@ export async function synchroniserSynec(prisma: PrismaClient): Promise<ResultatS
 
     return { fichierNom: nomFichier, nbNouveaux: resume.nbNouveaux, nbDoublons: resume.nbDoublons, nbErreurs: resume.nbErreurs };
   } catch (err) {
+    // Capture d'ecran du dernier echec : un diagnostic textuel seul a deja
+    // montre ses limites apres plusieurs essais infructueux (voir
+    // CHEMIN_CAPTURE_ECHEC, servie par GET /api/synec/capture-echec).
+    await page?.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
     await logEvenement(prisma, {
       evenement: "synec_sync_erreur",
       action: "Synchronisation Synec",

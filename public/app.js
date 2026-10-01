@@ -304,7 +304,7 @@ async function chargerStatutSynec() {
     ${
       data.connecte
         ? `<p class="gmail-connecte"><span class="statut-dot">Connecté</span><br/>Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}</p>`
-        : `<p class="statut-dot off">${echapper(data.motif)}</p>`
+        : `<p class="statut-dot off">${echapper(data.motif)}</p><p class="aide-inline"><a href="/api/synec/capture-echec" target="_blank">Voir la capture d'écran du dernier échec</a></p>`
     }
     <button type="button" id="btn-sync-synec" class="ghost">Synchroniser maintenant</button>
     <div id="resultat-sync-synec"></div>

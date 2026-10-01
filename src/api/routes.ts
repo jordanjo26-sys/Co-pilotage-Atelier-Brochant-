@@ -12,7 +12,8 @@ import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, Fournisse
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
-import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec } from "../services/synecSync";
+import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec, CHEMIN_CAPTURE_ECHEC } from "../services/synecSync";
+import { existsSync } from "fs";
 import { getGmailClient } from "../services/googleAuth";
 import { typeMimePourAffichage } from "../services/fileType";
 
@@ -142,6 +143,19 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
+  });
+
+  // Capture d'ecran du dernier echec de synchroniserSynec (voir
+  // synecSync.ts) : un diagnostic textuel seul (URL/titre/texte visible)
+  // a montre ses limites apres plusieurs essais infructueux a deviner la
+  // structure HTML reelle de Synec sans jamais la voir. Protegee par la
+  // meme authentification globale (HTTP Basic Auth nginx) que le reste du
+  // site, pas d'authentification applicative supplementaire necessaire.
+  router.get("/synec/capture-echec", (_req, res) => {
+    if (!existsSync(CHEMIN_CAPTURE_ECHEC)) {
+      return res.status(404).send("Aucune capture d'echec disponible pour le moment.");
+    }
+    res.sendFile(CHEMIN_CAPTURE_ECHEC);
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {
