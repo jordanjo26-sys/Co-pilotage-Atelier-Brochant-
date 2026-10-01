@@ -175,27 +175,32 @@ async function listerCandidatsMenu(page: import("playwright").Page): Promise<str
 }
 
 /**
- * Atteint l'écran "Factures". Chemin confirmé par une vidéo fournie par
- * l'utilisateur montrant sa navigation réelle, en quatre étapes (pas trois
- * comme supposé précédemment - un échec réel en production a montré qu'on
- * restait bloqué sur un écran intermédiaire jamais identifié avant) :
- * 0. Juste après connexion : un sélecteur d'organisation ("Interface de
- *    gestion", "Collaborateur sur les organisations") si le compte a accès
- *    à plusieurs organisations (ici "Atelier Brochant" et "Groupe Belle
- *    Énergie") - absent de la vidéo fournie (qui montrait déjà le menu
- *    directement) mais bien réel, confirmé par capturerDiagnostic. Cliquer
- *    le nom de l'organisation cible pour y entrer.
- * 1. Menu ☰ ("Toggle navigation", replié par défaut) → ouvre un tiroir
- *    latéral (nom, organisation, puis "Tableau de bord", "Administration",
- *    "Facturation", "Téléphonie").
- * 2. "Facturation" → déplie un sous-menu (Clients, Planning, Abonnements,
- *    Devis, **Factures**, Produits, Documents, Marques) ; ne navigue nulle
- *    part en lui-même, juste un accordéon.
+ * Atteint l'écran "Factures". Chemin confirmé en examinant image par image
+ * une vidéo fournie par l'utilisateur :
+ * 0. Juste après connexion : "Interface de gestion" / "Collaborateur sur
+ *    les organisations" (le compte a accès à "Atelier Brochant" ET
+ *    "Groupe Belle Énergie").
+ * 1. Menu ☰ cliqué DIRECTEMENT SUR CET ÉCRAN, sans jamais cliquer sur une
+ *    organisation au préalable - confirmé par la vidéo (le logo "GBE" de
+ *    l'autre organisation reste visible en arrière-plan pendant que le
+ *    tiroir s'ouvre). Le tiroir contient déjà "Atelier Brochant"
+ *    présélectionné.
+ * 2. "Facturation" (dans le tiroir) → déplie un sous-menu (Clients,
+ *    Planning, Abonnements, Devis, **Factures**, Produits, Documents,
+ *    Marques) ; n'navigue nulle part en lui-même, juste un accordéon.
  * 3. "Factures" (dans ce sous-menu) → écran des factures recherché.
  *
- * Une adresse directe (favori fourni par l'utilisateur) a été tentée avant
- * cette version : 404 dans une session fraîche, abandonnée (route
- * accessible seulement via la navigation interne de l'application).
+ * Erreur commise dans une version précédente : cliquer sur "Atelier
+ * Brochant" AVANT d'ouvrir le menu, pensant que c'était un préalable
+ * nécessaire. Ça envoie en réalité vers une page de "Tableau de bord"
+ * différente (framework AdminLTE), dont le menu ☰ n'ouvre qu'un tiroir
+ * limité ("Accueil"/"Tableau de bord" seulement, jamais "Facturation") -
+ * un tiroir sans rapport avec celui recherché. Le clic sur l'organisation
+ * n'est donc tenté qu'en dernier recours, si le menu direct échoue.
+ *
+ * Une adresse directe (favori fourni par l'utilisateur) a aussi été
+ * tentée : 404 dans une session fraîche, abandonnée (route accessible
+ * seulement via la navigation interne de l'application).
  */
 async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
   // Recherche par TEXTE visible plutot que par role d'accessibilite
@@ -215,39 +220,9 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
 
   if (await dejaSurFactures()) return;
 
-  // Selecteur d'organisation (etape 0) : le compte Synec a acces a
-  // plusieurs organisations ("Atelier Brochant" et "Groupe Belle
-  // Energie", confirme par capturerDiagnostic sur un echec reel) - un
-  // ecran intermediaire propose de choisir laquelle avant d'afficher le
-  // menu principal. Cliquer le nom de l'organisation cible si cet ecran
-  // est present ; ne fait rien si on est deja dans la bonne organisation
-  // (ecran absent).
-  const lienOrganisation = page.getByText(/atelier brochant/i).first();
-  if (await lienOrganisation.isVisible().catch(() => false)) {
-    await lienOrganisation.click();
-    await page.waitForLoadState("networkidle");
-  }
-
-  // Liste des candidats AVANT tout clic : une video de l'utilisateur
-  // confirme qu'il clique bien le bouton ☰ visuellement identique a celui
-  // cible jusqu'ici, pour un resultat different (menu limite
-  // "Accueil/Tableau de bord" au lieu du vrai menu complet) - signe quasi
-  // certain qu'il existe PLUSIEURS elements candidats sur cette page et
-  // que le mauvais est cible depuis le debut. Capture a cet instant precis
-  // (dashboard fraichement charge, rien encore clique) pour voir tous les
-  // candidats reels plutot que d'en deviner un seul.
-  const candidatsAvant = await listerCandidatsMenu(page);
-
-  // Chaque etape est tracee (reussie/absente) dans "etapes" : en cas
-  // d'echec final, savoir PRECISEMENT laquelle des trois a coince (menu,
-  // Facturation, Factures) plutot qu'un seul diagnostic global - deja
-  // insuffisant une fois pour distinguer "le clic n'a pas eu lieu" de "le
-  // clic a eu lieu mais n'a pas produit l'effet attendu".
   const etapes: string[] = [];
-  const essayerClic = async (motif: RegExp, parRole: boolean): Promise<boolean> => {
-    const locator = parRole
-      ? page.getByRole("button", { name: motif }).or(page.locator(".navbar-toggler")).first()
-      : page.getByText(motif).first();
+  const essayerClic = async (motif: RegExp): Promise<boolean> => {
+    const locator = page.getByText(motif).first();
     const visible = await locator
       .waitFor({ state: "visible", timeout: 3000 })
       .then(() => true)
@@ -258,47 +233,59 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
     return true;
   };
 
-  // Introspection reelle (listerCandidatsMenu) : ce site utilise AdminLTE
-  // (classes "skin-blue sidebar-mini", "main-sidebar", "sidebar-toggle" -
-  // signature caracteristique de ce modele open source bien documente).
-  // Le bouton ".sidebar-toggle" existe bien (confirme) et un clic dessus
-  // devrait ajouter la classe "sidebar-open" sur <body>, ce qui revele
-  // ".main-sidebar" (positionne hors ecran a x=-230 par defaut - "sidebar-
-  // mini" l'affiche replie en mode icones seules jusqu'a cette classe).
-  // Le clic seul a echoue silencieusement a plusieurs reprises en
-  // production (cause exacte jamais confirmee - peut-etre un script
-  // AdminLTE qui determine le mode mobile/desktop via un evenement
-  // "resize" jamais declenche puisque la taille de la fenetre Playwright
-  // est fixee des la creation) : on force directement cette classe
-  // documentee plutot que de continuer a dependre du clic seul.
-  await page.locator(".sidebar-toggle").first().click({ timeout: 3000 }).catch(() => {});
-  await page.evaluate(`document.body.classList.add('sidebar-open')`).catch(() => {});
-  await page.waitForTimeout(500);
-  const menuClique = await page
-    .locator(".main-sidebar")
-    .first()
-    .isVisible()
-    .catch(() => false);
-  etapes.push(`menu:${menuClique}`);
+  // Ouvre le menu ☰ DIRECTEMENT sur la page actuelle (pas besoin de
+  // selectionner une organisation au prealable - confirme par la video).
+  // getByRole (pas getByText) pour ce bouton : "Toggle navigation" est tres
+  // probablement un texte visuellement cache (accessibilite seule, pattern
+  // Bootstrap classique, confirme sur la page de connexion publique de
+  // Synec) a l'interieur du vrai bouton ☰.
+  const ouvrirMenu = async (): Promise<boolean> => {
+    const bouton = page.getByRole("button", { name: /toggle navigation/i }).or(page.locator(".navbar-toggler")).first();
+    const visible = await bouton
+      .waitFor({ state: "visible", timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!visible) return false;
+    await bouton.click();
+    await page.waitForTimeout(500);
+    return page
+      .getByText(/^facturation$/i)
+      .first()
+      .waitFor({ state: "visible", timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+  };
 
-  // Diagnostic immediatement apres le clic sur le menu (avant tout autre
-  // clic) : le clic a reussi une fois ("menu:true") sans que "Facturation"
-  // n'apparaisse ensuite - impossible de savoir si le tiroir ne s'est
-  // jamais ouvert (clic sur le mauvais element) ou s'il s'est ouvert mais
-  // que son contenu differe de ce qui est suppose (libelles differents,
-  // sous-menu deja replie...) sans voir ce qui s'affiche reellement a cet
-  // instant precis.
-  const diagnosticApresMenu = menuClique ? await capturerDiagnostic(page) : null;
+  let menuOuvert = await ouvrirMenu();
+  etapes.push(`menu_direct:${menuOuvert}`);
 
-  etapes.push(`facturation:${await essayerClic(/facturation/i, false)}`);
-  etapes.push(`factures:${await essayerClic(/^factures$/i, false)}`);
+  // Repli : si le menu direct echoue, selectionner l'organisation "Atelier
+  // Brochant" avant de reessayer - comportement observe sur un echec reel
+  // ("ancienne" version de ce correctif), garde au cas ou l'ecran
+  // intermediaire se comporte differemment un jour.
+  if (!menuOuvert) {
+    const lienOrganisation = page.getByText(/atelier brochant/i).first();
+    if (await lienOrganisation.isVisible().catch(() => false)) {
+      await lienOrganisation.click();
+      await page.waitForLoadState("networkidle");
+      menuOuvert = await ouvrirMenu();
+      etapes.push(`menu_apres_organisation:${menuOuvert}`);
+    }
+  }
+
+  const diagnosticApresMenu = menuOuvert ? await capturerDiagnostic(page) : null;
+  const candidats = menuOuvert ? null : await listerCandidatsMenu(page);
+
+  etapes.push(`facturation:${await essayerClic(/^facturation$/i)}`);
+  etapes.push(`factures:${await essayerClic(/^factures$/i)}`);
 
   await page.waitForLoadState("networkidle");
   if (await dejaSurFactures()) return;
 
   const diagnostic = await capturerDiagnostic(page);
   throw new Error(
-    `Écran "Factures" introuvable (étapes : ${etapes.join(", ")}). ${candidatsAvant}` +
+    `Écran "Factures" introuvable (étapes : ${etapes.join(", ")}).` +
+      (candidats ? ` ${candidats}` : "") +
       (diagnosticApresMenu ? ` Juste après le clic sur le menu : ${diagnosticApresMenu}` : "") +
       ` État final : ${diagnostic}`
   );
