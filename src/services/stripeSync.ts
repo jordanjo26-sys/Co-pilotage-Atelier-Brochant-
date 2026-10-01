@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { PrismaClient } from "@prisma/client";
 import { logEvenement } from "./journalService";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
+import { rapprocherPaiementsFactures } from "./rapprochementFactures";
 
 /**
  * Connexion directe a l'API Stripe (Phase 9 esprit "API plutot que CSV",
@@ -166,6 +167,10 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
 
   // De nouveaux payouts peuvent completer un rapprochement bancaire en attente.
   await executerRapprochementBancaire(prisma);
+  // De nouveaux paiements peuvent desormais etre rattaches a une facture
+  // (demande explicite de l'utilisateur : afficher client + numero de
+  // facture a cote de chaque paiement).
+  await rapprocherPaiementsFactures(prisma);
 
   await logEvenement(prisma, {
     evenement: "stripe_sync",

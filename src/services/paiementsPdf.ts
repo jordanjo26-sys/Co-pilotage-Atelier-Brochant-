@@ -10,6 +10,7 @@ export interface LignePaiementPdf {
   net: number;
   moyenPaiement: string | null;
   description: string | null;
+  facture: { reference: string; clientNom: string } | null;
 }
 
 // Meme libelle que LIBELLE_MOYEN_PAIEMENT dans public/app.js (section
@@ -26,14 +27,16 @@ export function genererPdfPaiements(paiements: LignePaiementPdf[]): Promise<Buff
     "Paiements captés — Atelier Brochant",
     `Généré le ${new Date().toLocaleDateString("fr-FR")} — ${paiements.length} paiement(s)`,
     [
-      { label: "Date", largeur: 70, valeur: (p: LignePaiementPdf) => fmtDatePdf(p.date) },
-      { label: "Montant net", largeur: 80, valeur: (p: LignePaiementPdf) => fmtMontantPdf(p.net) },
+      { label: "Date", largeur: 60, valeur: (p: LignePaiementPdf) => fmtDatePdf(p.date) },
+      { label: "Montant net", largeur: 75, valeur: (p: LignePaiementPdf) => fmtMontantPdf(p.net) },
       {
         label: "Moyen de paiement",
-        largeur: 110,
+        largeur: 95,
         valeur: (p: LignePaiementPdf) => (p.moyenPaiement ? LIBELLE_MOYEN_PAIEMENT[p.moyenPaiement] || p.moyenPaiement : "—"),
       },
-      { label: "Description", largeur: 165, valeur: (p: LignePaiementPdf) => p.description || "—" },
+      { label: "Client", largeur: 110, valeur: (p: LignePaiementPdf) => p.facture?.clientNom || "—" },
+      { label: "Facture", largeur: 75, valeur: (p: LignePaiementPdf) => p.facture?.reference || "—" },
+      { label: "Description", largeur: 95, valeur: (p: LignePaiementPdf) => p.description || "—" },
     ],
     paiements,
     `Total net : ${fmtMontantPdf(totalNet)}`

@@ -542,6 +542,23 @@ dans la boîte mail. Implémenté côté client (`chargerFacturesFournisseurs`
 dans `app.js`) : aucun changement d'API, les documents arrivent déjà
 triés du plus récent au plus ancien.
 
+**Rattachement paiement Stripe <-> facture (client + n° de facture).**
+Demande explicite de l'utilisateur, une fois la synchronisation Synec en
+place. Le champ `Paiement.factureId` existait déjà dans le modèle mais
+n'était jamais rempli ; `rapprochementFactures.ts` le remplit maintenant
+avec la même rigueur que `rapprochementBancaire.ts` (section 14, jamais
+de supposition) : un paiement n'est rattaché que si sa description Stripe
+cite, sans ambiguïté, la référence ou le bon de commande d'**une seule**
+facture (correspondance par mot entier, pas une sous-chaîne — évite
+qu'une référence courte comme "FACTURE-180" matche à tort à l'intérieur
+de "FACTURE-1807"). Plusieurs candidats ou aucun laissent le paiement non
+rattaché. Idempotent, rejoué après chaque synchronisation Stripe (API
+directe ou import CSV) et après chaque import de factures Synec (une
+nouvelle facture peut compléter un rattachement resté en attente). Ne
+modifie jamais le statut payée/impayée d'une facture, qui reste exclusif
+au champ "règlements" de l'export Synec — rattachement purement
+informatif, affiché à côté de chaque paiement et dans son export PDF.
+
 ## Déploiement via GitHub Actions, pas en direct
 
 L'environnement d'exécution de Claude Code ne peut sortir qu'en HTTPS (via

@@ -8,15 +8,26 @@ import { sha256Hex } from "./hash";
 import { ImportRowError, ImportSummary } from "../importers/types";
 import { logEvenement } from "./journalService";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
+import { rapprocherPaiementsFactures } from "./rapprochementFactures";
 
 // Un nouvel import de payouts ou de releve bancaire peut completer un
 // rapprochement en attente (section 5) - inutile pour les autres types
 // (factures, clients...) qui ne fournissent ni l'un ni l'autre cote.
 const TYPES_DECLENCHANT_RAPPROCHEMENT = new Set(["banque_releve", "banque_releve_pdf", "stripe_payouts"]);
 
+// Un nouvel import de factures (nouvelles references/bons de commande a
+// chercher dans les paiements deja recus) ou de paiements Stripe (nouveaux
+// paiements a chercher dans les factures deja connues) peut completer le
+// rattachement paiement <-> facture en attente (affichage client + numero
+// de facture a cote de chaque paiement).
+const TYPES_DECLENCHANT_RAPPROCHEMENT_FACTURES = new Set(["synec_factures", "stripe_paiements"]);
+
 async function tenterRapprochementSiPertinent(prisma: PrismaClient, typeDetecte: string): Promise<void> {
   if (TYPES_DECLENCHANT_RAPPROCHEMENT.has(typeDetecte)) {
     await executerRapprochementBancaire(prisma);
+  }
+  if (TYPES_DECLENCHANT_RAPPROCHEMENT_FACTURES.has(typeDetecte)) {
+    await rapprocherPaiementsFactures(prisma);
   }
 }
 

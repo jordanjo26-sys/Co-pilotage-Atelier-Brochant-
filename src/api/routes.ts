@@ -148,14 +148,22 @@ export function buildRouter(prisma: PrismaClient): Router {
   // jamais directement le statut payee/impayee d'une Facture client - celui-ci
   // vient exclusivement du champ reglements de l'export Synec (section 4.4).
   router.get("/stripe/paiements", async (_req, res) => {
-    const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 100 });
+    const paiements = await prisma.paiement.findMany({
+      orderBy: { date: "desc" },
+      take: 100,
+      include: { facture: { select: { reference: true, clientNom: true } } },
+    });
     res.json(paiements);
   });
 
   // Export PDF des paiements captés (demande explicite de l'utilisateur,
   // même logique que l'export PDF des factures impayées).
   router.get("/stripe/paiements/export-pdf", async (_req, res) => {
-    const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 100 });
+    const paiements = await prisma.paiement.findMany({
+      orderBy: { date: "desc" },
+      take: 100,
+      include: { facture: { select: { reference: true, clientNom: true } } },
+    });
     const pdf = await genererPdfPaiements(paiements);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="paiements-${new Date().toISOString().slice(0, 10)}.pdf"`);

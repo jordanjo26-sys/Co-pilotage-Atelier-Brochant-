@@ -373,6 +373,7 @@ async function chargerPaiementsStripe() {
         <span class="anomalie-meta">${fmtDate(p.date)}</span>
         <span>${fmtMontant(p.net)}</span>
         <span class="badge badge-palier-neutre">${echapper(LIBELLE_MOYEN_PAIEMENT[p.moyenPaiement] || p.moyenPaiement || "Moyen inconnu")}</span>
+        ${p.facture ? `<span class="badge badge-ok">${echapper(p.facture.clientNom)} · ${echapper(p.facture.reference)}</span>` : ""}
         ${p.description ? `<span class="anomalie-meta">${echapper(p.description)}</span>` : ""}
       </div>`
         )
