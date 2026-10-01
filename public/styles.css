@@ -66,6 +66,19 @@
 }
 
 * { box-sizing: border-box; }
+/* overflow-x: hidden sur html ET body (pas l'un sans l'autre, iOS Safari
+   ignore parfois l'un des deux selon le contexte) : un texte long sans
+   espace (ex. un message d'erreur de diagnostic technique, deja vu depasser
+   500 caracteres en production) peut sinon forcer toute la page a s'elargir
+   et a defiler horizontalement - signale par l'utilisateur comme "l'ecran
+   est coupe" sur mobile. Les conteneurs qui affichent ce genre de texte ont
+   par ailleurs leur propre word-break/overflow-wrap (voir plus bas), cette
+   regle est un filet de securite global au cas ou un cas non prevu
+   apparaisse ailleurs. */
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
 body {
   margin: 0;
   background: var(--paper);
@@ -117,6 +130,15 @@ main {
   border-radius: 14px;
   padding: 16px;
   box-shadow: var(--shadow);
+  /* overflow-wrap: anywhere plutot que sur un selecteur de texte precis :
+     ce qui provoquait l'elargissement de toute la page sur mobile (signale
+     par l'utilisateur) etait une longue URL SANS ESPACE dans un message de
+     diagnostic Synec (ex. https://app.synec.io/connect/billing_home/...),
+     injectee dynamiquement a plusieurs endroits possibles (texte de statut,
+     resultat de synchronisation...) - protege ici une fois pour toute la
+     carte plutot que de devoir le repeter sur chaque conteneur de texte
+     dynamique. */
+  overflow-wrap: anywhere;
 }
 .carte.accent-bleu { border-left-color: var(--brand-blue); }
 .carte.accent-teal { border-left-color: var(--brand-teal); }
@@ -460,6 +482,7 @@ tbody tr:hover { background: var(--surface-2); }
   font-size: 13px;
   font-weight: 600;
   line-height: 1.5;
+  overflow-wrap: anywhere; /* meme raison que .carte : peut afficher une longue URL sans espace */
   border: 1px solid color-mix(in srgb, var(--critical) 35%, transparent);
 }
 .alerte-bandeau span { flex: 1; }
