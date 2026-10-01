@@ -258,14 +258,27 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
     return true;
   };
 
-  // getByRole (pas getByText) pour le bouton ☰ : "Toggle navigation" est
-  // tres probablement un texte visuellement cache (accessibilite seule,
-  // pattern Bootstrap classique). getByText cible le noeud de texte
-  // lui-meme (invisible => echec silencieux, constate en production - le
-  // clic n'avait jamais lieu, URL inchangee). getByRole resout le NOM
-  // ACCESSIBLE du bouton (qui inclut ce texte cache) et verifie la
-  // visibilite du bouton reel, pas du texte cache qu'il contient.
-  const menuClique = await essayerClic(/toggle navigation/i, true);
+  // Introspection reelle (listerCandidatsMenu) : ce site utilise AdminLTE
+  // (classes "skin-blue sidebar-mini", "main-sidebar", "sidebar-toggle" -
+  // signature caracteristique de ce modele open source bien documente).
+  // Le bouton ".sidebar-toggle" existe bien (confirme) et un clic dessus
+  // devrait ajouter la classe "sidebar-open" sur <body>, ce qui revele
+  // ".main-sidebar" (positionne hors ecran a x=-230 par defaut - "sidebar-
+  // mini" l'affiche replie en mode icones seules jusqu'a cette classe).
+  // Le clic seul a echoue silencieusement a plusieurs reprises en
+  // production (cause exacte jamais confirmee - peut-etre un script
+  // AdminLTE qui determine le mode mobile/desktop via un evenement
+  // "resize" jamais declenche puisque la taille de la fenetre Playwright
+  // est fixee des la creation) : on force directement cette classe
+  // documentee plutot que de continuer a dependre du clic seul.
+  await page.locator(".sidebar-toggle").first().click({ timeout: 3000 }).catch(() => {});
+  await page.evaluate(`document.body.classList.add('sidebar-open')`).catch(() => {});
+  await page.waitForTimeout(500);
+  const menuClique = await page
+    .locator(".main-sidebar")
+    .first()
+    .isVisible()
+    .catch(() => false);
   etapes.push(`menu:${menuClique}`);
 
   // Diagnostic immediatement apres le clic sur le menu (avant tout autre
