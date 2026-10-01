@@ -200,7 +200,7 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
       .catch(() => false);
     if (!visible) return false;
     await locator.click();
-    await page.waitForTimeout(400); // laisse l'animation (tiroir/accordeon) se terminer
+    await page.waitForTimeout(800); // laisse l'animation (tiroir/accordeon) se terminer
     return true;
   };
 
@@ -211,7 +211,18 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
   // clic n'avait jamais lieu, URL inchangee). getByRole resout le NOM
   // ACCESSIBLE du bouton (qui inclut ce texte cache) et verifie la
   // visibilite du bouton reel, pas du texte cache qu'il contient.
-  etapes.push(`menu:${await essayerClic(/toggle navigation/i, true)}`);
+  const menuClique = await essayerClic(/toggle navigation/i, true);
+  etapes.push(`menu:${menuClique}`);
+
+  // Diagnostic immediatement apres le clic sur le menu (avant tout autre
+  // clic) : le clic a reussi une fois ("menu:true") sans que "Facturation"
+  // n'apparaisse ensuite - impossible de savoir si le tiroir ne s'est
+  // jamais ouvert (clic sur le mauvais element) ou s'il s'est ouvert mais
+  // que son contenu differe de ce qui est suppose (libelles differents,
+  // sous-menu deja replie...) sans voir ce qui s'affiche reellement a cet
+  // instant precis.
+  const diagnosticApresMenu = menuClique ? await capturerDiagnostic(page) : null;
+
   etapes.push(`facturation:${await essayerClic(/facturation/i, false)}`);
   etapes.push(`factures:${await essayerClic(/^factures$/i, false)}`);
 
@@ -219,7 +230,11 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
   if (await dejaSurFactures()) return;
 
   const diagnostic = await capturerDiagnostic(page);
-  throw new Error(`Écran "Factures" introuvable (étapes : ${etapes.join(", ")}). ${diagnostic}`);
+  throw new Error(
+    `Écran "Factures" introuvable (étapes : ${etapes.join(", ")}).` +
+      (diagnosticApresMenu ? ` Juste après le clic sur le menu : ${diagnosticApresMenu}` : "") +
+      ` État final : ${diagnostic}`
+  );
 }
 
 /**
