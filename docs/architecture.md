@@ -559,6 +559,18 @@ modifie jamais le statut payée/impayée d'une facture, qui reste exclusif
 au champ "règlements" de l'export Synec — rattachement purement
 informatif, affiché à côté de chaque paiement et dans son export PDF.
 
+> ⚠️ Historique : la première version ne rattachait que par texte (ci-dessus).
+> L'utilisateur a signalé que Synec note déjà, pour un règlement en ligne via
+> Stripe, l'identifiant PaymentIntent exact dans sa colonne "payments" (ex.
+> note "Stripe pi_3Qt9BJKxMN1fAYGf2gwFCzW5"). Ajouté `Facture.referencesStripe`
+> (extrait par `parseReglements` depuis cette note) et `Paiement.paymentIntentRef`
+> (récupéré sans appel API supplémentaire sur l'objet Charge déjà expansé par
+> la synchronisation Stripe directe) : une simple égalité d'identifiant est
+> essayée EN PREMIER (aucune ambiguïté possible, contrairement à une
+> recherche de texte), avec un repli sur la méthode par texte seulement si
+> aucune correspondance exacte n'existe (ex. paiement importé par CSV, ou
+> facture sans mention Stripe dans Synec).
+
 ## Déploiement via GitHub Actions, pas en direct
 
 L'environnement d'exécution de Claude Code ne peut sortir qu'en HTTPS (via

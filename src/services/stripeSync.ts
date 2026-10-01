@@ -135,6 +135,17 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
             ? bt.source.payment_method_details?.type || null
             : null;
 
+        // Identifiant PaymentIntent ("pi_...") de la Charge : present sur
+        // l'objet source expanse sans necessiter son propre expand (simple
+        // reference, pas un objet imbrique). Synec note cette meme
+        // reference dans sa colonne "payments" quand le reglement vient de
+        // Stripe, ce qui permet un rattachement exact avec la facture
+        // (rapprochementFactures.ts), demande explicite de l'utilisateur.
+        const paymentIntentRef =
+          bt.source && typeof bt.source !== "string" && "payment_intent" in bt.source
+            ? (typeof bt.source.payment_intent === "string" ? bt.source.payment_intent : bt.source.payment_intent?.id) || null
+            : null;
+
         // L'adresse e-mail du client n'est pas disponible sur la transaction
         // elle-meme (il faudrait un appel supplementaire par transaction
         // vers l'objet Charge/Customer) : laissee vide plutot que de
@@ -149,6 +160,7 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
           clientEmail: null,
           description,
           moyenPaiement,
+          paymentIntentRef,
           payoutRef: payout.id,
         };
 

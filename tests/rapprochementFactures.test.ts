@@ -34,14 +34,14 @@ test("rapprochement paiement <-> facture : correspondance unique, ambiguite, abs
   const { rapprocherPaiementsFactures } = await import("../src/services/rapprochementFactures");
   const prisma = new PrismaClient();
 
-  async function facture(reference: string, clientNom: string, bonCommande: string | null = null) {
+  async function facture(reference: string, clientNom: string, bonCommande: string | null = null, referencesStripe: string | null = null) {
     return prisma.facture.create({
-      data: { reference, clientNom, montantTTC: 100, statut: "payee", bonCommande },
+      data: { reference, clientNom, montantTTC: 100, statut: "payee", bonCommande, referencesStripe },
     });
   }
-  async function paiement(description: string | null) {
+  async function paiement(description: string | null, paymentIntentRef: string | null = null) {
     return prisma.paiement.create({
-      data: { source: "stripe", paymentRef: ref("pi"), brut: 100, net: 97, date: new Date(), description },
+      data: { source: "stripe", paymentRef: ref("pi"), brut: 100, net: 97, date: new Date(), description, paymentIntentRef },
     });
   }
 
@@ -91,6 +91,30 @@ test("rapprochement paiement <-> facture : correspondance unique, ambiguite, abs
     await rapprocherPaiementsFactures(prisma);
     const paiementMaj = await prisma.paiement.findUnique({ where: { id: p.id } });
     assert.equal(paiementMaj?.factureId, null);
+  });
+
+  await t.test("paymentIntentRef exact (note Synec 'Stripe pi_...') -> rattache en priorite, meme si la description pointerait ailleurs", async () => {
+    const fAutre = await facture("FACTURE-7000", "Client G");
+    const fCorrecte = await facture("FACTURE-7001", "Client H", null, "pi_abcDEF123");
+    const p = await paiement("Mentionne par erreur FACTURE-7000 dans la description", "pi_abcDEF123");
+
+    await rapprocherPaiementsFactures(prisma);
+
+    const paiementMaj = await prisma.paiement.findUnique({ where: { id: p.id } });
+    assert.equal(paiementMaj?.factureId, fCorrecte.id);
+    assert.notEqual(paiementMaj?.factureId, fAutre.id);
+  });
+
+  await t.test("meme reference PaymentIntent sur deux factures -> ambigu", async () => {
+    await facture("FACTURE-7100", "Client I", null, "pi_partage999");
+    await facture("FACTURE-7101", "Client J", null, "pi_partage999");
+    const p = await paiement(null, "pi_partage999");
+
+    const resultat = await rapprocherPaiementsFactures(prisma);
+
+    const paiementMaj = await prisma.paiement.findUnique({ where: { id: p.id } });
+    assert.equal(paiementMaj?.factureId, null);
+    assert.ok(resultat.nbAmbigus >= 1);
   });
 
   await t.test("idempotent : un paiement deja rattache n'est jamais retraite", async () => {

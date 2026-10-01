@@ -58,6 +58,15 @@ model Facture {
   statut             String // "payee" | "partiellement_payee" | "impayee" | "cloturee"
   modePaiement       String?
   bonCommande        String?
+  // Identifiant(s) PaymentIntent Stripe ("pi_...", separes par une virgule
+  // si plusieurs reglements Stripe sur la meme facture), extraits de la
+  // colonne "payments" de l'export Synec reel quand un reglement cite
+  // explicitement Stripe (ex. "Stripe pi_3Qt9BJKxMN1fAYGf2gwFCzW5" en note -
+  // voir parseReglements). Permet un rattachement exact (pas une simple
+  // recherche de texte) avec le paiement correspondant dans Paiement.paymentIntentRef,
+  // demande explicite de l'utilisateur (afficher client + numero de
+  // facture a cote de chaque paiement Stripe).
+  referencesStripe   String?
   delaiAccordeJusqua DateTime? // cf. section 4.3 : delai accorde => suspension des relances
   financementOney    Boolean   @default(false) // cf. section 4.4
   clotureSynec       Boolean   @default(false)
@@ -107,6 +116,15 @@ model Paiement {
   // de la Charge Stripe, deja inclus dans l'objet source expanse - aucun
   // appel API supplementaire). Jamais rempli par l'import CSV.
   moyenPaiement  String?
+  // Identifiant PaymentIntent Stripe ("pi_...") de la Charge, deja present
+  // sur l'objet source expanse (aucun appel API supplementaire). Rempli
+  // uniquement par la synchronisation directe. Sert a un rattachement
+  // EXACT avec Facture.referencesStripe : Synec note deja cette meme
+  // reference dans sa colonne "payments" quand le reglement vient de
+  // Stripe (ex. "Stripe pi_3Qt9BJKxMN1fAYGf2gwFCzW5"), donc une simple
+  // egalite d'identifiant suffit, bien plus fiable qu'une recherche de
+  // texte dans la description (voir rapprochementFactures.ts).
+  paymentIntentRef String?
   // Identifiant de payout Stripe (texte libre, pas de cle etrangere) :
   // le rapprochement se fait par requete applicative, pas a l'import, car
   // paiements et payouts peuvent arriver dans un ordre quelconque selon
