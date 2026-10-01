@@ -117,6 +117,18 @@ h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Man
 main {
   padding: 14px 12px 48px;
   display: grid;
+  /* minmax(0, 1fr) plutot que le "auto" implicite d'une grille sans
+     grid-template-columns explicite : sans ca, la piste de la grille se
+     dimensionne sur le CONTENU (max-content) de ses enfants au lieu de la
+     largeur disponible - des qu'un descendant a une largeur intrinseque
+     superieure au viewport (un tableau avec min-width, un nom de fichier
+     long sans espaces malgre overflow-wrap...), toute la page s'elargit en
+     consequence, rendant l'ancien correctif overflow-x:hidden necessaire
+     mais insuffisant (il masquait le debordement sans empecher la boite de
+     s'agrandir, d'ou le defilement horizontal "fantome" observe ensuite).
+     C'est la cause racine reelle des multiples signalements d'ecran
+     "coupe"/"qui bouge" sur mobile, pas seulement le texte non secable. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   max-width: 720px;
   margin: 0 auto;
@@ -273,7 +285,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 /* ---------- KPI grid ---------- */
 .grille-cockpit {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* minmax(0, 1fr), pas simplement 1fr : repeat(2, 1fr) seul garde un minimum
+     implicite "auto" par piste (min-content de son contenu), meme risque de
+     debordement que main/.onglet-panneau si une valeur de tuile s'allonge. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 .tuile {
@@ -487,7 +502,9 @@ tbody tr:hover { background: var(--surface-2); }
   font-family: "IBM Plex Mono", monospace;
 }
 
-.onglet-panneau { display: grid; gap: 14px; }
+/* minmax(0, 1fr) : meme raison que sur <main> ci-dessus (grille sans ca
+   dimensionnee sur le contenu, pas sur l'espace disponible). */
+.onglet-panneau { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .onglet-panneau[hidden] { display: none; }
 
 /* ---------- Bandeau d'alerte (connexions Gmail/Stripe en panne) ---------- */

@@ -510,6 +510,26 @@ Synec (si un jour disponible) n'impliquerait pas de migration.
 > appliqué à `.carte`/`.alerte-bandeau`) : cela règle la cause réelle (texte
 > non sécable) sans bloquer le défilement volontaire d'un tableau, dont les
 > cellules restent en `white-space: nowrap`.
+>
+> Correctif incomplet : juste après, l'utilisateur a signalé la page
+> elle-même qui "bouge"/se coupe sur un nom de fichier long reçu par e-mail
+> (ex. `SAS_ATELIER_BROCHANT___QUITTANCE___LOYER_SEPTEMBRE_2026_.pdf`),
+> malgré `overflow-wrap: anywhere`. Cause racine réelle, plus profonde que
+> le texte non sécable : `main` et `.onglet-panneau` sont des grilles CSS
+> (`display: grid`) **sans** `grid-template-columns` explicite — leur piste
+> implicite se dimensionne alors sur le `max-content` de son contenu plutôt
+> que sur l'espace disponible, et `overflow-wrap` n'y change rien (vérifié :
+> le mot se replie bien, mais la grille s'élargit quand même pour
+> l'accueillir). L'ancien `overflow-x: hidden` masquait ce débordement sans
+> jamais corriger la taille réelle de la boîte, d'où le défilement
+> horizontal "fantôme" une fois ce clip retiré. Corrigé en ajoutant
+> `grid-template-columns: minmax(0, 1fr)` sur `main`, `.onglet-panneau` et
+> `.grille-cockpit` (le `minmax(0, ...)`, pas seulement `1fr`, annule le
+> minimum implicite "auto" de la piste). Vérifié par un test Playwright
+> injectant ce nom de fichier réel : `document.documentElement.scrollWidth`
+> reste égal à `clientWidth` avant et après un balayage horizontal, et le
+> tableau des factures impayées reste scrollable (son `scrollWidth` dépasse
+> bien son propre `clientWidth`, contenu dans sa propre boîte).
 
 **Regroupement par mois dans "Factures fournisseurs reçues".** Demande
 explicite de l'utilisateur ("un dossier facture octobre pour classer mes
