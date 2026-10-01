@@ -184,41 +184,42 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
     await page.waitForLoadState("networkidle");
   }
 
-  // getByRole (pas getByText) : "Toggle navigation" est tres probablement
-  // un texte visuellement cache (accessibilite seule, pattern Bootstrap
-  // classique) a l'interieur du vrai bouton ☰. getByText cible le noeud de
-  // texte lui-meme (invisible => echec silencieux, constate en production -
-  // le clic n'avait jamais lieu, URL inchangee). getByRole resout le NOM
+  // Chaque etape est tracee (reussie/absente) dans "etapes" : en cas
+  // d'echec final, savoir PRECISEMENT laquelle des trois a coince (menu,
+  // Facturation, Factures) plutot qu'un seul diagnostic global - deja
+  // insuffisant une fois pour distinguer "le clic n'a pas eu lieu" de "le
+  // clic a eu lieu mais n'a pas produit l'effet attendu".
+  const etapes: string[] = [];
+  const essayerClic = async (motif: RegExp, parRole: boolean): Promise<boolean> => {
+    const locator = parRole
+      ? page.getByRole("button", { name: motif }).or(page.locator(".navbar-toggler")).first()
+      : page.getByText(motif).first();
+    const visible = await locator
+      .waitFor({ state: "visible", timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!visible) return false;
+    await locator.click();
+    await page.waitForTimeout(400); // laisse l'animation (tiroir/accordeon) se terminer
+    return true;
+  };
+
+  // getByRole (pas getByText) pour le bouton ☰ : "Toggle navigation" est
+  // tres probablement un texte visuellement cache (accessibilite seule,
+  // pattern Bootstrap classique). getByText cible le noeud de texte
+  // lui-meme (invisible => echec silencieux, constate en production - le
+  // clic n'avait jamais lieu, URL inchangee). getByRole resout le NOM
   // ACCESSIBLE du bouton (qui inclut ce texte cache) et verifie la
   // visibilite du bouton reel, pas du texte cache qu'il contient.
-  const boutonMenu = page
-    .getByRole("button", { name: /toggle navigation/i })
-    .or(page.locator(".navbar-toggler"))
-    .first();
-  if (await boutonMenu.isVisible().catch(() => false)) {
-    await boutonMenu.click();
-    await page.waitForTimeout(300); // laisse l'animation d'ouverture du tiroir se terminer
-  }
+  etapes.push(`menu:${await essayerClic(/toggle navigation/i, true)}`);
+  etapes.push(`facturation:${await essayerClic(/facturation/i, false)}`);
+  etapes.push(`factures:${await essayerClic(/^factures$/i, false)}`);
 
-  // "Facturation" ne fait que deplier un sous-menu (accordeon), il faut
-  // ensuite cliquer "Factures" separement - une seule des deux etapes a ete
-  // tentee dans une version precedente, d'ou l'echec malgre un premier
-  // clic reussi.
-  const lienFacturation = page.getByText(/^facturation$/i).first();
-  if (await lienFacturation.isVisible().catch(() => false)) {
-    await lienFacturation.click();
-    await page.waitForTimeout(300); // laisse l'animation du sous-menu se terminer
-  }
-
-  const lienFactures = page.getByText(/^factures$/i).first();
-  if (await lienFactures.isVisible().catch(() => false)) {
-    await lienFactures.click();
-    await page.waitForLoadState("networkidle");
-    if (await dejaSurFactures()) return;
-  }
+  await page.waitForLoadState("networkidle");
+  if (await dejaSurFactures()) return;
 
   const diagnostic = await capturerDiagnostic(page);
-  throw new Error(`Écran "Factures" introuvable après clic sur le menu. ${diagnostic}`);
+  throw new Error(`Écran "Factures" introuvable (étapes : ${etapes.join(", ")}). ${diagnostic}`);
 }
 
 /**
