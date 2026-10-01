@@ -131,21 +131,20 @@ async function capturerDiagnostic(page: import("playwright").Page): Promise<stri
 }
 
 /**
- * Atteint l'écran "Factures". Deux enseignements d'échecs réels successifs
- * en production :
- * 1. L'adresse directe SYNEC_URL_FACTURES (fournie par l'utilisateur comme
- *    favori dans son propre navigateur) renvoie une 404 lorsqu'on y
- *    navigue directement dans une session fraîche — vraisemblablement une
- *    route qui n'existe côté serveur que via la navigation interne de
- *    l'application, pas comme lien profond. Abandonnée comme stratégie
- *    principale.
- * 2. Le menu est replié par défaut ("Toggle navigation" visible sur l'état
- *    initial, confirmé par capturerDiagnostic) : l'utilisateur confirme
- *    cliquer un bouton de menu avant que "Facture" (singulier sur le menu,
- *    différent du titre "Factures" au pluriel une fois sur l'écran)
- *    n'apparaisse. D'où une correspondance de texte large (/factur/i,
- *    jamais une égalité exacte) pour couvrir "Facture"/"Factures"/toute
- *    variante.
+ * Atteint l'écran "Factures". Chemin confirmé par une vidéo fournie par
+ * l'utilisateur montrant sa navigation réelle (trois clics, pas deux comme
+ * supposé précédemment) :
+ * 1. Menu ☰ ("Toggle navigation", replié par défaut) → ouvre un tiroir
+ *    latéral (nom, organisation, puis "Tableau de bord", "Administration",
+ *    "Facturation", "Téléphonie").
+ * 2. "Facturation" → déplie un sous-menu (Clients, Planning, Abonnements,
+ *    Devis, **Factures**, Produits, Documents, Marques) ; ne navigue nulle
+ *    part en lui-même, juste un accordéon.
+ * 3. "Factures" (dans ce sous-menu) → écran des factures recherché.
+ *
+ * Une adresse directe (favori fourni par l'utilisateur) a été tentée avant
+ * cette version : 404 dans une session fraîche, abandonnée (route
+ * accessible seulement via la navigation interne de l'application).
  */
 async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
   // Recherche par TEXTE visible plutot que par role d'accessibilite
@@ -165,16 +164,23 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
 
   if (await dejaSurFactures()) return;
 
-  // Ouvre le menu s'il est replie - "Toggle navigation" est le texte reel
-  // observe sur l'etat initial apres connexion (voir diagnostic ci-dessus),
-  // pas une hypothese.
   const boutonMenu = page.getByText(/toggle navigation/i).first();
   if (await boutonMenu.isVisible().catch(() => false)) {
     await boutonMenu.click();
-    await page.waitForTimeout(300); // laisse l'animation d'ouverture du menu se terminer
+    await page.waitForTimeout(300); // laisse l'animation d'ouverture du tiroir se terminer
   }
 
-  const lienFactures = page.getByText(/factur/i).first();
+  // "Facturation" ne fait que deplier un sous-menu (accordeon), il faut
+  // ensuite cliquer "Factures" separement - une seule des deux etapes a ete
+  // tentee dans une version precedente, d'ou l'echec malgre un premier
+  // clic reussi.
+  const lienFacturation = page.getByText(/^facturation$/i).first();
+  if (await lienFacturation.isVisible().catch(() => false)) {
+    await lienFacturation.click();
+    await page.waitForTimeout(300); // laisse l'animation du sous-menu se terminer
+  }
+
+  const lienFactures = page.getByText(/^factures$/i).first();
   if (await lienFactures.isVisible().catch(() => false)) {
     await lienFactures.click();
     await page.waitForLoadState("networkidle");
