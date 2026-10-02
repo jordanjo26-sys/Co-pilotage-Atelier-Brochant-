@@ -38,6 +38,19 @@ test("parseReglements : reglement via une reference Stripe en note", () => {
   assert.equal(r.montantRegle, 872.64);
   assert.deepEqual(r.modes, ["Carte"]);
   assert.equal(r.oney, false);
+  assert.deepEqual(r.referencesStripe, ["pi_3Qt9BJKxMN1fAYGf2gwFCzW5"]);
+});
+
+test("parseReglements : pas de reference Stripe dans la note -> tableau vide", () => {
+  const r = parseReglements("2025-01-06 17:34:00|650,00 €|Chèque|");
+  assert.deepEqual(r.referencesStripe, []);
+});
+
+test("parseReglements : plusieurs reglements Stripe distincts -> toutes les references conservees", () => {
+  const r = parseReglements(
+    "2025-03-31 15:39:44|500,00 €|Carte|Stripe pi_AAA111 // 2025-03-31 15:39:57|437,43 €|Carte|Stripe pi_BBB222"
+  );
+  assert.deepEqual(r.referencesStripe, ["pi_AAA111", "pi_BBB222"]);
 });
 
 test("deriveStatut : impayee, partiellement payee, payee", () => {

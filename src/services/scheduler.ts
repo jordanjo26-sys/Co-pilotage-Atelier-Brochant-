@@ -1,7 +1,8 @@
 import { PrismaClient } from "@prisma/client";
-import { synchroniserGmail } from "./gmailSync";
+import { synchroniserGmail, resumerErreurs } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
+import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
 import { detecterReponses, executerEnvoisAutomatiques } from "./prospection/campagnes";
 
@@ -12,6 +13,11 @@ const HEURE_RECAP_PAR_DEFAUT = 19; // 19h, heure locale du serveur
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
 const INTERVALLE_STRIPE_PAR_DEFAUT_MS = 60 * 60 * 1000; // 1 heure
+// Les factures Synec changent au rythme de l'activite de l'atelier, jamais
+// en continu : un intervalle large suffit et evite de solliciter un
+// navigateur headless complet trop souvent (bien plus couteux qu'un simple
+// appel API comme Stripe ou Gmail).
+const INTERVALLE_SYNEC_PAR_DEFAUT_MS = 3 * 60 * 60 * 1000; // 3 heures
 // Detection de reponse aux campagnes de prospection (section 2.5) : lecture
 // seule des fils Gmail, aucun envoi -> peut tourner automatiquement sans
 // enfreindre le principe de prudence applique aux envois eux-memes.
@@ -52,7 +58,7 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
           action: `Synchronisation automatique (${resultat.messagesExamines} message(s) examine(s))`,
           resultat:
             `${resultat.documentsTraites} traite(s), ${resultat.documentsDoublons} doublon(s), ${resultat.documentsAmbigus} ambigu(s), ${resultat.erreurs.length} erreur(s).` +
-            (resultat.erreurs.length > 0 ? ` Details : ${resultat.erreurs.join(" | ")}` : ""),
+            (resultat.erreurs.length > 0 ? ` Details : ${resumerErreurs(resultat.erreurs)}` : ""),
         });
       }
     } catch (err) {
@@ -132,6 +138,29 @@ export function demarrerSurveillanceStripe(prisma: PrismaClient): void {
         action: "Synchronisation automatique Stripe",
         resultat: `Echec : ${(err as Error).message}`,
       }).catch(() => {});
+    }
+  }, intervalle);
+}
+
+/**
+ * Synchronise automatiquement les factures Synec (remplace le depot manuel
+ * d'export CSV une fois SYNEC_URL/SYNEC_IDENTIFIANT/SYNEC_MOT_DE_PASSE
+ * configures). synchroniserSynec journalise deja elle-meme le detail de
+ * l'echec (etape precise : connexion, navigation, export...) - ce
+ * planificateur se contente de ne jamais laisser une erreur interrompre le
+ * serveur, meme principe que les autres planificateurs.
+ */
+export function demarrerSurveillanceSynec(prisma: PrismaClient): void {
+  if (!synecEstConfigure()) return; // rien a synchroniser sans identifiants
+
+  const intervalle = Number(process.env.SYNEC_POLL_INTERVAL_MS) || INTERVALLE_SYNEC_PAR_DEFAUT_MS;
+
+  setInterval(async () => {
+    try {
+      await synchroniserSynec(prisma);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Synchronisation Synec planifiee en echec :", (err as Error).message);
     }
   }, intervalle);
 }

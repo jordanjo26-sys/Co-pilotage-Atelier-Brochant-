@@ -27,6 +27,15 @@ ANTHROPIC_API_KEY_ARG="${5:-}"
 # par API. Absente -> la section Stripe reste desactivee, l'import CSV
 # manuel continue de fonctionner normalement.
 STRIPE_API_KEY_ARG="${6:-}"
+# Identifiants Synec (compte dedie, de preference en lecture seule - section
+# 14/16), pour l'automatisation de recuperation des factures non reglees par
+# navigateur headless (Synec n'offre aucune API, confirme par l'utilisateur).
+# Memes garanties que les secrets ci-dessus : jamais commis, jamais ecrits
+# dans un journal. URL non sensible mais transmise de la meme facon, pour
+# pouvoir la changer sans modifier le code.
+SYNEC_URL_ARG="${7:-}"
+SYNEC_IDENTIFIANT_ARG="${8:-}"
+SYNEC_MOT_DE_PASSE_ARG="${9:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -77,6 +86,9 @@ DEXT_AUTO_FORWARD=${DEXT_AUTO_FORWARD}
 DAILY_RECAP_HOUR=19
 ANTHROPIC_API_KEY=
 STRIPE_API_KEY=
+SYNEC_URL=
+SYNEC_IDENTIFIANT=
+SYNEC_MOT_DE_PASSE=
 EOF
   echo "-- .env cree avec des secrets generes automatiquement (mot de passe base, cle de chiffrement)."
   echo "-- Completer GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (voir docs/mise-en-service.md) puis relancer ce script ou 'systemctl restart copilote-brochant'."
@@ -129,6 +141,29 @@ if [ -n "$STRIPE_API_KEY_ARG" ]; then
   fi
 fi
 
+# Identifiants Synec : meme logique "ajouter si absente, sinon remplacer".
+if [ -n "$SYNEC_URL_ARG" ]; then
+  if grep -q '^SYNEC_URL=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^SYNEC_URL=.*#SYNEC_URL=${SYNEC_URL_ARG}#" "$ENV_FILE"
+  else
+    echo "SYNEC_URL=${SYNEC_URL_ARG}" >> "$ENV_FILE"
+  fi
+fi
+if [ -n "$SYNEC_IDENTIFIANT_ARG" ]; then
+  if grep -q '^SYNEC_IDENTIFIANT=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^SYNEC_IDENTIFIANT=.*#SYNEC_IDENTIFIANT=${SYNEC_IDENTIFIANT_ARG}#" "$ENV_FILE"
+  else
+    echo "SYNEC_IDENTIFIANT=${SYNEC_IDENTIFIANT_ARG}" >> "$ENV_FILE"
+  fi
+fi
+if [ -n "$SYNEC_MOT_DE_PASSE_ARG" ]; then
+  if grep -q '^SYNEC_MOT_DE_PASSE=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^SYNEC_MOT_DE_PASSE=.*#SYNEC_MOT_DE_PASSE=${SYNEC_MOT_DE_PASSE_ARG}#" "$ENV_FILE"
+  else
+    echo "SYNEC_MOT_DE_PASSE=${SYNEC_MOT_DE_PASSE_ARG}" >> "$ENV_FILE"
+  fi
+fi
+
 echo "== Base de donnees PostgreSQL =="
 sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='copilote'" | grep -q 1 || \
   sudo -u postgres psql -c "CREATE USER copilote WITH PASSWORD '${DB_PASSWORD}';"
@@ -146,6 +181,16 @@ sudo -u "$APP_USER" npm ci
 # rejoue explicitement par securite : sans client Prisma genere, le serveur
 # plante immediatement au demarrage (systemd le redemarre en boucle).
 sudo -u "$APP_USER" npx prisma generate
+# Chromium pour Playwright (section 11, automatisation Synec : aucune API
+# disponible). Deux etapes separees car elles n'ecrivent pas au meme
+# endroit : "install-deps" installe les bibliotheques systeme partagees
+# (libnss3, libatk..., absentes d'une image Ubuntu minimale) via apt-get,
+# donc en root ; le navigateur lui-meme doit etre telecharge sous
+# l'utilisateur applicatif ($APP_USER), sinon il atterrirait dans le cache
+# de root et resterait introuvable au demarrage du serveur (execute sous
+# $APP_USER par le service systemd). Sans effet si deja installe.
+npx playwright install-deps chromium
+sudo -u "$APP_USER" npx playwright install chromium
 sudo -u "$APP_USER" npm run build
 sudo -u "$APP_USER" npx prisma migrate deploy
 

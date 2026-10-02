@@ -9,6 +9,7 @@ import {
   demarrerSurveillanceGmail,
   demarrerRecapQuotidien,
   demarrerSurveillanceStripe,
+  demarrerSurveillanceSynec,
   demarrerDetectionReponsesProspection,
   demarrerEnvoiAutomatiqueCampagnes,
 } from "./services/scheduler";
@@ -37,6 +38,7 @@ app.listen(PORT, () => {
 demarrerSurveillanceGmail(prisma);
 demarrerRecapQuotidien(prisma);
 demarrerSurveillanceStripe(prisma);
+demarrerSurveillanceSynec(prisma);
 demarrerDetectionReponsesProspection(prisma);
 demarrerEnvoiAutomatiqueCampagnes(prisma);
 

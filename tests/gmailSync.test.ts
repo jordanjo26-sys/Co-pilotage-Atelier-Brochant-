@@ -4,7 +4,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import dotenv from "dotenv";
 import { gmail_v1 } from "googleapis";
-import { extrairePiecesJointes } from "../src/services/gmailSync";
+import { extrairePiecesJointes, resumerErreurs } from "../src/services/gmailSync";
 
 function part(overrides: Partial<gmail_v1.Schema$MessagePart> & { headers?: gmail_v1.Schema$MessagePartHeader[] }): gmail_v1.Schema$MessagePart {
   return {
@@ -58,6 +58,36 @@ test("aplatit les parts imbriquees (message multipart)", () => {
 test("ignore une part sans attachmentId ou sans nom de fichier (corps du message)", () => {
   const pieces = extrairePiecesJointes(part({ filename: "", body: {} }));
   assert.equal(pieces.length, 0);
+});
+
+// Regression reelle en production : un quota Gmail depasse touchant de
+// nombreux messages a la fois produisait un mur de texte quasi identique,
+// ligne par ligne, dans le Journal - illisible pour un utilisateur non
+// technique. resumerErreurs() doit regrouper les messages d'erreur
+// identiques plutot que les repeter un par un.
+test("resumerErreurs : liste vide -> chaine vide", () => {
+  assert.equal(resumerErreurs([]), "");
+});
+
+test("resumerErreurs : peu d'occurrences -> identifiants listes en clair", () => {
+  const resume = resumerErreurs(["a.pdf : Insufficient Permission", "b.pdf : Insufficient Permission"]);
+  assert.equal(resume, "a.pdf, b.pdf : Insufficient Permission");
+});
+
+test("resumerErreurs : beaucoup d'occurrences du meme message -> regroupees avec un compte", () => {
+  const erreurs = Array.from({ length: 50 }, (_, i) => `Message ${i} : Quota exceeded for quota metric 'Total Query Cost'`);
+  const resume = resumerErreurs(erreurs);
+  assert.equal(resume, "50 document(s)/message(s) : Quota exceeded for quota metric 'Total Query Cost'");
+});
+
+test("resumerErreurs : plusieurs types d'erreurs distincts -> une ligne par type", () => {
+  const erreurs = [
+    ...Array.from({ length: 10 }, (_, i) => `Message ${i} : Quota exceeded`),
+    "a.pdf : Insufficient Permission",
+  ];
+  const resume = resumerErreurs(erreurs);
+  assert.match(resume, /10 document\(s\)\/message\(s\) : Quota exceeded/);
+  assert.match(resume, /a\.pdf : Insufficient Permission/);
 });
 
 // Les cas ci-dessous ne testent que les gardes-fous d'envoyerDocumentFournisseurVersDext

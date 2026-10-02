@@ -260,10 +260,59 @@ document deja envoye a Dext.
 > recent au plus ancien - les messages plus anciens dans la fenetre
 > n'etaient jamais examines, sans la moindre erreur ni trace visible.
 > Corrige par une boucle de pagination complete (`pageToken`, plafonnee a
-> 1000 messages par prudence) et un elargissement de la fenetre a 30 jours
-> (alignee sur celle de la synchronisation Stripe), pour absorber une
-> panne de connexion prolongee sans jamais perdre silencieusement un
-> e-mail recu tot dans la periode d'indisponibilite.
+> 1000 messages par prudence).
+>
+> Un premier elargissement de la fenetre a 30 jours (alignee sur celle de
+> Stripe) a fait passer le nombre de messages examines par synchronisation
+> bien au-dela de ce que l'API Gmail accepte sans throttling : 204
+> messages, 119 erreurs "Quota exceeded... Units per minute per user" en
+> un seul passage, visible dans le Journal (signale par l'utilisateur,
+> capture a l'appui). Corrige en reduisant la fenetre a 14 jours (toujours
+> 2x la fenetre de 7 jours qui posait probleme a l'origine), en espacant
+> chaque appel Gmail d'une courte pause (150 ms) plutot que de les tenter
+> tous en rafale, et en reessayant automatiquement avec un delai croissant
+> (`appelAvecRetryQuota`) en cas de nouveau depassement.
+>
+> Le meme signalement a aussi revele qu'un mur de texte d'erreurs quasi
+> identiques (une ligne par message touche par le meme quota depasse)
+> s'affichait tel quel dans le Journal - illisible pour un utilisateur non
+> technique. `resumerErreurs()` regroupe desormais les messages d'erreur
+> identiques (compte plutot que repetition individuelle au-dela de
+> quelques occurrences), utilisee a la fois par le Journal et par
+> l'affichage d'une synchronisation manuelle.
+
+> ⚠️ Historique : une ligne de Journal etait ecrite pour CHAQUE piece
+> jointe deja connue (doublon), a chaque cycle du planificateur (toutes
+> les 5 minutes). Consequence directe de la fenetre de 14 jours re-balayee
+> a chaque passage (idempotence deliberee, voir plus haut) : la grande
+> majorite des pieces rencontrees a chaque cycle sont des doublons deja
+> connus, produisant des dizaines d'entrees quasi identiques et sans
+> valeur ajoutee au fil du temps, noyant les entrees reellement utiles
+> (signale en production, capture a l'appui : "puis-je etre oblige d'avoir
+> ce journal comme ca ?"). Corrige en ne journalisant plus les doublons
+> individuellement (seul `resultat.documentsDoublons` en garde le compte,
+> deja repercute dans le resume de synchronisation quand quelque chose de
+> notable s'est produit) : un cycle qui ne rencontre que des doublons
+> connus n'ecrit desormais plus aucune ligne dans le Journal.
+
+**Previsualisation d'un document (bouton "Voir") : extension du nom de
+fichier prioritaire sur le mimeType declare.** `fileType.ts` -
+`typeMimePourAffichage()` - determine le Content-Type servi par
+`GET /api/anomalies/:id/document` et `GET /api/documents-fournisseurs/:id/document`.
+
+> ⚠️ Historique : un document envoye par certaines plateformes tierces de
+> distribution (expediteur du type "dataflow@...cloud", constate en
+> production avec un fournisseur reel) restait telechargeable mais jamais
+> affichable, quel que soit le mecanisme de previsualisation cote
+> navigateur (plusieurs tentatives successives documentees dans
+> public/app.js). Cause reelle, distincte de toutes les precedentes :
+> Gmail rapportait un mimeType generique/incorrect pour la piece jointe -
+> aucun navigateur ne sait afficher "application/octet-stream" nativement,
+> contrairement a "application/pdf", quel que soit par ailleurs le
+> mecanisme d'affichage utilise. Corrige en deduisant le Content-Type de
+> l'EXTENSION du nom de fichier en priorite (pdf, jpg/jpeg, png, gif,
+> tif/tiff) plutot que du mimeType declare par l'expediteur/Gmail, bien
+> plus fiable en pratique pour ces formats courants.
 
 > ⚠️ Historique : la deduplication par empreinte de fichier ne s'appliquait
 > initialement qu'aux documents reconnus (facture, avoir...), pas aux
@@ -293,6 +342,234 @@ jointes), `gmailSync.ts` compose un nouvel e-mail (via `nodemailer`
 vers l'adresse Dext, avec la piece jointe originale — le resultat pour Dext
 est identique (elle recoit la facture a l'adresse dediee), la mecanique
 est juste plus robuste a implementer et a tester.
+
+## Interface : onglets thématiques plutôt qu'une page unique (refonte)
+
+Après environ un mois d'usage, l'utilisateur a demandé une refonte
+explicite de `public/` : trop de cartes à faire défiler sur une seule
+page, pas assez d'automatisation visible, allure jugée amateur, et
+difficulté à voir l'essentiel en un coup d'œil. Quatre changements,
+aucun ne touchant aux routes API ni aux `id` HTML déjà utilisés par
+`app.js` (aucune régression fonctionnelle, uniquement une réorganisation
+de l'affichage) :
+
+1. **Navigation par onglets** (`public/index.html`) — les 13 `<section>`
+   existantes sont regroupées sans modification dans 5 panneaux
+   thématiques (Tableau de bord, Factures, Fournisseurs, Trésorerie,
+   Système), affichés un à la fois via l'attribut `hidden`. Le dernier
+   onglet consulté est mémorisé dans `localStorage` (clé
+   `copilote_onglet_actif`) pour éviter de re-naviguer à chaque
+   rechargement.
+2. **Badges et bandeau d'alerte** (`etatIndicateurs` dans `app.js`) —
+   chaque fonction de chargement existante (`chargerAnomalies`,
+   `chargerRelances`, `chargerFacturesFournisseurs`, `chargerCockpit`,
+   `chargerStatutGmail`, `chargerStatutStripe`) alimente un objet d'état
+   partagé, sans appel réseau supplémentaire, qui pilote : un badge
+   numérique sur l'onglet concerné, un bandeau rouge en haut du tableau
+   de bord si Gmail ou Stripe est en panne (motif non vide — jamais
+   affiché pour une intégration simplement pas encore configurée), et le
+   nouveau panneau "Actions requises".
+3. **"Actions requises"** — panneau unique sur le tableau de bord qui
+   consolide tout ce qui attend une décision (anomalies à classer,
+   relances à envoyer, factures fournisseurs en attente, imports à
+   vérifier, reconnexions Gmail/Stripe), chaque ligne bascule
+   directement vers l'onglet concerné au clic.
+4. **Rafraîchissement automatique** — `rafraichirTout()` est relancé
+   toutes les 2 minutes si l'onglet du navigateur est au premier plan
+   (`document.visibilityState`), pour un affichage plus "dynamique" sans
+   solliciter le serveur en arrière-plan ni interrompre une saisie en
+   cours (la fonction ne touche à aucun champ de formulaire).
+
+**Tap to Pay distingué des paiements en ligne.** Demande explicite ("CB
+Stripe Tap to Pay") : `payment_method_details.type` de la Charge Stripe
+(déjà présente sur l'objet `source` expansé par `balanceTransactions.list`,
+donc sans appel API supplémentaire) est stocké sur `Paiement.moyenPaiement`
+et affiché dans "Voir les paiements captés" (`card_present` → "Tap to Pay
+/ terminal", `card` → "Carte en ligne"). Les paiements Tap to Pay étaient
+déjà comptabilisés avant ce changement (même filtre `TYPES_PAIEMENT`),
+seule l'étiquette distincte manquait.
+
+**Piège CSS `[hidden]` : toute règle d'auteur fixant `display` sur le
+même élément gagne, même avec une spécificité identique** — l'origine
+"feuille d'agent utilisateur" (où vit la règle `[hidden] { display: none }`
+par défaut des navigateurs) perd systématiquement face à l'origine
+"feuille d'auteur", quelle que soit la spécificité. Repéré pendant les
+tests visuels de cette refonte (capture d'écran : tous les panneaux
+d'onglets s'affichaient empilés malgré `hidden`, un badge "0" restait
+visible, la barre de sélection des anomalies aussi) : `.onglet-panneau`,
+`.alerte-bandeau`, `.onglet-badge` et `.barre-actions-masse` (ce dernier
+préexistant à la refonte) déclarent chacun une règle `display` qui
+s'applique inconditionnellement. Corrigé en ajoutant pour chacun un
+`[selecteur][hidden] { display: none; }` — a reproduire pour toute
+nouvelle classe combinée à l'attribut `hidden`.
+
+## Automatisation Synec par navigateur headless (section 11)
+
+Synec ne propose aucune API (confirmé à nouveau par l'utilisateur, qui a
+aussi explicitement demandé une connexion directe malgré cette
+contrainte). Seule voie technique restante : `src/services/synecSync.ts`
+pilote un navigateur Chromium headless (Playwright) qui se connecte au
+site avec un compte dédié, va chercher la liste des factures, clique
+"Réinitialiser tous les filtres" puis "Export CSV", et transmet le
+fichier obtenu tel quel à `receiveCsv()` — **le même pipeline que le
+dépôt manuel**, aucune logique de détection/normalisation/déduplication
+dupliquée. Le fichier est volontairement récupéré sans filtrer sur
+"facture non payée" (menu déroulant personnalisé, plus risqué à piloter
+sans avoir pu inspecter son HTML réel) : `receiveCsv` sait déjà
+déterminer seul le statut payé/impayé via la colonne "règlements", et
+récupérer la totalité des factures a l'avantage supplémentaire de mettre
+à jour le statut d'une facture qui vient d'être payée.
+
+**Identifiants : même circuit que Stripe/Gmail, jamais dans cette
+conversation.** `SYNEC_URL`/`SYNEC_IDENTIFIANT`/`SYNEC_MOT_DE_PASSE`
+suivent exactement le chemin secrets GitHub → argument de
+`bootstrap.sh` → `.env` serveur (voir `.github/workflows/deploy.yml`) —
+jamais tapés dans le chat avec l'utilisateur, contrairement à sa
+proposition initiale ("je te donne un accès avec mot de passe").
+Compte dédié en lecture seule recommandé (section 17, moindre
+privilège). Pas de 2FA sur ce compte (confirmé par l'utilisateur) : si
+ça change un jour, l'automatisation casserait silencieusement au niveau
+de `seConnecter()`, qui ne gère aucun code TOTP.
+
+**Statut non vérifié en direct, contrairement à Gmail/Stripe.** Une
+vérification "en direct" impliquerait de lancer un navigateur complet à
+chaque fois — bien trop coûteux pour `/api/synec/status`, appelé toutes
+les 2 minutes par le rafraîchissement automatique du tableau de bord.
+Le statut reflète donc le résultat de la dernière tentative réelle
+(journal `synec_sync`/`synec_sync_erreur`), pas un test à la demande.
+
+> ⚠️ Historique : trois itérations réelles pour atteindre l'écran
+> "Factures" de façon fiable.
+> 1. Détection par rôle d'accessibilité (`getByRole("button", ...)`) sur
+>    "Export CSV" : échouait en permanence, y compris en étant sur la
+>    bonne page — "Export CSV" n'est vraisemblablement pas un `<button>`
+>    au sens strict. Corrigé par une recherche par texte visible
+>    (`getByText`), seul repère confirmé par les captures d'écran de
+>    l'utilisateur.
+> 2. Navigation directe vers l'adresse de l'écran des factures
+>    (fournie par l'utilisateur comme favori de son propre navigateur,
+>    ex. `https://app.synec.io/connect/billing_invoice/<id>/`) :
+>    renvoyait une 404 dans une session fraîche — route accessible
+>    seulement via la navigation interne de l'application, pas comme
+>    lien profond. Abandonnée (la configuration `SYNEC_URL_FACTURES`
+>    correspondante a été retirée).
+> 3. Un `capturerDiagnostic()` (URL, titre, texte visible de la page)
+>    ajouté au point d'échec a montré "Toggle navigation" visible juste
+>    après connexion : le menu est replié par défaut. L'utilisateur a
+>    confirmé cliquer ce bouton puis un lien "Facture" (singulier,
+>    différent du titre "Factures" au pluriel une fois sur l'écran).
+
+**Navigation vers "Factures" : clic réel sur le menu, pas une URL
+devinée.** `allerAuxFactures()` clique le bouton "Toggle navigation"
+s'il est visible, puis un lien dont le texte contient "factur"
+(`/factur/i`, jamais une égalité exacte, pour couvrir
+"Facture"/"Factures"/toute variante) — reproduit le chemin de clics
+réel de l'utilisateur plutôt que de deviner une structure HTML jamais
+inspectée. `capturerDiagnostic()` reste en place : en cas de nouvel
+échec, le Journal affichera l'URL/titre/texte visible réels plutôt
+qu'un message générique, pour éviter de deviner à l'aveugle une
+quatrième fois.
+
+**Playwright sur le serveur : installation en deux temps.** `bootstrap.sh`
+installe les dépendances système (`playwright install-deps`, en root,
+car `apt-get`) séparément du téléchargement du navigateur lui-même
+(`playwright install chromium`, sous l'utilisateur applicatif
+`$APP_USER`) : installer les deux en root aurait place le navigateur
+dans le cache de root, introuvable au demarrage du serveur (execute
+sous `$APP_USER` par systemd).
+
+> ⚠️ Historique : `.cache` (où vit ce navigateur téléchargé) n'était pas
+> exclu du `rsync --delete` de `deploy.yml` — absent du dépôt git, il
+> était donc effacé à **chaque** déploiement, obligeant Chromium à se
+> retélécharger intégralement à chaque fois (déploiements plus lents) et
+> ouvrant une fenêtre où une synchronisation Synec lancée pendant qu'un
+> déploiement tournait échouait avec "Executable doesn't exist" (constaté
+> en production, confondu au départ avec une simple collision de
+> timing). Corrigé en ajoutant `--exclude=".cache"` au rsync.
+
+**Pas d'API Synec, mais une automatisation par navigateur depuis.**
+Confirmé deux fois par l'utilisateur (section 14, jamais deviner) :
+Synec n'expose aucune API. Le dépôt manuel de fichier CSV reste
+possible en complément (voir `receiveCsv`, jamais de duplication par
+hash de fichier), mais n'est plus l'unique voie d'entrée depuis
+l'automatisation par navigateur headless décrite ci-dessus. Le modèle
+de données (`Facture`, `Paiement.source`) ne distingue pas la
+provenance au-delà du champ `source`, donc un futur branchement API
+Synec (si un jour disponible) n'impliquerait pas de migration.
+
+> ⚠️ Historique : le correctif de l'écran "coupé" sur mobile (une longue
+> URL sans espace dans un message de diagnostic forçait toute la page à
+> s'élargir) avait d'abord posé `overflow-x: hidden` sur `html` ET `body`.
+> Cela a introduit une régression distincte, signalée ensuite par
+> l'utilisateur : impossible de faire défiler horizontalement le tableau
+> des factures impayées sur iPhone ("je ne peux pas bouger"). WebKit/iOS
+> désactive le pan tactile horizontal de **tout** conteneur descendant
+> (même avec son propre `overflow-x: auto`, comme `.table-scroll`) dès que
+> `html`/`body` porte `overflow-x: hidden`. Corrigé en retirant ce clip
+> global et en généralisant `overflow-wrap: anywhere` à `body` (déjà
+> appliqué à `.carte`/`.alerte-bandeau`) : cela règle la cause réelle (texte
+> non sécable) sans bloquer le défilement volontaire d'un tableau, dont les
+> cellules restent en `white-space: nowrap`.
+>
+> Correctif incomplet : juste après, l'utilisateur a signalé la page
+> elle-même qui "bouge"/se coupe sur un nom de fichier long reçu par e-mail
+> (ex. `SAS_ATELIER_BROCHANT___QUITTANCE___LOYER_SEPTEMBRE_2026_.pdf`),
+> malgré `overflow-wrap: anywhere`. Cause racine réelle, plus profonde que
+> le texte non sécable : `main` et `.onglet-panneau` sont des grilles CSS
+> (`display: grid`) **sans** `grid-template-columns` explicite — leur piste
+> implicite se dimensionne alors sur le `max-content` de son contenu plutôt
+> que sur l'espace disponible, et `overflow-wrap` n'y change rien (vérifié :
+> le mot se replie bien, mais la grille s'élargit quand même pour
+> l'accueillir). L'ancien `overflow-x: hidden` masquait ce débordement sans
+> jamais corriger la taille réelle de la boîte, d'où le défilement
+> horizontal "fantôme" une fois ce clip retiré. Corrigé en ajoutant
+> `grid-template-columns: minmax(0, 1fr)` sur `main`, `.onglet-panneau` et
+> `.grille-cockpit` (le `minmax(0, ...)`, pas seulement `1fr`, annule le
+> minimum implicite "auto" de la piste). Vérifié par un test Playwright
+> injectant ce nom de fichier réel : `document.documentElement.scrollWidth`
+> reste égal à `clientWidth` avant et après un balayage horizontal, et le
+> tableau des factures impayées reste scrollable (son `scrollWidth` dépasse
+> bien son propre `clientWidth`, contenu dans sa propre boîte).
+
+**Regroupement par mois dans "Factures fournisseurs reçues".** Demande
+explicite de l'utilisateur ("un dossier facture octobre pour classer mes
+factures d'octobre") : plutôt qu'un classement manuel (nouveau champ,
+action de déplacement), chaque document rejoint automatiquement son
+groupe mensuel dès sa réception, à partir de `dateReceptionMail` (déjà
+en base). Même format de libellé que `nomEtiquetteFacturesDuMois` côté
+Gmail ("Octobre 2026"), pour rester cohérent avec le libellé déjà visible
+dans la boîte mail. Implémenté côté client (`chargerFacturesFournisseurs`
+dans `app.js`) : aucun changement d'API, les documents arrivent déjà
+triés du plus récent au plus ancien.
+
+**Rattachement paiement Stripe <-> facture (client + n° de facture).**
+Demande explicite de l'utilisateur, une fois la synchronisation Synec en
+place. Le champ `Paiement.factureId` existait déjà dans le modèle mais
+n'était jamais rempli ; `rapprochementFactures.ts` le remplit maintenant
+avec la même rigueur que `rapprochementBancaire.ts` (section 14, jamais
+de supposition) : un paiement n'est rattaché que si sa description Stripe
+cite, sans ambiguïté, la référence ou le bon de commande d'**une seule**
+facture (correspondance par mot entier, pas une sous-chaîne — évite
+qu'une référence courte comme "FACTURE-180" matche à tort à l'intérieur
+de "FACTURE-1807"). Plusieurs candidats ou aucun laissent le paiement non
+rattaché. Idempotent, rejoué après chaque synchronisation Stripe (API
+directe ou import CSV) et après chaque import de factures Synec (une
+nouvelle facture peut compléter un rattachement resté en attente). Ne
+modifie jamais le statut payée/impayée d'une facture, qui reste exclusif
+au champ "règlements" de l'export Synec — rattachement purement
+informatif, affiché à côté de chaque paiement et dans son export PDF.
+
+> ⚠️ Historique : la première version ne rattachait que par texte (ci-dessus).
+> L'utilisateur a signalé que Synec note déjà, pour un règlement en ligne via
+> Stripe, l'identifiant PaymentIntent exact dans sa colonne "payments" (ex.
+> note "Stripe pi_3Qt9BJKxMN1fAYGf2gwFCzW5"). Ajouté `Facture.referencesStripe`
+> (extrait par `parseReglements` depuis cette note) et `Paiement.paymentIntentRef`
+> (récupéré sans appel API supplémentaire sur l'objet Charge déjà expansé par
+> la synchronisation Stripe directe) : une simple égalité d'identifiant est
+> essayée EN PREMIER (aucune ambiguïté possible, contrairement à une
+> recherche de texte), avec un repli sur la méthode par texte seulement si
+> aucune correspondance exacte n'existe (ex. paiement importé par CSV, ou
+> facture sans mention Stripe dans Synec).
 
 ## Déploiement via GitHub Actions, pas en direct
 

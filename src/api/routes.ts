@@ -3,7 +3,14 @@ import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
 import { getDashboardSummary } from "../services/dashboardService";
-import { synchroniserGmail, envoyerDocumentFournisseurVersDext, DocumentFournisseurEnvoiError } from "../services/gmailSync";
+import {
+  synchroniserGmail,
+  resumerErreurs,
+  envoyerDocumentFournisseurVersDext,
+  DocumentFournisseurEnvoiError,
+  classerAnomalieCommeFacture,
+  AnomalieClassificationError,
+} from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
@@ -12,7 +19,12 @@ import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, Fournisse
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
+import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec, CHEMIN_CAPTURE_ECHEC } from "../services/synecSync";
+import { existsSync } from "fs";
 import { getGmailClient } from "../services/googleAuth";
+import { typeMimePourAffichage } from "../services/fileType";
+import { genererPdfFacturesImpayees } from "../services/facturesPdf";
+import { genererPdfPaiements } from "../services/paiementsPdf";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -53,6 +65,25 @@ export function buildRouter(prisma: PrismaClient): Router {
       take: 500,
     });
     res.json(factures);
+  });
+
+  // Export PDF des factures impayees (demande explicite de l'utilisateur,
+  // apres avoir constate que Morgane ne peut pas generer de document - son
+  // jeu d'outils est volontairement limite a des actions/requetes precises).
+  // Par defaut "impayee" seule (pas "partiellement_payee" ni "cloturee") :
+  // c'est la demande initiale ("toutes les factures impayees"), le parametre
+  // reste ajustable si besoin plus tard sans changer la route.
+  router.get("/factures/export-pdf", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : "impayee";
+    const factures = await prisma.facture.findMany({
+      where: { statut },
+      orderBy: { dateEcheance: "asc" },
+      take: 500,
+    });
+    const pdf = await genererPdfFacturesImpayees(factures);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="factures-impayees-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
   });
 
   router.get("/paiements", async (_req, res) => {
@@ -117,8 +148,60 @@ export function buildRouter(prisma: PrismaClient): Router {
   // jamais directement le statut payee/impayee d'une Facture client - celui-ci
   // vient exclusivement du champ reglements de l'export Synec (section 4.4).
   router.get("/stripe/paiements", async (_req, res) => {
-    const paiements = await prisma.paiement.findMany({ orderBy: { date: "desc" }, take: 100 });
+    const paiements = await prisma.paiement.findMany({
+      orderBy: { date: "desc" },
+      take: 100,
+      include: { facture: { select: { reference: true, clientNom: true } } },
+    });
     res.json(paiements);
+  });
+
+  // Export PDF des paiements captés (demande explicite de l'utilisateur,
+  // même logique que l'export PDF des factures impayées).
+  router.get("/stripe/paiements/export-pdf", async (_req, res) => {
+    const paiements = await prisma.paiement.findMany({
+      orderBy: { date: "desc" },
+      take: 100,
+      include: { facture: { select: { reference: true, clientNom: true } } },
+    });
+    const pdf = await genererPdfPaiements(paiements);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="paiements-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
+  });
+
+  // --- Synec : recuperation automatique des factures (aucune API chez
+  // Synec - automatisation par navigateur headless, voir synecSync.ts) ---
+
+  router.get("/synec/status", async (_req, res) => {
+    if (!synecEstConfigure()) return res.json({ connecte: false });
+    const verification = await verifierConnexionSynec(prisma);
+    res.json(
+      verification.ok
+        ? { connecte: true, derniereSynchro: await derniereSynchroSynec(prisma) }
+        : { connecte: false, motif: verification.motif }
+    );
+  });
+
+  router.post("/synec/sync", async (_req, res) => {
+    try {
+      res.json(await synchroniserSynec(prisma));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Capture d'ecran du dernier echec de synchroniserSynec (voir
+  // synecSync.ts) : un diagnostic textuel seul (URL/titre/texte visible)
+  // a montre ses limites apres plusieurs essais infructueux a deviner la
+  // structure HTML reelle de Synec sans jamais la voir. Protegee par la
+  // meme authentification globale (HTTP Basic Auth nginx) que le reste du
+  // site, pas d'authentification applicative supplementaire necessaire.
+  router.get("/synec/capture-echec", (_req, res) => {
+    if (!existsSync(CHEMIN_CAPTURE_ECHEC)) {
+      return res.status(404).send("Aucune capture d'echec disponible pour le moment.");
+    }
+    res.sendFile(CHEMIN_CAPTURE_ECHEC);
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {
@@ -175,7 +258,11 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.post("/gmail/sync", async (_req, res) => {
     try {
       const resultat = await synchroniserGmail(prisma);
-      res.json(resultat);
+      // resumeErreurs : version groupee/lisible de "erreurs" pour
+      // l'affichage direct dans l'interface (une meme panne affectant de
+      // nombreux messages a la fois, ex. quota Gmail depasse, produisait
+      // sinon un mur de texte quasi identique repete ligne par ligne).
+      res.json({ ...resultat, resumeErreurs: resumerErreurs(resultat.erreurs) });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
@@ -297,7 +384,7 @@ export function buildRouter(prisma: PrismaClient): Router {
         id: document.gmailAttachmentId,
       });
       const donnees = Buffer.from(attachment.data.data || "", "base64url");
-      res.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+      res.setHeader("Content-Type", typeMimePourAffichage(document.fichierNom, document.mimeType));
       res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.fichierNom || "document")}"`);
       res.send(donnees);
     } catch (err) {
@@ -358,7 +445,7 @@ export function buildRouter(prisma: PrismaClient): Router {
         id: preuves.attachmentId,
       });
       const donnees = Buffer.from(attachment.data.data || "", "base64url");
-      res.setHeader("Content-Type", preuves.mimeType || "application/octet-stream");
+      res.setHeader("Content-Type", typeMimePourAffichage(preuves.fichier, preuves.mimeType));
       res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(preuves.fichier || "document")}"`);
       res.send(donnees);
     } catch (err) {
@@ -382,6 +469,23 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.json(anomalie);
     } catch (err) {
       res.status(404).json({ erreur: "Anomalie introuvable." });
+    }
+  });
+
+  // Classification manuelle d'un document ambigu en facture fournisseur
+  // (demande explicite de l'utilisateur : pouvoir faire apparaitre dans
+  // l'onglet Factures un document que le pipeline automatique n'a pas su
+  // reconnaitre). Rejoint ensuite "Factures fournisseurs reçues", au meme
+  // titre qu'une facture reconnue automatiquement.
+  router.post("/anomalies/:id/classer-facture", async (req, res) => {
+    try {
+      await classerAnomalieCommeFacture(prisma, req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof AnomalieClassificationError) {
+        return res.status(409).json({ erreur: err.message });
+      }
+      res.status(500).json({ erreur: (err as Error).message });
     }
   });
 

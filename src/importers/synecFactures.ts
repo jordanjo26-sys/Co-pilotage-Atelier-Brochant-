@@ -12,6 +12,12 @@ export interface ReglementParse {
   montantRegle: number;
   modes: string[];
   oney: boolean;
+  // Identifiant(s) PaymentIntent Stripe ("pi_...") cites dans la note d'un
+  // reglement (ex. "Stripe pi_3Qt9BJKxMN1fAYGf2gwFCzW5") : permet un
+  // rattachement exact avec Paiement.paymentIntentRef, demande explicite de
+  // l'utilisateur (afficher client + numero de facture a cote de chaque
+  // paiement Stripe). Voir rapprochementFactures.ts.
+  referencesStripe: string[];
 }
 
 /**
@@ -22,7 +28,7 @@ export interface ReglementParse {
  * "2025-03-31 15:39:44|500,00 €|Carte| // 2025-03-31 15:39:57|437,43 €|Chèque|"
  */
 export function parseReglements(raw: string | undefined): ReglementParse {
-  const result: ReglementParse = { montantRegle: 0, modes: [], oney: false };
+  const result: ReglementParse = { montantRegle: 0, modes: [], oney: false, referencesStripe: [] };
   if (!raw || raw.trim() === "") return result;
 
   const entries = raw.split("//").map((e) => e.trim()).filter(Boolean);
@@ -35,6 +41,9 @@ export function parseReglements(raw: string | undefined): ReglementParse {
     if (montant !== null) result.montantRegle += montant;
     if (mode && !result.modes.includes(mode)) result.modes.push(mode);
     if (/oney/i.test(mode) || /oney/i.test(note)) result.oney = true;
+
+    const refStripe = note.match(/pi_[a-zA-Z0-9]+/);
+    if (refStripe && !result.referencesStripe.includes(refStripe[0])) result.referencesStripe.push(refStripe[0]);
   }
 
   return result;
@@ -104,7 +113,7 @@ export async function importSynecFactures(
 
       const montantHT = resolvedColumns.montantHT ? parseAmount(row[resolvedColumns.montantHT]) : null;
 
-      const { montantRegle, modes, oney } = parseReglements(
+      const { montantRegle, modes, oney, referencesStripe } = parseReglements(
         resolvedColumns.payments ? row[resolvedColumns.payments] : undefined
       );
       const statut = deriveStatut(montantTTC, montantRegle);
@@ -128,6 +137,7 @@ export async function importSynecFactures(
         statut,
         modePaiement: modes.length > 0 ? modes.join(", ") : null,
         bonCommande: resolvedColumns.bonCommande ? row[resolvedColumns.bonCommande] || null : null,
+        referencesStripe: referencesStripe.length > 0 ? referencesStripe.join(",") : null,
         financementOney: oney,
         clotureSynec: resolvedColumns.cloture ? parseBooleanish(row[resolvedColumns.cloture]) : false,
         sourceImportId: importBatchId,

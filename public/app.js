@@ -9,6 +9,123 @@ const ICONES_TUILE = {
   anomalies: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>',
 };
 
+// --- Navigation par onglets + indicateurs partages -------------------------
+//
+// Refonte demandee par l'utilisateur apres 1 mois d'usage : la page etait
+// une seule longue liste de 13 cartes a faire defiler, sans vue d'ensemble
+// ("difficile de voir l'essentiel en un coup d'oeil"). etatIndicateurs
+// centralise les compteurs deja calcules par chaque fonction de chargement
+// existante (aucun nouvel appel reseau) pour alimenter trois choses a la
+// fois : les badges numeriques sur les onglets, le bandeau d'alerte en cas
+// de connexion Gmail/Stripe en panne, et le panneau "Actions requises" du
+// tableau de bord.
+const etatIndicateurs = {
+  anomalies: 0,
+  relances: 0,
+  facturesFournisseurs: 0,
+  aValiderImports: 0,
+  gmailMotif: null,
+  stripeMotif: null,
+  synecMotif: null,
+};
+
+function definirBadge(onglet, valeur) {
+  const span = document.querySelector(`.onglet-badge[data-badge="${onglet}"]`);
+  if (!span) return;
+  if (valeur > 0) {
+    span.hidden = false;
+    span.textContent = valeur > 99 ? "99+" : String(valeur);
+  } else {
+    span.hidden = true;
+  }
+}
+
+function mettreAJourAlerteBandeau() {
+  const bandeau = document.getElementById("alerte-bandeau");
+  const problemes = [];
+  if (etatIndicateurs.gmailMotif) problemes.push(`Gmail : ${etatIndicateurs.gmailMotif}`);
+  if (etatIndicateurs.stripeMotif) problemes.push(`Stripe : ${etatIndicateurs.stripeMotif}`);
+  if (etatIndicateurs.synecMotif) problemes.push(`Synec : ${etatIndicateurs.synecMotif}`);
+  if (problemes.length === 0) {
+    bandeau.hidden = true;
+    bandeau.innerHTML = "";
+    return;
+  }
+  bandeau.hidden = false;
+  bandeau.innerHTML = `<span>⚠ ${problemes.map(echapper).join(" · ")}</span><button type="button" class="ghost" onclick="basculerOnglet('systeme')">Voir</button>`;
+}
+
+function mettreAJourActionsRequises() {
+  const conteneur = document.getElementById("actions-requises");
+  if (!conteneur) return;
+  const actions = [];
+  if (etatIndicateurs.gmailMotif) actions.push({ libelle: `Reconnecter Gmail (${etatIndicateurs.gmailMotif})`, onglet: "systeme" });
+  if (etatIndicateurs.stripeMotif) actions.push({ libelle: `Reconnecter Stripe (${etatIndicateurs.stripeMotif})`, onglet: "tresorerie" });
+  if (etatIndicateurs.synecMotif) actions.push({ libelle: `Reconnecter Synec (${etatIndicateurs.synecMotif})`, onglet: "tresorerie" });
+  if (etatIndicateurs.anomalies > 0) actions.push({ libelle: "document(s) à classer manuellement", compte: etatIndicateurs.anomalies, onglet: "fournisseurs" });
+  if (etatIndicateurs.relances > 0) actions.push({ libelle: "relance(s) client à envoyer", compte: etatIndicateurs.relances, onglet: "factures" });
+  if (etatIndicateurs.facturesFournisseurs > 0) actions.push({ libelle: "facture(s) fournisseur en attente d'envoi à Dext", compte: etatIndicateurs.facturesFournisseurs, onglet: "factures" });
+  if (etatIndicateurs.aValiderImports > 0) actions.push({ libelle: "import(s) à vérifier", compte: etatIndicateurs.aValiderImports, onglet: "tresorerie" });
+
+  if (actions.length === 0) {
+    conteneur.innerHTML = `<p class="liste-vide">Tout est à jour, rien n'attend de décision pour le moment.</p>`;
+    return;
+  }
+
+  conteneur.innerHTML = actions
+    .map(
+      (a) => `
+    <button type="button" class="action-requise" onclick="basculerOnglet('${a.onglet}')">
+      <span class="pastille">${a.compte !== undefined ? a.compte : "!"}</span>
+      <span class="libelle">${echapper(a.libelle)}</span>
+      <span class="fleche">→</span>
+    </button>`
+    )
+    .join("");
+}
+
+function mettreAJourBadges() {
+  definirBadge("fournisseurs", etatIndicateurs.anomalies);
+  definirBadge("factures", etatIndicateurs.relances + etatIndicateurs.facturesFournisseurs);
+  definirBadge("tresorerie", etatIndicateurs.aValiderImports + (etatIndicateurs.stripeMotif ? 1 : 0) + (etatIndicateurs.synecMotif ? 1 : 0));
+  definirBadge("systeme", etatIndicateurs.gmailMotif ? 1 : 0);
+  mettreAJourAlerteBandeau();
+  mettreAJourActionsRequises();
+}
+
+const CLE_ONGLET_ACTIF = "copilote_onglet_actif";
+
+function basculerOnglet(nom) {
+  const panneauExiste = document.querySelector(`.onglet-panneau[data-panneau="${nom}"]`);
+  if (!panneauExiste) return;
+  document.querySelectorAll(".onglet").forEach((b) => {
+    const actif = b.dataset.onglet === nom;
+    b.classList.toggle("actif", actif);
+    b.setAttribute("aria-selected", actif ? "true" : "false");
+  });
+  document.querySelectorAll(".onglet-panneau").forEach((p) => {
+    p.hidden = p.dataset.panneau !== nom;
+  });
+  try {
+    localStorage.setItem(CLE_ONGLET_ACTIF, nom);
+  } catch {
+    // stockage indisponible (navigation privee...) : l'onglet choisi reste actif pour la session en cours seulement
+  }
+  window.scrollTo(0, 0);
+}
+window.basculerOnglet = basculerOnglet;
+
+document.querySelectorAll(".onglet").forEach((b) => {
+  b.addEventListener("click", () => basculerOnglet(b.dataset.onglet));
+});
+
+try {
+  const dernierOnglet = localStorage.getItem(CLE_ONGLET_ACTIF);
+  if (dernierOnglet) basculerOnglet(dernierOnglet);
+} catch {
+  // ignore
+}
+
 async function chargerCockpit() {
   const res = await fetch("/api/dashboard/summary");
   const data = await res.json();
@@ -19,6 +136,8 @@ async function chargerCockpit() {
     <div class="tuile"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${data.aValiderImports}</div><div class="label">Imports à vérifier</div></div>
     <div class="tuile${data.anomaliesOuvertes > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${data.anomaliesOuvertes}</div><div class="label">Anomalies ouvertes</div></div>
   `;
+  etatIndicateurs.aValiderImports = data.aValiderImports;
+  mettreAJourBadges();
 }
 
 async function chargerImports() {
@@ -70,6 +189,8 @@ async function chargerStatutGmail() {
       <p class="statut-dot off">${data.motif ? echapper(data.motif) : "Aucune boîte Gmail connectée."}</p>
       <a href="/auth/google"><button type="button">${data.motif ? "Reconnecter Gmail" : "Connecter Gmail"}</button></a>
     `;
+    etatIndicateurs.gmailMotif = data.motif || null;
+    mettreAJourBadges();
     return;
   }
 
@@ -81,6 +202,8 @@ async function chargerStatutGmail() {
     <button type="button" id="btn-sync-gmail" class="ghost">Synchroniser maintenant</button>
     <div id="resultat-sync-gmail"></div>
   `;
+  etatIndicateurs.gmailMotif = null;
+  mettreAJourBadges();
 
   document.getElementById("btn-sync-gmail").addEventListener("click", async () => {
     const resultatDiv = document.getElementById("resultat-sync-gmail");
@@ -94,7 +217,7 @@ async function chargerStatutGmail() {
       }
       resultatDiv.innerHTML =
         `${d.messagesExamines} message(s) examiné(s), ${d.documentsTraites} document(s) traité(s), ${d.documentsDoublons} doublon(s), ${d.documentsAmbigus} ambigu(s), ${d.erreurs.length} erreur(s).` +
-        (d.erreurs.length > 0 ? `<br/><span class="anomalie-meta">${d.erreurs.map(echapper).join("<br/>")}</span>` : "");
+        (d.resumeErreurs ? `<br/><span class="anomalie-meta">${echapper(d.resumeErreurs)}</span>` : "");
       await rafraichirTout();
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
@@ -111,6 +234,8 @@ async function chargerStatutStripe() {
 
   if (!data.connecte) {
     div.innerHTML = `<p class="statut-dot off">${data.motif ? echapper(data.motif) : "Non connecté — clé API à ajouter (voir docs/mise-en-service.md)."}</p>`;
+    etatIndicateurs.stripeMotif = data.motif || null;
+    mettreAJourBadges();
     return;
   }
 
@@ -124,9 +249,15 @@ async function chargerStatutStripe() {
     <div id="resultat-sync-stripe"></div>
     <details class="fournisseur-documents">
       <summary>Voir les paiements captés</summary>
+      <div class="ligne-boutons" style="margin: 10px 0;">
+        <a class="ghost bouton-lien" href="/api/stripe/paiements/export-pdf">Exporter en PDF</a>
+      </div>
       <div id="liste-paiements-stripe">Chargement…</div>
     </details>
   `;
+
+  etatIndicateurs.stripeMotif = null;
+  mettreAJourBadges();
 
   chargerPaiementsStripe();
 
@@ -150,6 +281,62 @@ async function chargerStatutStripe() {
   });
 }
 
+// --- Synec (aucune API : automatisation par navigateur headless cote serveur) ---
+
+async function chargerStatutSynec() {
+  const res = await fetch("/api/synec/status");
+  const data = await res.json();
+  const div = document.getElementById("synec-statut");
+
+  // Sans identifiants configures du tout (aucun motif) : rien a tenter,
+  // pas de bouton. Mais un echec de la DERNIERE tentative (motif present)
+  // ne veut pas dire que les identifiants sont invalides (contrairement a
+  // Gmail/Stripe) - l'automatisation par navigateur peut echouer pour
+  // d'autres raisons (navigation, mise a jour du site Synec...) sans que
+  // les identifiants ne soient en cause. Le bouton doit rester disponible
+  // pour reessayer, sinon un premier echec bloque definitivement toute
+  // nouvelle tentative depuis l'interface (constate en production).
+  if (!data.connecte && !data.motif) {
+    div.innerHTML = `<p class="statut-dot off">Non connecté — identifiants à ajouter (voir docs/mise-en-service.md).</p>`;
+    etatIndicateurs.synecMotif = null;
+    mettreAJourBadges();
+    return;
+  }
+
+  div.innerHTML = `
+    ${
+      data.connecte
+        ? `<p class="gmail-connecte"><span class="statut-dot">Connecté</span><br/>Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}</p>`
+        : `<p class="statut-dot off">${echapper(data.motif)}</p><p class="aide-inline"><a href="/api/synec/capture-echec" target="_blank">Voir la capture d'écran du dernier échec</a></p>`
+    }
+    <button type="button" id="btn-sync-synec" class="ghost">Synchroniser maintenant</button>
+    <div id="resultat-sync-synec"></div>
+  `;
+
+  etatIndicateurs.synecMotif = data.connecte ? null : data.motif;
+  mettreAJourBadges();
+
+  document.getElementById("btn-sync-synec").addEventListener("click", async () => {
+    const resultatDiv = document.getElementById("resultat-sync-synec");
+    // Plus long qu'une synchronisation Stripe/Gmail (ouverture d'un
+    // navigateur complet et connexion reelle au site, pas un simple appel
+    // API) : prevenir explicitement evite de penser l'interface figee.
+    resultatDiv.textContent = "Synchronisation en cours (peut prendre jusqu'à une minute)…";
+    try {
+      const r = await fetch("/api/synec/sync", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) {
+        resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+        return;
+      }
+      resultatDiv.innerHTML = `${d.nbNouveaux} nouveau(x), ${d.nbDoublons} doublon(s), ${d.nbErreurs} erreur(s).`;
+      await rafraichirTout();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
 // Liste individuelle des paiements Stripe deja captes : jusqu'ici seuls des
 // compteurs agreges apparaissaient au moment d'un clic sur "Synchroniser
 // maintenant", sans aucune trace consultable ensuite - impossible de
@@ -162,6 +349,16 @@ async function chargerStatutStripe() {
 // C'est un delai normal du fonctionnement de Stripe, pas un bug de cette
 // synchronisation ni une raison pour laquelle une facture resterait impayee
 // dans l'application (ce statut vient exclusivement de l'export Synec).
+// Libelle du moyen de paiement Stripe (section tresorerie, demande
+// explicite de l'utilisateur de distinguer Tap to Pay/terminal des
+// paiements par carte en ligne). "card_present" couvre aussi bien le
+// lecteur de carte physique que l'app Tap to Pay sur mobile cote Stripe,
+// les deux etant pour l'atelier un encaissement en face a face.
+const LIBELLE_MOYEN_PAIEMENT = {
+  card_present: "Tap to Pay / terminal",
+  card: "Carte en ligne",
+};
+
 async function chargerPaiementsStripe() {
   const conteneur = document.getElementById("liste-paiements-stripe");
   if (!conteneur) return;
@@ -175,6 +372,8 @@ async function chargerPaiementsStripe() {
       <div class="fournisseur-document-ligne">
         <span class="anomalie-meta">${fmtDate(p.date)}</span>
         <span>${fmtMontant(p.net)}</span>
+        <span class="badge badge-palier-neutre">${echapper(LIBELLE_MOYEN_PAIEMENT[p.moyenPaiement] || p.moyenPaiement || "Moyen inconnu")}</span>
+        ${p.facture ? `<span class="badge badge-ok">${echapper(p.facture.clientNom)} · ${echapper(p.facture.reference)}</span>` : ""}
         ${p.description ? `<span class="anomalie-meta">${echapper(p.description)}</span>` : ""}
       </div>`
         )
@@ -222,6 +421,24 @@ async function ignorerAnomalie(id) {
 }
 window.ignorerAnomalie = ignorerAnomalie;
 
+async function classerAnomalieFacture(id, bouton) {
+  bouton.disabled = true;
+  bouton.textContent = "Classement…";
+  try {
+    const res = await fetch(`/api/anomalies/${id}/classer-facture`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Classement impossible.");
+    }
+    await Promise.all([chargerAnomalies(), chargerCockpit(), chargerFacturesFournisseurs()]);
+  } catch (err) {
+    bouton.disabled = false;
+    bouton.textContent = "Classer en facture";
+    alert(err.message);
+  }
+}
+window.classerAnomalieFacture = classerAnomalieFacture;
+
 function majBarreSelection() {
   const cases = [...document.querySelectorAll(".case-anomalie")];
   const cochees = cases.filter((c) => c.checked);
@@ -247,6 +464,8 @@ async function chargerAnomalies() {
   if (anomalies.length === 0) {
     liste.innerHTML = `<p class="liste-vide">Aucune anomalie en attente.</p>`;
     document.getElementById("barre-actions-anomalies").hidden = true;
+    etatIndicateurs.anomalies = 0;
+    mettreAJourBadges();
     return;
   }
 
@@ -265,6 +484,7 @@ async function chargerAnomalies() {
       </div>
       <div class="anomalie-actions">
         <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/anomalies/${a.id}/document')">Voir</button>
+        <button type="button" class="ghost" onclick="classerAnomalieFacture('${a.id}', this)">Classer en facture</button>
         <button type="button" class="ghost" onclick="ignorerAnomalie('${a.id}')">Ignorer</button>
       </div>
     </div>`;
@@ -273,6 +493,8 @@ async function chargerAnomalies() {
 
   document.querySelectorAll(".case-anomalie").forEach((c) => c.addEventListener("change", majBarreSelection));
   majBarreSelection();
+  etatIndicateurs.anomalies = anomalies.length;
+  mettreAJourBadges();
 }
 
 document.getElementById("case-tout-selectionner").addEventListener("change", (e) => {
@@ -453,31 +675,63 @@ async function envoyerFactureFournisseurVersDext(id, bouton) {
 }
 window.envoyerFactureFournisseurVersDext = envoyerFactureFournisseurVersDext;
 
+// Libelle "Mois Annee" (ex. "Octobre 2026"), meme format que le libelle
+// Gmail cree par nomEtiquetteFacturesDuMois cote serveur (gmailSync.ts).
+function libelleMoisAnnee(date) {
+  const texte = new Date(date).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  return texte.charAt(0).toUpperCase() + texte.slice(1);
+}
+
 async function chargerFacturesFournisseurs() {
   const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=a_valider");
   const documents = await res.json();
   const liste = document.getElementById("liste-factures-fournisseurs");
+
+  etatIndicateurs.facturesFournisseurs = documents.length;
+  mettreAJourBadges();
 
   if (documents.length === 0) {
     liste.innerHTML = `<p class="liste-vide">Aucune facture fournisseur en attente d'envoi.</p>`;
     return;
   }
 
-  liste.innerHTML = documents
+  // Regroupement automatique par mois de reception (demande explicite de
+  // l'utilisateur : retrouver facilement "les factures d'octobre" sans
+  // classement manuel) : chaque document rejoint son mois des sa reception,
+  // sans aucune action de l'utilisateur. Les documents arrivent deja tries
+  // du plus recent au plus ancien (voir /documents-fournisseurs), donc les
+  // groupes apparaissent eux aussi du plus recent au plus ancien dans
+  // l'ordre ou Map les rencontre.
+  const groupes = new Map();
+  for (const d of documents) {
+    const cle = libelleMoisAnnee(d.dateReceptionMail || d.createdAt);
+    if (!groupes.has(cle)) groupes.set(cle, []);
+    groupes.get(cle).push(d);
+  }
+
+  liste.innerHTML = [...groupes.entries()]
     .map(
-      (d) => `
-    <div class="fournisseur-carte">
-      <div class="fournisseur-nom">${echapper(d.fichierNom || "Document")}</div>
-      <div class="anomalie-meta">
-        ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
-        ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
-        ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
-        ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
-      </div>
-      <div class="fournisseur-actions fournisseur-actions-ligne">
-        <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
-        <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
-      </div>
+      ([mois, docs]) => `
+    <div class="groupe-mois">
+      <h3 class="groupe-mois-titre">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></h3>
+      ${docs
+        .map(
+          (d) => `
+      <div class="fournisseur-carte">
+        <div class="fournisseur-nom">${echapper(d.fichierNom || "Document")}</div>
+        <div class="anomalie-meta">
+          ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
+          ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
+          ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
+          ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
+        </div>
+        <div class="fournisseur-actions fournisseur-actions-ligne">
+          <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
+          <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
+        </div>
+      </div>`
+        )
+        .join("")}
     </div>`
     )
     .join("");
@@ -620,6 +874,9 @@ async function chargerRelances() {
   const relances = await res.json();
   const liste = document.getElementById("liste-relances");
 
+  etatIndicateurs.relances = relances.length;
+  mettreAJourBadges();
+
   if (relances.length === 0) {
     liste.innerHTML = `<p class="liste-vide">Aucune relance à envoyer pour le moment.</p>`;
     return;
@@ -727,7 +984,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {
@@ -764,3 +1021,13 @@ document.getElementById("form-import").addEventListener("submit", async (e) => {
 });
 
 rafraichirTout();
+
+// Rafraichissement automatique ("plus dynamique", demande explicite) : toutes
+// les 2 minutes, uniquement si l'onglet du navigateur est au premier plan -
+// inutile de solliciter le serveur pendant que la page est en arriere-plan,
+// et surtout d'interrompre une saisie en cours dans le formulaire Morgane ou
+// la selection d'anomalies (rafraichirTout() ne touche a aucun champ de
+// formulaire, uniquement a des listes en lecture).
+setInterval(() => {
+  if (document.visibilityState === "visible") rafraichirTout();
+}, 120000);

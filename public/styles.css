@@ -72,6 +72,18 @@ body {
   color: var(--ink-2);
   font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Remplace l'ancien "overflow-x: hidden" global (html + body), qui
+     empechait aussi le defilement horizontal tactile des tableaux
+     (.table-scroll) sur iOS Safari : WebKit desactive le pan horizontal de
+     TOUT conteneur descendant, meme avec son propre overflow-x:auto, des
+     que html/body porte overflow-x:hidden - signale par l'utilisateur
+     ("je ne peux pas bouger" sur le tableau des factures). La vraie cause
+     du bug d'origine ("ecran coupe" par une longue URL sans espace dans un
+     message de diagnostic) est l'absence de cesure du texte, pas l'absence
+     de clip : overflow-wrap: anywhere ici regle la racine du probleme sans
+     bloquer le scroll volontaire d'un tableau (ses cellules restent en
+     white-space: nowrap, qui prime sur overflow-wrap). */
+  overflow-wrap: anywhere;
 }
 .num, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Manrope", sans-serif; }
@@ -105,6 +117,18 @@ h1, h2, h3 { text-wrap: balance; margin: 0; color: var(--ink); font-family: "Man
 main {
   padding: 14px 12px 48px;
   display: grid;
+  /* minmax(0, 1fr) plutot que le "auto" implicite d'une grille sans
+     grid-template-columns explicite : sans ca, la piste de la grille se
+     dimensionne sur le CONTENU (max-content) de ses enfants au lieu de la
+     largeur disponible - des qu'un descendant a une largeur intrinseque
+     superieure au viewport (un tableau avec min-width, un nom de fichier
+     long sans espaces malgre overflow-wrap...), toute la page s'elargit en
+     consequence, rendant l'ancien correctif overflow-x:hidden necessaire
+     mais insuffisant (il masquait le debordement sans empecher la boite de
+     s'agrandir, d'ou le defilement horizontal "fantome" observe ensuite).
+     C'est la cause racine reelle des multiples signalements d'ecran
+     "coupe"/"qui bouge" sur mobile, pas seulement le texte non secable. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   max-width: 720px;
   margin: 0 auto;
@@ -117,6 +141,15 @@ main {
   border-radius: 14px;
   padding: 16px;
   box-shadow: var(--shadow);
+  /* overflow-wrap: anywhere plutot que sur un selecteur de texte precis :
+     ce qui provoquait l'elargissement de toute la page sur mobile (signale
+     par l'utilisateur) etait une longue URL SANS ESPACE dans un message de
+     diagnostic Synec (ex. https://app.synec.io/connect/billing_home/...),
+     injectee dynamiquement a plusieurs endroits possibles (texte de statut,
+     resultat de synchronisation...) - protege ici une fois pour toute la
+     carte plutot que de devoir le repeter sur chaque conteneur de texte
+     dynamique. */
+  overflow-wrap: anywhere;
 }
 .carte.accent-bleu { border-left-color: var(--brand-blue); }
 .carte.accent-teal { border-left-color: var(--brand-teal); }
@@ -252,7 +285,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 /* ---------- KPI grid ---------- */
 .grille-cockpit {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* minmax(0, 1fr), pas simplement 1fr : repeat(2, 1fr) seul garde un minimum
+     implicite "auto" par piste (min-content de son contenu), meme risque de
+     debordement que main/.onglet-panneau si une valeur de tuile s'allonge. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 .tuile {
@@ -276,6 +312,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .tuile.alerte .valeur { color: var(--critical); }
 
 /* ---------- Anomalies : liste de cartes plutot qu'un tableau (mobile) ---------- */
+.barre-actions-masse[hidden] { display: none; }
 .barre-actions-masse {
   display: flex;
   align-items: center;
@@ -322,6 +359,28 @@ button:disabled { opacity: 0.4; cursor: default; }
 .bouton-lien:hover { background: var(--surface); border-color: var(--brand-blue); }
 
 /* ---------- Fournisseurs ---------- */
+/* Regroupement par mois de reception ("Factures fournisseurs reçues") :
+   demande explicite de l'utilisateur pour retrouver facilement les
+   factures d'un mois donne, sans classement manuel - chaque document
+   rejoint son groupe des sa reception. */
+.groupe-mois + .groupe-mois { margin-top: 16px; }
+.groupe-mois-titre {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+  margin: 0 0 4px;
+}
+.groupe-mois-compte {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 700;
+}
 .fournisseur-carte { padding: 8px 0; border-top: 1px solid var(--line); }
 .fournisseur-carte:first-of-type { border-top: none; padding-top: 0; }
 .fournisseur-nom { font-size: 13px; font-weight: 600; color: var(--ink); }
@@ -439,3 +498,129 @@ tbody tr:hover { background: var(--surface-2); }
 .tuile-statut { flex: 1 1 100px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
 .tuile-statut .valeur { font-size: 19px; font-weight: 800; color: var(--ink); }
 .tuile-statut .label { font-size: 10.5px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
+
+@media (min-width: 900px) {
+  main { max-width: 900px; }
+}
+
+/* ---------- Navigation par onglets (refonte apres 1 mois d'usage : la
+   page unique a 13 sections empilees obligeait a defiler longuement pour
+   retrouver une information precise - "trop de cartes/sections a faire
+   defiler" signale par l'utilisateur). Chaque <section> existante est
+   desormais regroupee par theme dans un panneau, affiche un a la fois ;
+   aucun id ni comportement JS existant n'est modifie, seul l'affichage
+   (hidden) change au clic. ---------- */
+.onglets {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--line);
+}
+.onglets::-webkit-scrollbar { display: none; }
+.onglet {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  color: var(--ink-muted);
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 13px 13px 10px;
+  margin-bottom: -1px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  min-height: auto;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.onglet:hover { opacity: 1; color: var(--ink); background: none; }
+.onglet:active { opacity: 1; }
+.onglet.actif { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+.onglet-badge[hidden] { display: none; }
+.onglet-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--critical);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* minmax(0, 1fr) : meme raison que sur <main> ci-dessus (grille sans ca
+   dimensionnee sur le contenu, pas sur l'espace disponible). */
+.onglet-panneau { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.onglet-panneau[hidden] { display: none; }
+
+/* ---------- Bandeau d'alerte (connexions Gmail/Stripe en panne) ---------- */
+.alerte-bandeau[hidden] { display: none; }
+.alerte-bandeau {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--critical-soft);
+  color: var(--critical);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere; /* meme raison que .carte : peut afficher une longue URL sans espace */
+  border: 1px solid color-mix(in srgb, var(--critical) 35%, transparent);
+}
+.alerte-bandeau span { flex: 1; }
+.alerte-bandeau button { flex: none; }
+
+/* ---------- Actions requises (tableau de bord) ---------- */
+.action-requise {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  min-height: auto;
+}
+.action-requise:first-of-type { border-top: none; }
+.action-requise:hover { opacity: 1; color: var(--brand-blue); background: var(--surface-2); }
+.action-requise .pastille {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 12.5px;
+  flex: none;
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+.action-requise .libelle { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.action-requise .fleche { color: var(--ink-muted); flex: none; }

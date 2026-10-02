@@ -47,22 +47,31 @@ jobs:
 
       - name: Synchroniser le code vers le serveur
         run: |
+          # .cache exclu : c'est la ou Playwright installe Chromium pour
+          # l'automatisation Synec (bootstrap.sh). Sans cette exclusion,
+          # --delete l'effacait a CHAQUE deploiement (absent du depot git),
+          # forcant un retelechargement complet a chaque fois et ouvrant une
+          # fenetre ou une synchronisation Synec en cours au meme moment
+          # echouait avec "Executable doesn't exist" (constate en
+          # production).
           rsync -az --delete \
-            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude="uploads" \
+            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude="uploads" --exclude=".cache" \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
             ./ "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:/opt/copilote-brochant/"
 
       - name: Exécuter le script de déploiement sur le serveur
         run: |
           # GOOGLE_CLIENT_ID/SECRET, SITE_AUTH_USER/PASSWORD,
-          # ANTHROPIC_API_KEY et STRIPE_API_KEY sont transmis en arguments
-          # positionnels (jamais commis dans le depot) : GitHub masque
-          # automatiquement ces valeurs dans les journaux car elles
-          # proviennent de secrets. SITE_AUTH_* protegent l'acces au site par
-          # mot de passe (nginx) ; ANTHROPIC_API_KEY alimente Morgane
-          # (assistante IA) ; STRIPE_API_KEY la synchronisation Stripe
-          # directe. Absents, bootstrap.sh laisse la configuration existante
-          # inchangee.
+          # ANTHROPIC_API_KEY, STRIPE_API_KEY et les identifiants Synec sont
+          # transmis en arguments positionnels (jamais commis dans le
+          # depot) : GitHub masque automatiquement ces valeurs dans les
+          # journaux car elles proviennent de secrets. SITE_AUTH_* protegent
+          # l'acces au site par mot de passe (nginx) ; ANTHROPIC_API_KEY
+          # alimente Morgane (assistante IA) ; STRIPE_API_KEY la
+          # synchronisation Stripe directe ; SYNEC_* l'automatisation de
+          # recuperation des factures non reglees (compte dedie, Synec
+          # n'ayant aucune API). Absents, bootstrap.sh laisse la
+          # configuration existante inchangee.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}'"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}'"

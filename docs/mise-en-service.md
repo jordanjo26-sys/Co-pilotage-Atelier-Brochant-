@@ -167,6 +167,30 @@ Vérifier simplement qu'elles sont toujours actives dans le compte Dext.
    export CSV Stripe à la main**. Le dépôt manuel reste possible en
    complément si besoin (les deux voies ne se dupliquent jamais).
 
+## 6. Synec — à configurer (sans API, automatisation par navigateur)
+
+Synec n'offre aucune API : la récupération automatique des factures non
+réglées se fait en pilotant un navigateur headless qui se connecte au
+site Synec avec un compte dédié, exactement comme un utilisateur le
+ferait à la main. Moins robuste qu'une vraie API (peut casser si Synec
+change son interface), mais évite le dépôt manuel de CSV.
+
+1. Si possible, créer dans Synec un **second utilisateur avec des droits
+   limités** (lecture seule / consultation) plutôt que d'utiliser le
+   compte principal — moindre privilège, comme pour la clé Stripe.
+2. Ajouter ces secrets GitHub (même écran que les précédents) :
+
+   | Nom du secret | Valeur |
+   |---|---|
+   | `SYNEC_URL` | L'URL de la page de connexion à Synec |
+   | `SYNEC_IDENTIFIANT` | L'identifiant de connexion (compte dédié de préférence) |
+   | `SYNEC_MOT_DE_PASSE` | Le mot de passe correspondant |
+
+3. Redéployer : la synchronisation Synec se met alors en route
+   automatiquement, comme Gmail et Stripe. Le dépôt manuel de CSV reste
+   toujours possible en complément (les deux voies ne se dupliquent
+   jamais, même mécanique de rapprochement que pour Stripe).
+
 ## Ce qui se passe une fois tout branché
 
 - Le serveur vérifie la boîte Gmail toutes les 5 minutes (réglable via

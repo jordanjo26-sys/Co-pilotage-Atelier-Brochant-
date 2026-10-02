@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { PrismaClient } from "@prisma/client";
 import { logEvenement } from "./journalService";
 import { executerRapprochementBancaire } from "./rapprochementBancaire";
+import { rapprocherPaiementsFactures } from "./rapprochementFactures";
 
 /**
  * Connexion directe a l'API Stripe (Phase 9 esprit "API plutot que CSV",
@@ -123,6 +124,28 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
         const description =
           bt.source && typeof bt.source !== "string" && "description" in bt.source ? bt.source.description || null : null;
 
+        // payment_method_details.type vaut "card_present" pour un paiement
+        // capte via un terminal/Tap to Pay, "card" pour un paiement par
+        // carte en ligne (section "trésorerie" de l'application, demande
+        // explicite de l'utilisateur de lister les deux separement). Deja
+        // present sur l'objet Charge expanse ci-dessus (data.source), donc
+        // sans appel API supplementaire.
+        const moyenPaiement =
+          bt.source && typeof bt.source !== "string" && "payment_method_details" in bt.source
+            ? bt.source.payment_method_details?.type || null
+            : null;
+
+        // Identifiant PaymentIntent ("pi_...") de la Charge : present sur
+        // l'objet source expanse sans necessiter son propre expand (simple
+        // reference, pas un objet imbrique). Synec note cette meme
+        // reference dans sa colonne "payments" quand le reglement vient de
+        // Stripe, ce qui permet un rattachement exact avec la facture
+        // (rapprochementFactures.ts), demande explicite de l'utilisateur.
+        const paymentIntentRef =
+          bt.source && typeof bt.source !== "string" && "payment_intent" in bt.source
+            ? (typeof bt.source.payment_intent === "string" ? bt.source.payment_intent : bt.source.payment_intent?.id) || null
+            : null;
+
         // L'adresse e-mail du client n'est pas disponible sur la transaction
         // elle-meme (il faudrait un appel supplementaire par transaction
         // vers l'objet Charge/Customer) : laissee vide plutot que de
@@ -136,6 +159,8 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
           date: new Date(bt.created * 1000),
           clientEmail: null,
           description,
+          moyenPaiement,
+          paymentIntentRef,
           payoutRef: payout.id,
         };
 
@@ -154,6 +179,10 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
 
   // De nouveaux payouts peuvent completer un rapprochement bancaire en attente.
   await executerRapprochementBancaire(prisma);
+  // De nouveaux paiements peuvent desormais etre rattaches a une facture
+  // (demande explicite de l'utilisateur : afficher client + numero de
+  // facture a cote de chaque paiement).
+  await rapprocherPaiementsFactures(prisma);
 
   await logEvenement(prisma, {
     evenement: "stripe_sync",
