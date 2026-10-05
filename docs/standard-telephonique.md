@@ -3,12 +3,17 @@
 L'assistante téléphonique **Morgane** décroche **à votre place
 quand vous ne pouvez pas répondre**. Elle :
 
-- prend un **message complet** : nom, numéro de rappel, adresse
-  d'intervention, motif, niveau d'urgence ;
+- fait décrire le problème, demande **si c'est urgent**, puis prend le
+  nom, l'adresse, le code postal, la ville et le téléphone, et demande
+  **maison ou appartement** (pour un appartement : étage et code
+  d'accès / interphone) ;
+- en cas d'**urgence**, annonce une intervention en **moins d'une heure**
+  et qu'un technicien rappelle le client dans les minutes qui suivent, et
+  vous envoie **immédiatement un SMS** avec l'adresse et le numéro ;
 - **répond aux questions simples** (horaires, zone, services) à partir de
   `src/config/standard-telephonique.json`, et rien d'autre : ce qu'elle ne
   sait pas, elle le transmet ;
-- **prend un rendez-vous** dans votre agenda Google en ne proposant que des
+- hors urgence, **prend un rendez-vous** dans votre agenda Google en ne proposant que des
   créneaux réellement libres ;
 - vous envoie un **compte rendu par e-mail** à la fin de chaque appel
   (sujet préfixé `URGENT` en cas de dégât des eaux / refoulement), avec la
@@ -74,6 +79,14 @@ Un appel de 2 minutes revient donc à environ 0,20 à 0,30 €.
    | Nom du secret | Valeur |
    |---|---|
    | `TWILIO_AUTH_TOKEN` | L'Auth Token du compte Twilio |
+
+   Pour l'**alerte SMS des urgences**, ajouter aussi :
+
+   | Nom du secret | Valeur |
+   |---|---|
+   | `TWILIO_ACCOUNT_SID` | L'« Account SID » (commence par `AC`, page d'accueil de la console Twilio) |
+   | `TWILIO_SMS_EXPEDITEUR` | Ce qui s'affiche comme expéditeur : `Morgane` (nom, 11 caractères max) ou un numéro Twilio mobile capable d'envoyer des SMS |
+   | `TELEPHONE_SMS_DESTINATAIRE` | Votre portable au format `+336XXXXXXXX` (plusieurs numéros séparés par des virgules, ex. technicien de garde) |
 
    Le prochain déploiement le transmet au serveur. Il sert uniquement à
    vérifier que chaque requête vient bien de Twilio (les adresses

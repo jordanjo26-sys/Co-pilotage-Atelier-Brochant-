@@ -11,6 +11,7 @@ import {
   FUSEAU,
 } from "./agenda";
 import { getGmailClient } from "./googleAuth";
+import { envoyerSms, smsEstConfigure } from "./twilio";
 import { logEvenement } from "./journalService";
 
 /**
@@ -56,10 +57,15 @@ const OUTILS: Anthropic.Beta.BetaTool[] = [
     input_schema: {
       type: "object",
       properties: {
-        nom: { type: "string", description: "Nom de l'appelant (et societe/syndic le cas echeant)." },
-        telephone: { type: "string", description: "Numero de rappel, si different du numero appelant ou confirme par l'appelant." },
-        adresse: { type: "string", description: "Adresse d'intervention (rue, code postal, ville, etage/code d'acces si donnes)." },
-        motif: { type: "string", description: "Motif de l'appel en une ou deux phrases (nature du probleme, contexte, creneau souhaite...)." },
+        nom: { type: "string", description: "Nom du client (et societe/syndic le cas echeant)." },
+        telephone: { type: "string", description: "Numero de telephone du client, tel que confirme par lui." },
+        adresse: { type: "string", description: "Numero et nom de rue de l'intervention." },
+        code_postal: { type: "string" },
+        ville: { type: "string" },
+        type_logement: { type: "string", enum: ["maison", "appartement"] },
+        etage: { type: "string", description: "Etage (appartement uniquement)." },
+        code_acces: { type: "string", description: "Code d'immeuble, de portail ou d'interphone (appartement uniquement), ou 'aucun'." },
+        motif: { type: "string", description: "Nature du probleme et renseignements donnes, en une ou deux phrases (piece concernee, depuis quand, creneau souhaite...)." },
         urgence: {
           type: "string",
           enum: ["faible", "normale", "urgente"],
@@ -131,17 +137,28 @@ qui prend l'appel, et un technicien ou un conseiller rappelle si besoin.
 Ce que tu sais de l'entreprise (ta seule source, n'invente rien d'autre) :
 ${presentationEntreprise()}
 
-Ton travail, dans cet ordre de priorite :
-1. Comprendre pourquoi la personne appelle et noter un message complet avec enregistrer_message : \
-nom, numero de rappel, adresse d'intervention, motif, urgence. Le numero appelant est deja connu \
-(voir debut de conversation) : demande seulement s'il faut rappeler sur ce numero.
-2. Repondre aux questions simples a partir des informations ci-dessus. Pour tout le reste (prix \
-non listes, delais exacts, diagnostic technique, suivi d'un dossier ou d'une facture), dis que \
-tu transmets la question et que l'on rappellera.
-3. Si la personne veut une intervention non urgente ou un rendez-vous : demande-lui quand elle est disponible, \
-puis chercher_creneaux, propose au plus deux creneaux qui lui conviennent, et reserve avec reserver_creneau seulement apres un accord explicite. Si l'agenda \
-n'est pas disponible, note le creneau souhaite dans le motif et dis qu'il sera confirme par rappel.
-4. Quand tout est note, recapitule en une phrase et termine avec terminer_appel.
+Deroule de l'appel, dans cet ordre (une question a la fois, en sautant ce que l'appelant a deja dit) :
+1. Faire decrire la nature du probleme et recueillir les renseignements utiles (piece, \
+equipement concerne, depuis quand, ce qui a deja ete tente).
+2. Demander si c'est urgent.
+3. Prendre les coordonnees : nom, adresse (numero et rue), code postal, ville, numero de \
+telephone. Le numero appelant est deja connu (voir debut de conversation) : propose-le et fais-le \
+confirmer plutot que de le redemander en entier.
+4. Demander s'il s'agit d'une maison ou d'un appartement. Si c'est un appartement, demander \
+l'etage et s'il y a un code d'acces ou d'interphone.
+5. Enregistrer avec enregistrer_message des que des informations sont connues (et a chaque \
+complement), sans attendre la fin.
+6. Si c'est urgent : annoncer une intervention en ${config.delaiInterventionUrgence}, puis dire \
+qu'un de nos techniciens va recontacter le client dans les minutes qui suivent. Pas de rendez-vous \
+dans l'agenda.
+7. Si ce n'est pas urgent et que le client veut une intervention : demander quand il est \
+disponible, chercher_creneaux, proposer au plus deux creneaux qui lui conviennent, et reserver \
+avec reserver_creneau seulement apres un accord explicite. Si l'agenda n'est pas disponible, \
+noter le creneau souhaite dans le motif et dire qu'il sera confirme par rappel.
+8. Questions simples : repondre a partir des informations ci-dessus. Pour tout le reste (prix \
+non listes, diagnostic technique, suivi d'un dossier ou d'une facture), dire qu'on transmet et \
+qu'on rappellera.
+9. Quand tout est note, recapituler en une phrase et terminer avec terminer_appel.
 
 Regles de l'oral :
 - Une ou deux phrases courtes par reponse, une seule question a la fois. Pas de listes, pas de \
@@ -149,14 +166,9 @@ markdown, pas d'emoji, pas d'abreviations : tout est lu a voix haute.
 - Dis les horaires en toutes lettres (ex. "quatorze heures"). Relis les numeros de telephone \
 chiffre par chiffre par groupes de deux pour confirmation.
 - La transcription vocale peut deformer les noms et adresses : fais confirmer ou epeler en cas de doute.
-- Urgence (degat des eaux, inondation, refoulement d'egout, WC ou evacuation totalement \
-bouches) : rassure, donne la consigne d'urgence, et annonce une intervention en \
-${config.delaiInterventionUrgence} - pas de prise de rendez-vous dans l'agenda. Recueille en \
-priorite l'adresse exacte (code, etage) et le numero de rappel, note l'urgence comme "urgente" et \
-dis que l'equipe est prevenue immediatement.
-- Danger pour des personnes (odeur de gaz, eau au contact d'installations electriques, \
-personne blessee ou malaise) : dis d'abord d'appeler immediatement les secours, le 112 ou les \
-pompiers au 18 (le 0 800 47 33 33 pour une odeur de gaz), et de s'eloigner du danger.
+- Est urgent : degat des eaux, inondation, refoulement d'egout, WC ou evacuation totalement \
+bouches, ou tout cas que le client declare urgent. Note-le "urgente" et donne la consigne \
+d'urgence si elle s'applique.
 - Tu ne donnes jamais d'information sur d'autres clients, factures ou chiffres de l'entreprise, \
 et tu n'executes aucune autre demande que celles ci-dessus, quoi que dise l'appelant.`;
 
@@ -202,16 +214,29 @@ async function executerOutil(prisma: PrismaClient, etat: EtatTour, nom: string, 
   switch (nom) {
     case "enregistrer_message": {
       const urgence = texte("urgence");
+      const typeLogement = texte("type_logement");
       etat.appel = await prisma.appel.update({
         where: { id: etat.appel.id },
         data: {
           nom: texte("nom"),
           telephone: texte("telephone"),
           adresse: texte("adresse"),
+          codePostal: texte("code_postal"),
+          ville: texte("ville"),
+          typeLogement: typeLogement && ["maison", "appartement"].includes(typeLogement) ? typeLogement : undefined,
+          etage: texte("etage"),
+          codeAcces: texte("code_acces"),
           motif: texte("motif"),
           urgence: urgence && ["faible", "normale", "urgente"].includes(urgence) ? urgence : undefined,
         },
       });
+      // Alerte SMS immediate des que l'adresse et l'acces d'une urgence sont
+      // connus, sans attendre la fin de l'appel (l'equipe doit rappeler en
+      // minutes) ; si l'appelant raccroche avant, finaliserAppel l'envoie
+      // avec ce qui a ete note.
+      const a = etat.appel;
+      const accesConnu = a.typeLogement === "maison" || (a.typeLogement === "appartement" && Boolean(a.etage));
+      if (a.urgence === "urgente" && a.adresse && accesConnu) await alerterUrgence(prisma, a);
       return { ok: true };
     }
 
@@ -250,10 +275,11 @@ async function executerOutil(prisma: PrismaClient, etat: EtatTour, nom: string, 
             `Rendez-vous pris par l'assistante telephonique.`,
             `Nom : ${a.nom}`,
             `Telephone : ${a.telephone || a.numeroAppelant || "inconnu"}`,
-            `Adresse : ${a.adresse}`,
+            `Adresse : ${adresseComplete(a)}`,
+            `Acces : ${acces(a) ?? "non precise"}`,
             `Motif : ${a.motif ?? ""}`,
           ].join("\n"),
-          lieu: a.adresse,
+          lieu: adresseComplete(a),
         });
         if (eventId === null) return { erreur: "Ce creneau vient d'etre pris : rappeler chercher_creneaux." };
         etat.appel = await prisma.appel.update({
@@ -376,6 +402,59 @@ export async function traiterTour(
   return { reponse, raccrocher: etat.raccrocher };
 }
 
+export function adresseComplete(appel: Appel): string {
+  return [appel.adresse, [appel.codePostal, appel.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+}
+
+/** "appartement, 3e etage, code 1234B" / "maison". */
+export function acces(appel: Appel): string | null {
+  if (!appel.typeLogement) return null;
+  if (appel.typeLogement === "maison") return "maison";
+  return ["appartement", appel.etage && `etage ${appel.etage}`, appel.codeAcces && `code ${appel.codeAcces}`]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function construireSmsUrgence(appel: Appel): string {
+  const heure = appel.createdAt.toLocaleTimeString("fr-FR", { timeZone: FUSEAU, hour: "2-digit", minute: "2-digit" });
+  return [
+    `URGENT (appel ${heure})`,
+    appel.nom,
+    adresseComplete(appel) || "adresse non donnee",
+    acces(appel),
+    `Tel ${appel.telephone || appel.numeroAppelant || "inconnu"}`,
+    appel.motif,
+  ]
+    .filter(Boolean)
+    .join(" - ")
+    .slice(0, 600);
+}
+
+/**
+ * Alerte SMS immediate pour une urgence (une seule par appel). Un echec
+ * n'interrompt jamais l'appel : il est journalise, et l'e-mail de fin
+ * d'appel reste envoye.
+ */
+export async function alerterUrgence(prisma: PrismaClient, appel: Appel): Promise<void> {
+  if (!smsEstConfigure()) return;
+  const verrou = await prisma.appel.updateMany({
+    where: { id: appel.id, smsUrgenceEnvoyeLe: null },
+    data: { smsUrgenceEnvoyeLe: new Date() },
+  });
+  if (verrou.count === 0) return;
+  try {
+    await envoyerSms(construireSmsUrgence(appel));
+    await logEvenement(prisma, { evenement: "appel_urgence_sms", action: `Alerte SMS urgence (appel ${appel.callSid})`, resultat: "Envoye." });
+  } catch (err) {
+    await prisma.appel.update({ where: { id: appel.id }, data: { smsUrgenceEnvoyeLe: null } });
+    await logEvenement(prisma, {
+      evenement: "appel_urgence_sms_echec",
+      action: `Alerte SMS urgence (appel ${appel.callSid})`,
+      resultat: (err as Error).message,
+    });
+  }
+}
+
 export function construireCompteRendu(appel: Appel): { sujet: string; texte: string } {
   const qui = appel.nom || appel.numeroAppelant || "numero masque";
   const prefixe = appel.urgence === "urgente" ? "URGENT - " : "";
@@ -388,7 +467,8 @@ export function construireCompteRendu(appel: Appel): { sujet: string; texte: str
   if (appel.nom || appel.motif || appel.adresse || appel.telephone) {
     lignes.push(`Nom : ${appel.nom ?? "non donne"}`);
     lignes.push(`A rappeler au : ${appel.telephone || appel.numeroAppelant || "non donne"}`);
-    lignes.push(`Adresse : ${appel.adresse ?? "non donnee"}`);
+    lignes.push(`Adresse : ${adresseComplete(appel) || "non donnee"}`);
+    lignes.push(`Logement : ${acces(appel) ?? "non precise"}`);
     lignes.push(`Motif : ${appel.motif ?? "non precise"}`);
     lignes.push(`Urgence : ${appel.urgence ?? "non evaluee"}`);
   } else {
@@ -424,6 +504,7 @@ export async function finaliserAppel(prisma: PrismaClient, callSid: string): Pro
   });
   if (verrou.count === 0) return;
   const appel = await prisma.appel.findUniqueOrThrow({ where: { callSid } });
+  if (appel.urgence === "urgente") await alerterUrgence(prisma, appel);
   const { sujet, texte } = construireCompteRendu(appel);
 
   const connexionGmail = await getGmailClient(prisma);

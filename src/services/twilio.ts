@@ -79,3 +79,46 @@ export function messagerie(texte: string, actionUrl: string): string {
       `<Hangup/>`
   );
 }
+
+export function smsEstConfigure(): boolean {
+  return Boolean(
+    process.env.TWILIO_ACCOUNT_SID &&
+      process.env.TWILIO_AUTH_TOKEN &&
+      process.env.TWILIO_SMS_EXPEDITEUR &&
+      process.env.TELEPHONE_SMS_DESTINATAIRE
+  );
+}
+
+/**
+ * Envoie un SMS via l'API REST Twilio (alerte d'urgence du standard
+ * telephonique). Destinataire(s) : TELEPHONE_SMS_DESTINATAIRE, plusieurs
+ * numeros possibles separes par des virgules. Expediteur :
+ * TWILIO_SMS_EXPEDITEUR (numero Twilio capable d'envoyer des SMS, ou nom
+ * alphanumerique de 11 caracteres maximum, ex. "Morgane").
+ */
+export async function envoyerSms(corps: string): Promise<void> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const expediteur = process.env.TWILIO_SMS_EXPEDITEUR;
+  const destinataires = (process.env.TELEPHONE_SMS_DESTINATAIRE ?? "")
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (!sid || !token || !expediteur || destinataires.length === 0) {
+    throw new Error(
+      "SMS non configure (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_SMS_EXPEDITEUR et TELEPHONE_SMS_DESTINATAIRE requis)."
+    );
+  }
+  for (const destinataire of destinataires) {
+    const reponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: destinataire, From: expediteur, Body: corps }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!reponse.ok) throw new Error(`Twilio SMS ${reponse.status} : ${(await reponse.text()).slice(0, 200)}`);
+  }
+}

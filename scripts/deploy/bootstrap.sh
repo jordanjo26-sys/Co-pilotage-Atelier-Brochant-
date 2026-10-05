@@ -40,6 +40,13 @@ SYNEC_MOT_DE_PASSE_ARG="${9:-}"
 # verifier que les webhooks /telephonie/* viennent bien de Twilio. Absent ->
 # ces webhooks repondent 503, le reste de l'application n'est pas concerne.
 TWILIO_AUTH_TOKEN_ARG="${10:-}"
+# Alerte SMS immediate des urgences : identifiant du compte Twilio,
+# expediteur (numero Twilio SMS ou nom alphanumerique, ex. "Morgane") et
+# numero(s) qui recoivent l'alerte (separes par des virgules). Absents ->
+# pas de SMS, l'e-mail de compte rendu reste envoye.
+TWILIO_ACCOUNT_SID_ARG="${11:-}"
+TWILIO_SMS_EXPEDITEUR_ARG="${12:-}"
+TELEPHONE_SMS_DESTINATAIRE_ARG="${13:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -177,6 +184,19 @@ if [ -n "$TWILIO_AUTH_TOKEN_ARG" ]; then
     echo "TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN_ARG}" >> "$ENV_FILE"
   fi
 fi
+definir_variable() {
+  # "ajouter si absente, sinon remplacer", uniquement si une valeur est transmise.
+  local nom="$1" valeur="$2"
+  [ -n "$valeur" ] || return 0
+  if grep -q "^${nom}=" "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^${nom}=.*#${nom}=${valeur}#" "$ENV_FILE"
+  else
+    echo "${nom}=${valeur}" >> "$ENV_FILE"
+  fi
+}
+definir_variable TWILIO_ACCOUNT_SID "$TWILIO_ACCOUNT_SID_ARG"
+definir_variable TWILIO_SMS_EXPEDITEUR "$TWILIO_SMS_EXPEDITEUR_ARG"
+definir_variable TELEPHONE_SMS_DESTINATAIRE "$TELEPHONE_SMS_DESTINATAIRE_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi

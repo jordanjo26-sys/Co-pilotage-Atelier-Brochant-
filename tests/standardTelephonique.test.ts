@@ -199,5 +199,94 @@ test("standard telephonique : tours de conversation, message et compte rendu", a
     assert.equal(appel.statut, "termine");
   });
 
+  await t.test("urgence : SMS immediat une fois l'adresse et l'acces connus, jamais en double", async () => {
+    Object.assign(process.env, {
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "jeton",
+      TWILIO_SMS_EXPEDITEUR: "Morgane",
+      TELEPHONE_SMS_DESTINATAIRE: "+33600000001",
+    });
+    const envois: URLSearchParams[] = [];
+    const fetchOrigine = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: { body?: unknown }) => {
+      envois.push(init?.body as URLSearchParams);
+      return new Response("{}", { status: 201 });
+    }) as typeof fetch;
+
+    try {
+      let appel = await demarrerAppel(prisma, "CA-3", "+33611223344");
+      const outil = (id: string, input: Record<string, string>) => ({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id, name: "enregistrer_message", input }],
+      });
+      const fin = { stop_reason: "end_turn", content: [{ type: "text", text: "D'accord." }] };
+
+      // Urgence et adresse connues, mais pas encore l'acces : pas de SMS.
+      const { client } = fauxClient([
+        outil("u1", { motif: "Refoulement d'egout dans la cuisine", urgence: "urgente", nom: "M. Petit", adresse: "4 rue Brochant", code_postal: "75017", ville: "Paris" }),
+        fin,
+      ]);
+      await traiterTour(prisma, appel, "Ca refoule partout, c'est urgent", client);
+      assert.equal(envois.length, 0);
+
+      appel = await prisma.appel.findUniqueOrThrow({ where: { callSid: "CA-3" } });
+      const { client: client2 } = fauxClient([
+        outil("u2", { type_logement: "appartement", etage: "3", code_acces: "1234B" }),
+        fin,
+      ]);
+      await traiterTour(prisma, appel, "Appartement au troisieme, code 1234B", client2);
+      assert.equal(envois.length, 1);
+      const corps = envois[0].get("Body") ?? "";
+      assert.ok(corps.startsWith("URGENT"));
+      assert.ok(corps.includes("4 rue Brochant, 75017 Paris"));
+      assert.ok(corps.includes("appartement, etage 3, code 1234B"));
+      assert.ok(corps.includes("Tel +33611223344"));
+      assert.equal(envois[0].get("To"), "+33600000001");
+
+      // Nouveau complement puis fin d'appel : pas de second SMS.
+      appel = await prisma.appel.findUniqueOrThrow({ where: { callSid: "CA-3" } });
+      const { client: client3 } = fauxClient([outil("u3", { telephone: "0611223344" }), fin]);
+      await traiterTour(prisma, appel, "Rappelez-moi sur ce numero", client3);
+      await finaliserAppel(prisma, "CA-3");
+      assert.equal(envois.length, 1);
+
+      appel = await prisma.appel.findUniqueOrThrow({ where: { callSid: "CA-3" } });
+      const { texte } = construireCompteRendu(appel);
+      assert.ok(texte.includes("Logement : appartement, etage 3, code 1234B"));
+    } finally {
+      globalThis.fetch = fetchOrigine;
+      for (const cle of ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_EXPEDITEUR", "TELEPHONE_SMS_DESTINATAIRE"]) {
+        delete process.env[cle];
+      }
+    }
+  });
+
+  await t.test("urgence : SMS envoye en fin d'appel si l'appelant raccroche avant l'adresse", async () => {
+    Object.assign(process.env, {
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "jeton",
+      TWILIO_SMS_EXPEDITEUR: "Morgane",
+      TELEPHONE_SMS_DESTINATAIRE: "+33600000001",
+    });
+    const envois: URLSearchParams[] = [];
+    const fetchOrigine = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: { body?: unknown }) => {
+      envois.push(init?.body as URLSearchParams);
+      return new Response("{}", { status: 201 });
+    }) as typeof fetch;
+    try {
+      const appel = await demarrerAppel(prisma, "CA-4", "+33622334455");
+      await prisma.appel.update({ where: { id: appel.id }, data: { urgence: "urgente", motif: "Inondation" } });
+      await finaliserAppel(prisma, "CA-4");
+      assert.equal(envois.length, 1);
+      assert.ok((envois[0].get("Body") ?? "").includes("adresse non donnee"));
+    } finally {
+      globalThis.fetch = fetchOrigine;
+      for (const cle of ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_EXPEDITEUR", "TELEPHONE_SMS_DESTINATAIRE"]) {
+        delete process.env[cle];
+      }
+    }
+  });
+
   await prisma.$disconnect();
 });

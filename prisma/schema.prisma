@@ -338,13 +338,19 @@ model Appel {
   // Message structure releve par l'agent (outil enregistrer_message).
   nom             String?
   telephone       String?
-  adresse         String?
+  adresse         String? // numero et rue
+  codePostal      String?
+  ville           String?
+  typeLogement    String? // maison | appartement
+  etage           String?
+  codeAcces       String? // code d'immeuble / interphone
   motif           String?
   urgence         String? // faible | normale | urgente
   rendezVousDebut DateTime?
   rendezVousFin   DateTime?
   rendezVousEventId String?
   enregistrementUrl String? // messagerie de secours si l'IA est indisponible
+  smsUrgenceEnvoyeLe DateTime?
   notifieLe       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
