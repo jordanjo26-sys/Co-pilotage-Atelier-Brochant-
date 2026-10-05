@@ -1,8 +1,11 @@
 {
   "_commentaire": "Informations que l'agent telephonique peut donner aux appelants. Tout ce qui n'est pas ici, il ne l'invente pas : il prend un message. A relire et completer (les valeurs ci-dessous sont des exemples a verifier).",
-  "entreprise": "Atelier Brochant",
+  "nomsEntreprise": [
+    "Atelier Brochant",
+    "France Dégorgement"
+  ],
+  "messageAccueil": "Bonjour, Morgane à votre écoute. Que puis-je faire pour vous ?",
   "activite": "Degorgement et debouchage de canalisations (eviers, WC, douches, colonnes d'immeuble), recherche de fuite, inspection camera.",
-  "prenomResponsable": "",
   "prenomAgent": "Morgane",
   "zoneIntervention": "Paris et petite couronne",
   "adresse": "",
@@ -35,5 +38,6 @@
   "joursRecherche": 7,
   "tarifs": [],
   "consignesUrgence": "En cas de degat des eaux en cours, conseiller de couper l'arrivee d'eau generale en attendant l'intervention.",
+  "delaiInterventionUrgence": "moins d'une heure",
   "informationsComplementaires": []
 }

@@ -126,14 +126,19 @@ forfaits incluent les appels illimités vers les fixes).
 
 Relire et compléter `src/config/standard-telephonique.json` :
 
-- `prenomResponsable` : votre prénom (« Jordan n'est pas disponible… ») ;
+- `messageAccueil` : la phrase prononcée au décroché (neutre, sans nom
+  d'entreprise : « Bonjour, Morgane à votre écoute… ») ;
+- `nomsEntreprise` : les noms sous lesquels les clients appellent
+  (Atelier Brochant, France Dégorgement) — elle confirme l'un ou l'autre
+  si on le lui demande, sans jamais en annoncer un d'elle-même ;
 - `prenomAgent` : le prénom de l'assistante ;
 - `horairesTexte`, `horairesRendezVous` : horaires annoncés et plages où
   elle peut placer des rendez-vous ;
 - `dureeRendezVousMinutes`, `delaiMinimumAvantRendezVousHeures` ;
 - `tarifs` : laisser vide pour qu'elle ne donne **jamais** de prix, ou
   lister des tarifs indicatifs (ex. `"Debouchage evier : a partir de 90 euros TTC"`) ;
-- `consignesUrgence`, `informationsComplementaires`.
+- `consignesUrgence`, `delaiInterventionUrgence` (« moins d'une heure » :
+  annoncé en cas d'urgence, sans prise de rendez-vous), `informationsComplementaires`.
 
 Les valeurs actuelles sont des **exemples à vérifier**.
 
