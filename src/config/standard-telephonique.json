@@ -1,0 +1,25 @@
+{
+  "_commentaire": "Informations que l'agent telephonique peut donner aux appelants. Tout ce qui n'est pas ici, il ne l'invente pas : il prend un message. A relire et completer (les valeurs ci-dessous sont des exemples a verifier).",
+  "entreprise": "Atelier Brochant",
+  "activite": "Degorgement et debouchage de canalisations (eviers, WC, douches, colonnes d'immeuble), recherche de fuite, inspection camera.",
+  "prenomResponsable": "",
+  "prenomAgent": "Camille",
+  "zoneIntervention": "Paris et petite couronne",
+  "adresse": "",
+  "horairesTexte": "Du lundi au vendredi de 8h a 19h, le samedi de 9h a 13h.",
+  "horairesRendezVous": {
+    "lundi": [["08:00", "12:00"], ["14:00", "19:00"]],
+    "mardi": [["08:00", "12:00"], ["14:00", "19:00"]],
+    "mercredi": [["08:00", "12:00"], ["14:00", "19:00"]],
+    "jeudi": [["08:00", "12:00"], ["14:00", "19:00"]],
+    "vendredi": [["08:00", "12:00"], ["14:00", "19:00"]],
+    "samedi": [["09:00", "13:00"]],
+    "dimanche": []
+  },
+  "dureeRendezVousMinutes": 60,
+  "delaiMinimumAvantRendezVousHeures": 2,
+  "joursRecherche": 7,
+  "tarifs": [],
+  "consignesUrgence": "En cas de degat des eaux en cours, conseiller de couper l'arrivee d'eau generale en attendant l'intervention.",
+  "informationsComplementaires": []
+}

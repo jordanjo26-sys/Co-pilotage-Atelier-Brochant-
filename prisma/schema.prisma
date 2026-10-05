@@ -315,3 +315,37 @@ model ImportBatch {
   mouvements     MouvementBancaire[]
   recapitulatifs RecapitulatifSolde[]
 }
+
+// --- Standard telephonique IA ------------------------------------------------
+
+// Un appel recu par l'agent telephonique (Twilio -> /telephonie/*), quand
+// l'utilisateur ne decroche pas. "conversation" garde l'historique exact
+// echange avec Claude (blocs de reflexion compris, a renvoyer tels quels
+// d'un tour a l'autre) ; "transcription" la version lisible destinee a
+// l'e-mail de compte rendu.
+model Appel {
+  id              String    @id @default(cuid())
+  callSid         String    @unique
+  numeroAppelant  String?
+  statut          String    @default("en_cours") // en_cours | termine
+  conversation    Json      @default("[]")
+  transcription   Json      @default("[]")
+  // Propos de l'appelant non encore traites (echec ou delai depasse cote IA
+  // au tour precedent) : reinjectes au tour suivant plutot que perdus.
+  enAttente       String?
+  silences        Int       @default(0)
+  erreurs         Int       @default(0)
+  // Message structure releve par l'agent (outil enregistrer_message).
+  nom             String?
+  telephone       String?
+  adresse         String?
+  motif           String?
+  urgence         String? // faible | normale | urgente
+  rendezVousDebut DateTime?
+  rendezVousFin   DateTime?
+  rendezVousEventId String?
+  enregistrementUrl String? // messagerie de secours si l'IA est indisponible
+  notifieLe       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}

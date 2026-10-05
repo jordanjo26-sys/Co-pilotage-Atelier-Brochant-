@@ -4,6 +4,7 @@ import express from "express";
 import { prisma } from "./db/client";
 import { buildRouter } from "./api/routes";
 import { buildAuthRouter } from "./api/authRoutes";
+import { buildTelephonieRouter } from "./api/telephonieRoutes";
 import { demarrerSurveillanceGmail, demarrerRecapQuotidien, demarrerSurveillanceStripe, demarrerSurveillanceSynec } from "./services/scheduler";
 
 dotenv.config();
@@ -14,6 +15,8 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json());
 app.use("/api", buildRouter(prisma));
 app.use("/auth", buildAuthRouter(prisma));
+// Webhooks Twilio du standard telephonique IA (authentifies par signature).
+app.use("/telephonie", buildTelephonieRouter(prisma));
 // process.cwd() plutot que __dirname : ce dernier depend de la structure de
 // sortie de tsc (dist/src/server.js, cf. rootDir "." dans tsconfig.json),
 // alors que le repertoire de travail est stable (racine du projet, en local

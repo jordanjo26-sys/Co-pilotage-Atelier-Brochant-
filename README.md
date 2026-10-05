@@ -1,7 +1,7 @@
 # Copilote Atelier Brochant
 
 Implémentation progressive du « Copilote IA de gestion » décrit dans le
-cahier des charges. Deux briques sont construites à ce stade :
+cahier des charges. Trois briques sont construites à ce stade :
 
 1. **Réception CSV/PDF** — reçoit, reconnaît et normalise les exports Synec
    (factures, clients), Stripe (payouts, solde) et le relevé bancaire
@@ -10,6 +10,11 @@ cahier des charges. Deux briques sont construites à ce stade :
    classe chaque pièce jointe reçue (facture, avoir, bon d'enlèvement,
    relevé fournisseur) et transfère automatiquement les factures standard
    vers Dext, sans double saisie ni doublon.
+3. **Standard téléphonique IA** — une assistante vocale répond aux appels
+   quand vous ne décrochez pas (renvoi d'appel vers un numéro Twilio) :
+   prise de message, réponses aux questions simples, rendez-vous dans
+   l'agenda Google, compte rendu par e-mail. Mise en service :
+   `docs/standard-telephonique.md`.
 
 Voir `docs/architecture.md` pour le détail du découpage en phases et des
 choix techniques, et `docs/mise-en-service.md` pour la checklist concrète
