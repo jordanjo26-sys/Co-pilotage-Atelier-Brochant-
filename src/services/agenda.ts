@@ -64,7 +64,11 @@ export function calculerCreneauxLibres(occupes: Intervalle[], maintenant: Date, 
     const dateJour = jour.format("YYYY-MM-DD");
     for (const [ouverture, fermeture] of options.horaires[JOURS[jour.day()]] ?? []) {
       let debut = dayjs.tz(`${dateJour} ${ouverture}`, FUSEAU).valueOf();
-      const finPlage = dayjs.tz(`${dateJour} ${fermeture}`, FUSEAU).valueOf();
+      // "24:00" = jusqu'a minuit (ouverture 24 h/24), que dayjs ne sait pas lire.
+      const finPlage =
+        fermeture === "24:00"
+          ? dayjs.tz(`${jour.add(1, "day").format("YYYY-MM-DD")} 00:00`, FUSEAU).valueOf()
+          : dayjs.tz(`${dateJour} ${fermeture}`, FUSEAU).valueOf();
       for (; debut + dureeMs <= finPlage && resultat.length < options.maximum; debut += dureeMs) {
         const creneau = { debut: new Date(debut), fin: new Date(debut + dureeMs) };
         if (debut >= auPlusTot && !occupes.some((o) => chevauche(o, creneau))) resultat.push(creneau);

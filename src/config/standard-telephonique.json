@@ -3,18 +3,32 @@
   "entreprise": "Atelier Brochant",
   "activite": "Degorgement et debouchage de canalisations (eviers, WC, douches, colonnes d'immeuble), recherche de fuite, inspection camera.",
   "prenomResponsable": "",
-  "prenomAgent": "Camille",
+  "prenomAgent": "Morgane",
   "zoneIntervention": "Paris et petite couronne",
   "adresse": "",
-  "horairesTexte": "Du lundi au vendredi de 8h a 19h, le samedi de 9h a 13h.",
+  "horairesTexte": "24 heures sur 24, 7 jours sur 7, y compris les week-ends et jours feries.",
   "horairesRendezVous": {
-    "lundi": [["08:00", "12:00"], ["14:00", "19:00"]],
-    "mardi": [["08:00", "12:00"], ["14:00", "19:00"]],
-    "mercredi": [["08:00", "12:00"], ["14:00", "19:00"]],
-    "jeudi": [["08:00", "12:00"], ["14:00", "19:00"]],
-    "vendredi": [["08:00", "12:00"], ["14:00", "19:00"]],
-    "samedi": [["09:00", "13:00"]],
-    "dimanche": []
+    "lundi": [
+      ["00:00", "24:00"]
+    ],
+    "mardi": [
+      ["00:00", "24:00"]
+    ],
+    "mercredi": [
+      ["00:00", "24:00"]
+    ],
+    "jeudi": [
+      ["00:00", "24:00"]
+    ],
+    "vendredi": [
+      ["00:00", "24:00"]
+    ],
+    "samedi": [
+      ["00:00", "24:00"]
+    ],
+    "dimanche": [
+      ["00:00", "24:00"]
+    ]
   },
   "dureeRendezVousMinutes": 60,
   "delaiMinimumAvantRendezVousHeures": 2,

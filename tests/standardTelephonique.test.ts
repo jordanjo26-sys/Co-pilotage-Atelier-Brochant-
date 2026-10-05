@@ -58,6 +58,21 @@ test("creneaux : a partir d'un jour souhaite", () => {
   assert.equal(formaterCreneau(creneaux[0].debut), "mardi 13 octobre a 08h00");
 });
 
+test("creneaux : ouverture 24 h/24 (fermeture a 24:00)", () => {
+  // Lundi 5 octobre 2026, 21h30 a Paris : premier creneau a 23h30, puis la nuit.
+  const creneaux = calculerCreneauxLibres([], new Date("2026-10-05T19:30:00Z"), {
+    horaires: { lundi: [["00:00", "24:00"]], mardi: [["00:00", "24:00"]] },
+    dureeMinutes: 60,
+    delaiMinimumHeures: 2,
+    joursRecherche: 2,
+    maximum: 3,
+  });
+  assert.deepEqual(
+    creneaux.map((c) => formaterCreneau(c.debut)),
+    ["mardi 6 octobre a 00h00", "mardi 6 octobre a 01h00", "mardi 6 octobre a 02h00"]
+  );
+});
+
 test("twilio : signature verifiee, toute alteration rejetee", () => {
   const url = "https://copilotage-brochant.fr/telephonie/tour";
   const params = { CallSid: "CA123", SpeechResult: "Bonjour, mon evier est bouche", From: "+33612345678" };

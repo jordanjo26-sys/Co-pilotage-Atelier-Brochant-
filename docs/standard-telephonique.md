@@ -1,6 +1,6 @@
 # Standard téléphonique IA — mise en service
 
-L'assistante téléphonique (« Camille » par défaut) décroche **à votre place
+L'assistante téléphonique **Morgane** décroche **à votre place
 quand vous ne pouvez pas répondre**. Elle :
 
 - prend un **message complet** : nom, numéro de rappel, adresse
