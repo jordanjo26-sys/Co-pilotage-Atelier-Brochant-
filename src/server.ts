@@ -4,8 +4,16 @@ import express from "express";
 import { prisma } from "./db/client";
 import { buildRouter } from "./api/routes";
 import { buildAuthRouter } from "./api/authRoutes";
+import { buildProspectionRouter, buildProspectionTrackingRouter } from "./api/prospectionRoutes";
 import { buildTelephonieRouter } from "./api/telephonieRoutes";
-import { demarrerSurveillanceGmail, demarrerRecapQuotidien, demarrerSurveillanceStripe, demarrerSurveillanceSynec } from "./services/scheduler";
+import {
+  demarrerSurveillanceGmail,
+  demarrerRecapQuotidien,
+  demarrerSurveillanceStripe,
+  demarrerSurveillanceSynec,
+  demarrerDetectionReponsesProspection,
+  demarrerEnvoiAutomatiqueCampagnes,
+} from "./services/scheduler";
 
 dotenv.config();
 
@@ -14,6 +22,8 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 app.use("/api", buildRouter(prisma));
+app.use("/api/prospection", buildProspectionRouter(prisma));
+app.use("/api/prospection/suivi", buildProspectionTrackingRouter(prisma));
 app.use("/auth", buildAuthRouter(prisma));
 // Webhooks Twilio du standard telephonique IA (authentifies par signature).
 app.use("/telephonie", buildTelephonieRouter(prisma));
@@ -32,6 +42,8 @@ demarrerSurveillanceGmail(prisma);
 demarrerRecapQuotidien(prisma);
 demarrerSurveillanceStripe(prisma);
 demarrerSurveillanceSynec(prisma);
+demarrerDetectionReponsesProspection(prisma);
+demarrerEnvoiAutomatiqueCampagnes(prisma);
 
 process.on("SIGINT", async () => {
   await prisma.$disconnect();
