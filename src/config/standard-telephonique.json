@@ -1,0 +1,43 @@
+{
+  "_commentaire": "Informations que l'agent telephonique peut donner aux appelants. Tout ce qui n'est pas ici, il ne l'invente pas : il prend un message. A relire et completer (les valeurs ci-dessous sont des exemples a verifier).",
+  "nomsEntreprise": [
+    "Atelier Brochant",
+    "France Dégorgement"
+  ],
+  "messageAccueil": "Bonjour, Morgane à votre écoute. Que puis-je faire pour vous ?",
+  "activite": "Degorgement et debouchage de canalisations (eviers, WC, douches, colonnes d'immeuble), recherche de fuite, inspection camera.",
+  "prenomAgent": "Morgane",
+  "zoneIntervention": "Paris et petite couronne",
+  "adresse": "",
+  "horairesTexte": "24 heures sur 24, 7 jours sur 7, y compris les week-ends et jours feries.",
+  "horairesRendezVous": {
+    "lundi": [
+      ["00:00", "24:00"]
+    ],
+    "mardi": [
+      ["00:00", "24:00"]
+    ],
+    "mercredi": [
+      ["00:00", "24:00"]
+    ],
+    "jeudi": [
+      ["00:00", "24:00"]
+    ],
+    "vendredi": [
+      ["00:00", "24:00"]
+    ],
+    "samedi": [
+      ["00:00", "24:00"]
+    ],
+    "dimanche": [
+      ["00:00", "24:00"]
+    ]
+  },
+  "dureeRendezVousMinutes": 60,
+  "delaiMinimumAvantRendezVousHeures": 2,
+  "joursRecherche": 7,
+  "tarifs": [],
+  "consignesUrgence": "En cas de degat des eaux en cours, conseiller de couper l'arrivee d'eau generale en attendant l'intervention.",
+  "delaiInterventionUrgence": "moins d'une heure",
+  "informationsComplementaires": []
+}

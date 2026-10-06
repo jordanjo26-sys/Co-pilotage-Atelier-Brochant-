@@ -70,8 +70,11 @@ jobs:
           # alimente Morgane (assistante IA) ; STRIPE_API_KEY la
           # synchronisation Stripe directe ; SYNEC_* l'automatisation de
           # recuperation des factures non reglees (compte dedie, Synec
-          # n'ayant aucune API). Absents, bootstrap.sh laisse la
+          # n'ayant aucune API) ; TWILIO_AUTH_TOKEN la verification des
+          # webhooks du standard telephonique IA, TWILIO_ACCOUNT_SID /
+          # TWILIO_SMS_EXPEDITEUR / TELEPHONE_SMS_DESTINATAIRE son alerte
+          # SMS immediate des urgences. Absents, bootstrap.sh laisse la
           # configuration existante inchangee.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}'"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}'"

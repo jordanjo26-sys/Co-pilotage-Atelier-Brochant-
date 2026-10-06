@@ -191,6 +191,13 @@ change son interface), mais évite le dépôt manuel de CSV.
    toujours possible en complément (les deux voies ne se dupliquent
    jamais, même mécanique de rapprochement que pour Stripe).
 
+## 7. Standard téléphonique IA — à configurer
+
+Assistante vocale qui répond aux appels quand vous ne décrochez pas :
+compte Twilio + numéro, secret GitHub `TWILIO_AUTH_TOKEN`, reconnexion
+Google pour l'agenda, renvoi d'appel chez votre opérateur. Toutes les
+étapes sont détaillées dans `docs/standard-telephonique.md`.
+
 ## Ce qui se passe une fois tout branché
 
 - Le serveur vérifie la boîte Gmail toutes les 5 minutes (réglable via

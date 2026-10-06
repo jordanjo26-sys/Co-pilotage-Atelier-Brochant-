@@ -5,6 +5,7 @@ import { prisma } from "./db/client";
 import { buildRouter } from "./api/routes";
 import { buildAuthRouter } from "./api/authRoutes";
 import { buildProspectionRouter, buildProspectionTrackingRouter } from "./api/prospectionRoutes";
+import { buildTelephonieRouter } from "./api/telephonieRoutes";
 import {
   demarrerSurveillanceGmail,
   demarrerRecapQuotidien,
@@ -24,6 +25,8 @@ app.use("/api", buildRouter(prisma));
 app.use("/api/prospection", buildProspectionRouter(prisma));
 app.use("/api/prospection/suivi", buildProspectionTrackingRouter(prisma));
 app.use("/auth", buildAuthRouter(prisma));
+// Webhooks Twilio du standard telephonique IA (authentifies par signature).
+app.use("/telephonie", buildTelephonieRouter(prisma));
 // process.cwd() plutot que __dirname : ce dernier depend de la structure de
 // sortie de tsc (dist/src/server.js, cf. rootDir "." dans tsconfig.json),
 // alors que le repertoire de travail est stable (racine du projet, en local

@@ -9,10 +9,18 @@ import { chiffrer, dechiffrer } from "./cipher";
  * (libelle applique) sans donner acces a l'envoi au nom de l'utilisateur
  * au-dela de ce qui est strictement necessaire au transfert vers Dext.
  */
+// Agenda (lecture des disponibilites et creation d'evenements uniquement,
+// pas de gestion des agendas eux-memes) : utilise par l'agent telephonique
+// pour proposer et reserver des creneaux (src/services/agenda.ts). Une
+// connexion etablie avant son ajout ne l'a pas : il suffit de se
+// reconnecter via /auth/google pour l'accorder.
+export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/gmail.labels",
+  CALENDAR_SCOPE,
 ];
 
 function requireEnv(name: string): string {

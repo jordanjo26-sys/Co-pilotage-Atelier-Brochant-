@@ -36,6 +36,17 @@ STRIPE_API_KEY_ARG="${6:-}"
 SYNEC_URL_ARG="${7:-}"
 SYNEC_IDENTIFIANT_ARG="${8:-}"
 SYNEC_MOT_DE_PASSE_ARG="${9:-}"
+# Auth Token du compte Twilio (standard telephonique IA) : sert uniquement a
+# verifier que les webhooks /telephonie/* viennent bien de Twilio. Absent ->
+# ces webhooks repondent 503, le reste de l'application n'est pas concerne.
+TWILIO_AUTH_TOKEN_ARG="${10:-}"
+# Alerte SMS immediate des urgences : identifiant du compte Twilio,
+# expediteur (numero Twilio SMS ou nom alphanumerique, ex. "Morgane") et
+# numero(s) qui recoivent l'alerte (separes par des virgules). Absents ->
+# pas de SMS, l'e-mail de compte rendu reste envoye.
+TWILIO_ACCOUNT_SID_ARG="${11:-}"
+TWILIO_SMS_EXPEDITEUR_ARG="${12:-}"
+TELEPHONE_SMS_DESTINATAIRE_ARG="${13:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -162,6 +173,32 @@ if [ -n "$SYNEC_MOT_DE_PASSE_ARG" ]; then
   else
     echo "SYNEC_MOT_DE_PASSE=${SYNEC_MOT_DE_PASSE_ARG}" >> "$ENV_FILE"
   fi
+fi
+
+# Standard telephonique : Auth Token Twilio (secret) et URL publique (pas un
+# secret, depend du domaine) qui sert au calcul de la signature Twilio.
+if [ -n "$TWILIO_AUTH_TOKEN_ARG" ]; then
+  if grep -q '^TWILIO_AUTH_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^TWILIO_AUTH_TOKEN=.*#TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN_ARG}#" "$ENV_FILE"
+  else
+    echo "TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN_ARG}" >> "$ENV_FILE"
+  fi
+fi
+definir_variable() {
+  # "ajouter si absente, sinon remplacer", uniquement si une valeur est transmise.
+  local nom="$1" valeur="$2"
+  [ -n "$valeur" ] || return 0
+  if grep -q "^${nom}=" "$ENV_FILE" 2>/dev/null; then
+    sed -i "s#^${nom}=.*#${nom}=${valeur}#" "$ENV_FILE"
+  else
+    echo "${nom}=${valeur}" >> "$ENV_FILE"
+  fi
+}
+definir_variable TWILIO_ACCOUNT_SID "$TWILIO_ACCOUNT_SID_ARG"
+definir_variable TWILIO_SMS_EXPEDITEUR "$TWILIO_SMS_EXPEDITEUR_ARG"
+definir_variable TELEPHONE_SMS_DESTINATAIRE "$TELEPHONE_SMS_DESTINATAIRE_ARG"
+if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
+  echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
 
 echo "== Base de donnees PostgreSQL =="
@@ -318,6 +355,19 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 ${AUTH_BASIC_CONF}
+
+    # Webhooks Twilio (standard telephonique IA) : Twilio ne peut pas saisir
+    # le mot de passe du site, chaque requete est authentifiee par sa
+    # signature Twilio cote application (src/api/telephonieRoutes.ts).
+    location /telephonie/ {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:3000;
