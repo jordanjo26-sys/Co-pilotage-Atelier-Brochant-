@@ -61,6 +61,9 @@ CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
 # systeme sur le mois de septembre) — repasser a "true" ici puis redeployer
 # pour reactiver l'envoi automatique.
 DEXT_AUTO_FORWARD="false"
+# Numero Twilio du standard telephonique IA (Morgane), vers lequel le
+# portable de l'atelier renvoie les appels non decroches.
+TWILIO_NUMERO="+33973921009"
 
 echo "== Fuseau horaire =="
 # Les images cloud sont generalement en UTC par defaut : sans ce reglage,
@@ -230,6 +233,12 @@ npx playwright install-deps chromium
 sudo -u "$APP_USER" npx playwright install chromium
 sudo -u "$APP_USER" npm run build
 sudo -u "$APP_USER" npx prisma migrate deploy
+
+echo "== Numero Twilio du standard telephonique =="
+# Branche le numero sur /telephonie/* par l'API Twilio (la page de
+# configuration de la console echoue pour ce numero). Idempotent, sans
+# effet si les identifiants Twilio sont absents, jamais bloquant.
+sudo -u "$APP_USER" node dist/scripts/configurer-numero-twilio.js "$TWILIO_NUMERO" || true
 
 echo "== Service systemd =="
 cp "$APP_DIR/scripts/deploy/copilote-brochant.service" /etc/systemd/system/copilote-brochant.service
