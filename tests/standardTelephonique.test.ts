@@ -168,6 +168,39 @@ test("standard telephonique : tours de conversation, message et compte rendu", a
     assert.ok(texte.includes("Appelant : Mes toilettes sont bouchees, ca deborde"));
   });
 
+  await t.test("latence : un seul appel a l'IA quand la phrase accompagne l'enregistrement", async () => {
+    let appel = await demarrerAppel(prisma, "CA-5", "+33600000005");
+    const { client, requetes } = fauxClient([
+      {
+        stop_reason: "tool_use",
+        content: [
+          { type: "text", text: "C'est note. A quel nom ?" },
+          { type: "tool_use", id: "r1", name: "enregistrer_message", input: { motif: "Evier bouche", urgence: "normale" } },
+        ],
+      },
+    ]);
+    const tour = await traiterTour(prisma, appel, "Mon evier est bouche", client);
+    assert.equal(tour.reponse, "C'est note. A quel nom ?");
+    assert.equal(requetes.length, 1);
+
+    appel = await prisma.appel.findUniqueOrThrow({ where: { callSid: "CA-5" } });
+    assert.equal(appel.motif, "Evier bouche");
+    const transcription = appel.transcription as unknown as { qui: string; dureeMs?: number }[];
+    assert.equal(typeof transcription[transcription.length - 1].dureeMs, "number");
+
+    // Au tour suivant, le resultat de l'outil precede les propos de l'appelant.
+    const { client: client2, requetes: requetes2 } = fauxClient([
+      { stop_reason: "end_turn", content: [{ type: "text", text: "Merci Monsieur Durand." }] },
+    ]);
+    await traiterTour(prisma, appel, "Durand", client2);
+    const messages = requetes2[0].messages as { role: string; content: unknown }[];
+    const avantDernier = messages[messages.length - 2] as { role: string; content: { type: string; tool_use_id: string }[] };
+    assert.equal(avantDernier.role, "user");
+    assert.equal(avantDernier.content[0].type, "tool_result");
+    assert.equal(avantDernier.content[0].tool_use_id, "r1");
+    assert.deepEqual(messages[messages.length - 1], { role: "user", content: "Durand" });
+  });
+
   await t.test("echec de l'IA : les propos de l'appelant sont gardes pour le tour suivant", async () => {
     let appel = await demarrerAppel(prisma, "CA-2", null);
     const { client } = fauxClient([new Error("delai depasse")]);
