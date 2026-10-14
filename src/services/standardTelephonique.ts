@@ -11,7 +11,7 @@ import {
   FUSEAU,
 } from "./agenda";
 import { getGmailClient } from "./googleAuth";
-import { envoyerSms, smsEstConfigure } from "./twilio";
+import { envoyerSms, smsEstConfigure, telechargerEnregistrement } from "./twilio";
 import { logEvenement } from "./journalService";
 
 /**
@@ -179,7 +179,10 @@ function presentationEntreprise(): string {
   ];
   if (config.adresse) lignes.push(`Adresse : ${config.adresse}.`);
   if (config.tarifs.length > 0) lignes.push(`Tarifs indicatifs : ${config.tarifs.join(" ; ")}`);
-  else lignes.push("Tarifs : aucun tarif communicable par telephone, on rappelle pour etablir un devis.");
+  else
+    lignes.push(
+      "Tarifs : aucun tarif n'est donne par telephone. Un technicien rappelle le client dans quelques minutes pour prendre plus d'informations et lui donner un tarif."
+    );
   if (config.consignesUrgence) lignes.push(`Consigne en cas d'urgence : ${config.consignesUrgence}`);
   lignes.push(`Delai d'intervention en urgence : ${config.delaiInterventionUrgence}.`);
   for (const info of config.informationsComplementaires as string[]) lignes.push(info);
@@ -218,10 +221,14 @@ dans l'agenda.
 disponible, chercher_creneaux, proposer au plus deux creneaux qui lui conviennent, et reserver \
 avec reserver_creneau seulement apres un accord explicite. Si l'agenda n'est pas disponible, \
 noter le creneau souhaite dans le motif et dire qu'il sera confirme par rappel.
-8. Questions simples : repondre a partir des informations ci-dessus. Pour tout le reste (prix \
-non listes, diagnostic technique, suivi d'un dossier ou d'une facture), dire qu'on transmet et \
-qu'on rappellera.
-9. Quand tout est note, recapituler en une phrase et terminer avec terminer_appel.
+8. Questions simples : repondre a partir des informations ci-dessus. Pour tout le reste \
+(diagnostic technique, suivi d'un dossier ou d'une facture), dire qu'on transmet et qu'on rappellera.
+9. Si le client demande un prix ou un devis : explique clairement que tu ne peux pas donner de \
+tarif par telephone, et qu'un technicien va le rappeler dans quelques minutes pour prendre un \
+peu plus d'informations et lui donner un tarif. Note la demande de tarif dans le motif, puis \
+continue la prise de coordonnees si elle n'est pas terminee. Ne donne jamais de fourchette ni \
+d'estimation, meme approximative, meme si le client insiste.
+10. Quand tout est note, recapituler en une phrase et terminer avec terminer_appel.
 
 Regles de l'oral :
 - Reponds uniquement a ce que le client demande : ne donne pas d'informations qu'il n'a pas \
@@ -544,7 +551,7 @@ export function construireCompteRendu(appel: Appel): { sujet: string; texte: str
   }
   if (appel.enregistrementUrl) {
     lignes.push("");
-    lignes.push(`Message vocal laisse sur la messagerie de secours : ${appel.enregistrementUrl}`);
+    lignes.push("Message vocal laisse par l'appelant : voir le fichier audio joint a cet e-mail.");
   }
   const transcription = appel.transcription as unknown as LigneTranscription[];
   if (transcription.length > 1) {
@@ -584,7 +591,15 @@ export async function finaliserAppel(prisma: PrismaClient, callSid: string): Pro
   const { gmail, connexion } = connexionGmail;
   const destinataire = process.env.TELEPHONE_EMAIL_NOTIFICATION || connexion.compteEmail;
   try {
-    const composer = new MailComposer({ to: destinataire, subject: sujet, text: texte });
+    // Message vocal joint en fichier audio : les liens Twilio exigent une
+    // authentification, un simple lien ne serait pas ecoutable.
+    const audio = appel.enregistrementUrl ? await telechargerEnregistrement(appel.enregistrementUrl) : null;
+    const composer = new MailComposer({
+      to: destinataire,
+      subject: sujet,
+      text: texte,
+      attachments: audio ? [{ filename: "message-vocal.mp3", content: audio, contentType: "audio/mpeg" }] : [],
+    });
     const message = await composer.compile().build();
     await gmail.users.messages.send({ userId: "me", requestBody: { raw: message.toString("base64url") } });
     await logEvenement(prisma, { evenement: "appel_notifie", action: `Compte rendu d'appel envoye a ${destinataire}`, resultat: sujet });

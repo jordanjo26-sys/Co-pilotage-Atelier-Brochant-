@@ -4,6 +4,7 @@ import { envoyerRecapQuotidien } from "./dailyRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
+import { recupererMessagesSecours } from "./messagerieSecours";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVALLE_VERIF_RECAP_MS = 5 * 60 * 1000; // 5 minutes
@@ -154,4 +155,18 @@ export function demarrerSurveillanceSynec(prisma: PrismaClient): void {
       console.error("Synchronisation Synec planifiee en echec :", (err as Error).message);
     }
   }, intervalle);
+}
+
+/**
+ * Toutes les 5 minutes : recupere les messages vocaux laisses sur la
+ * messagerie de secours Twilio (hebergee chez Twilio, utilisee si le
+ * serveur ne repondait pas) et les envoie par e-mail. Voir
+ * src/services/messagerieSecours.ts.
+ */
+export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void {
+  setInterval(() => {
+    recupererMessagesSecours(prisma).catch((err) => {
+      console.error("Recuperation des messages de secours en echec :", (err as Error).message);
+    });
+  }, 5 * 60 * 1000);
 }

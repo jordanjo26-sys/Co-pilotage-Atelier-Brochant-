@@ -13,8 +13,35 @@
  * (.env) et le numero en argument (format E.164, ex. +33973921009).
  */
 import dotenv from "dotenv";
+import { dire, echapperXml, twiml } from "../src/services/twilio";
 
 dotenv.config();
+
+/**
+ * Messagerie de secours, hebergee par Twilio lui-meme (twimlet "echo" :
+ * Twilio renvoie tel quel le TwiML passe en parametre), donc fonctionnelle
+ * meme si ce serveur est totalement indisponible. Si un numero de secours
+ * est configure (TELEPHONE_NUMERO_SECOURS, ex. technicien de garde),
+ * l'appel y est d'abord transfere ; sinon, ou sans reponse, l'appelant
+ * laisse un message vocal, recupere et envoye par e-mail des que le serveur
+ * revient (src/services/messagerieSecours.ts).
+ */
+export function urlSecours(numeroSecours?: string): string {
+  const echo = (contenu: string) => `https://twimlets.com/echo?Twiml=${encodeURIComponent(contenu)}`;
+  const fin = echo(twiml(`${dire("Merci, votre message est bien enregistre. Un technicien vous rappelle dans quelques minutes. Au revoir.")}<Hangup/>`));
+  const transfert = numeroSecours
+    ? `${dire("Service, bonjour. Un instant, je vous mets en relation avec un technicien.")}<Dial timeout="25">${echapperXml(numeroSecours)}</Dial>`
+    : "";
+  return echo(
+    twiml(
+      transfert +
+        dire(
+          "Service, bonjour. Notre standard est momentanement indisponible. Laissez votre nom, votre numero, votre adresse et le motif de votre appel apres le bip : un technicien vous rappelle dans quelques minutes."
+        ) +
+        `<Record maxLength="180" playBeep="true" action="${echapperXml(fin)}"/>`
+    )
+  );
+}
 
 async function main(): Promise<void> {
   const numero = process.argv[2];
@@ -40,16 +67,22 @@ async function main(): Promise<void> {
     body: new URLSearchParams({
       VoiceUrl: `${base}/telephonie/entrant`,
       VoiceMethod: "POST",
-      VoiceFallbackUrl: "",
+      VoiceFallbackUrl: urlSecours(process.env.TELEPHONE_NUMERO_SECOURS || undefined),
+      VoiceFallbackMethod: "POST",
       StatusCallback: `${base}/telephonie/statut`,
       StatusCallbackMethod: "POST",
     }),
   });
   if (!reponse.ok) throw new Error(`Mise a jour du numero : HTTP ${reponse.status} ${(await reponse.text()).slice(0, 300)}`);
-  const resultat = (await reponse.json()) as { phone_number: string; voice_url: string; status_callback: string };
+  const resultat = (await reponse.json()) as { phone_number: string; voice_url: string; status_callback: string; voice_fallback_url: string };
   console.log(`Numero ${resultat.phone_number} configure : voice_url=${resultat.voice_url} status_callback=${resultat.status_callback}`);
+  console.log(
+    `Messagerie de secours Twilio : ${resultat.voice_fallback_url ? "active" : "ABSENTE"}${process.env.TELEPHONE_NUMERO_SECOURS ? " (avec transfert vers le numero de secours)" : " (sans numero de secours)"}`
+  );
 }
 
-main().catch((err) => {
-  console.error(`Configuration du numero Twilio en echec : ${(err as Error).message}`);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(`Configuration du numero Twilio en echec : ${(err as Error).message}`);
+  });
+}
