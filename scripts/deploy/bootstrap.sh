@@ -239,6 +239,8 @@ echo "== Numero Twilio du standard telephonique =="
 # configuration de la console echoue pour ce numero). Idempotent, sans
 # effet si les identifiants Twilio sont absents, jamais bloquant.
 sudo -u "$APP_USER" node dist/scripts/configurer-numero-twilio.js "$TWILIO_NUMERO" || true
+echo "== Diagnostic du standard telephonique =="
+sudo -u "$APP_USER" node dist/scripts/diagnostic-telephonie.js || true
 
 echo "== Service systemd =="
 cp "$APP_DIR/scripts/deploy/copilote-brochant.service" /etc/systemd/system/copilote-brochant.service
