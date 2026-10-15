@@ -55,7 +55,7 @@ jobs:
           # echouait avec "Executable doesn't exist" (constate en
           # production).
           rsync -az --delete \
-            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude=".cache" \
+            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude="uploads" --exclude=".cache" \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
             ./ "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:/opt/copilote-brochant/"
 
