@@ -1,0 +1,24 @@
+[Unit]
+Description=Copilote Atelier Brochant (instance de secours)
+After=network.target postgresql.service
+# Instance de releve sur le port 3001 : nginx lui envoie les requetes
+# uniquement quand l'instance principale (port 3000) ne repond pas
+# (redemarrage pendant un deploiement, plantage), pour que le standard
+# telephonique ne perde jamais un appel. Aucune tache planifiee
+# (PLANIFICATEURS_DESACTIVES) pour eviter les envois en double.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=copilote
+WorkingDirectory=/opt/copilote-brochant
+EnvironmentFile=/opt/copilote-brochant/.env
+# PORT et PLANIFICATEURS_DESACTIVES passes par "env" plutot que par
+# Environment= : une valeur de EnvironmentFile (.env, PORT=3000) l'emporterait.
+ExecStart=/usr/bin/env PORT=3001 PLANIFICATEURS_DESACTIVES=true /usr/bin/node /opt/copilote-brochant/dist/src/server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

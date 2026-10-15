@@ -163,7 +163,30 @@ la boîte Gmail connectée (ou à `TELEPHONE_EMAIL_NOTIFICATION` si définie).
 Chaque appel est aussi enregistré en base (table `Appel`) et les erreurs
 dans le Journal (`appel_erreur_ia`, `appel_non_notifie`).
 
-## Réglages optionnels (`.env` du serveur)
+## Fiabilité : aucun appel perdu
+
+Trois protections se cumulent :
+
+1. **Deux instances de l'application** sur le serveur (ports 3000 et
+   3001). nginx envoie les appels à l'instance principale et bascule
+   automatiquement sur l'instance de secours si elle ne répond pas
+   (redémarrage pendant une mise à jour, plantage). Les mises à jour
+   redémarrent les deux instances l'une après l'autre : plus aucune
+   coupure. Chaque déploiement vérifie la bascule en conditions réelles
+   (« Bascule OK » dans les journaux).
+2. **Messagerie de secours hébergée chez Twilio**, indépendante du
+   serveur : si le serveur entier est injoignable (panne OVH, réseau),
+   Twilio fait entendre « Service, bonjour. Notre standard est
+   momentanément indisponible… » et enregistre le message de l'appelant.
+   Si le secret GitHub `TELEPHONE_NUMERO_SECOURS` est renseigné (ex.
+   technicien de garde, au format `+336…`), l'appel y est d'abord
+   transféré. Ne pas y mettre le portable qui renvoie déjà vers Morgane
+   (boucle).
+3. **Récupération automatique** : dès que le serveur revient, les
+   messages laissés sur la messagerie de secours sont envoyés par e-mail,
+   fichier audio en pièce jointe (vérification toutes les 5 minutes).
+
+ (`.env` du serveur)
 
 | Variable | Rôle | Défaut |
 |---|---|---|

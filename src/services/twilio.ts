@@ -122,3 +122,31 @@ export async function envoyerSms(corps: string): Promise<void> {
     if (!reponse.ok) throw new Error(`Twilio SMS ${reponse.status} : ${(await reponse.text()).slice(0, 200)}`);
   }
 }
+
+const API_TWILIO = "https://api.twilio.com/2010-04-01";
+
+export function identifiantsTwilio(): { sid: string; auth: string } | null {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !token) return null;
+  return { sid, auth: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}` };
+}
+
+/**
+ * Telecharge un enregistrement Twilio pour le joindre a un e-mail (les
+ * liens Twilio exigent une authentification : un simple lien ne serait pas
+ * ecoutable depuis l'e-mail). Retourne null si l'URL n'est pas une URL
+ * Twilio ou si le telechargement echoue.
+ */
+export async function telechargerEnregistrement(url: string): Promise<Buffer | null> {
+  const id = identifiantsTwilio();
+  if (!id || !url.startsWith(`${API_TWILIO}/Accounts/`)) return null;
+  try {
+    const reponse = await fetch(url, { headers: { Authorization: id.auth }, signal: AbortSignal.timeout(15_000) });
+    if (!reponse.ok) return null;
+    return Buffer.from(await reponse.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+

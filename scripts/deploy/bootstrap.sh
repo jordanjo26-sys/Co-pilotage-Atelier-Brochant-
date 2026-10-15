@@ -47,6 +47,10 @@ TWILIO_AUTH_TOKEN_ARG="${10:-}"
 TWILIO_ACCOUNT_SID_ARG="${11:-}"
 TWILIO_SMS_EXPEDITEUR_ARG="${12:-}"
 TELEPHONE_SMS_DESTINATAIRE_ARG="${13:-}"
+# Numero de secours (ex. technicien de garde) vers lequel la messagerie de
+# secours Twilio transfere les appels si le serveur est indisponible.
+# Facultatif : sans lui, l'appelant laisse directement un message vocal.
+TELEPHONE_NUMERO_SECOURS_ARG="${14:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -61,6 +65,9 @@ CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
 # systeme sur le mois de septembre) — repasser a "true" ici puis redeployer
 # pour reactiver l'envoi automatique.
 DEXT_AUTO_FORWARD="false"
+# Numero Twilio du standard telephonique IA (Morgane), vers lequel le
+# portable de l'atelier renvoie les appels non decroches.
+TWILIO_NUMERO="+33973921009"
 
 echo "== Fuseau horaire =="
 # Les images cloud sont generalement en UTC par defaut : sans ce reglage,
@@ -197,6 +204,7 @@ definir_variable() {
 definir_variable TWILIO_ACCOUNT_SID "$TWILIO_ACCOUNT_SID_ARG"
 definir_variable TWILIO_SMS_EXPEDITEUR "$TWILIO_SMS_EXPEDITEUR_ARG"
 definir_variable TELEPHONE_SMS_DESTINATAIRE "$TELEPHONE_SMS_DESTINATAIRE_ARG"
+definir_variable TELEPHONE_NUMERO_SECOURS "$TELEPHONE_NUMERO_SECOURS_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
@@ -231,14 +239,52 @@ sudo -u "$APP_USER" npx playwright install chromium
 sudo -u "$APP_USER" npm run build
 sudo -u "$APP_USER" npx prisma migrate deploy
 
-echo "== Service systemd =="
+echo "== Numero Twilio du standard telephonique =="
+# Branche le numero sur /telephonie/* par l'API Twilio (la page de
+# configuration de la console echoue pour ce numero). Idempotent, sans
+# effet si les identifiants Twilio sont absents, jamais bloquant.
+sudo -u "$APP_USER" node dist/scripts/configurer-numero-twilio.js "$TWILIO_NUMERO" || true
+echo "== Diagnostic du standard telephonique =="
+sudo -u "$APP_USER" node dist/scripts/diagnostic-telephonie.js || true
+
+echo "== Services systemd (principal + secours) =="
 cp "$APP_DIR/scripts/deploy/copilote-brochant.service" /etc/systemd/system/copilote-brochant.service
+cp "$APP_DIR/scripts/deploy/copilote-brochant-secours.service" /etc/systemd/system/copilote-brochant-secours.service
 systemctl daemon-reload
-systemctl enable copilote-brochant
+systemctl enable copilote-brochant copilote-brochant-secours
+
+# Attend qu'une instance reponde (60 s max) avant de passer a la suite.
+attendre_instance() {
+  for _ in $(seq 1 60); do
+    curl -fs -o /dev/null "http://127.0.0.1:$1/" && return 0
+    sleep 1
+  done
+  echo "-- Instance sur le port $1 toujours indisponible apres 60 s."
+  return 1
+}
+
+# Redemarrage en relais, sans interruption de service : l'instance de
+# secours (port 3001) est relancee et attendue en premier, puis l'instance
+# principale (port 3000) ; pendant que l'une redemarre, nginx envoie les
+# requetes a l'autre (upstream copilote_app ci-dessous). Avant, un
+# deploiement coupait le site ~6 s, ce qui a fait echouer des appels du
+# standard telephonique en cours.
+systemctl restart copilote-brochant-secours
+attendre_instance 3001 || true
 systemctl restart copilote-brochant
+attendre_instance 3000 || true
 
 echo "== Reverse proxy nginx (HTTP, provisoire tant qu'aucun certificat n'existe) =="
 mkdir -p "$CERTBOT_WEBROOT"
+# Instance principale + instance de secours ("backup" : utilisee seulement
+# si la principale refuse la connexion). Dans conf.d, inclus dans le bloc
+# http de nginx, donc partage par toutes les configurations de site.
+cat > /etc/nginx/conf.d/copilote-upstream.conf <<EOF
+upstream copilote_app {
+    server 127.0.0.1:3000 max_fails=1 fail_timeout=5s;
+    server 127.0.0.1:3001 backup;
+}
+EOF
 # Conf HTTP minimale : necessaire avant meme d'avoir un certificat, a la fois
 # pour servir l'appli en attendant et pour repondre au defi HTTP de Let's
 # Encrypt (chemin /.well-known/acme-challenge/) lors de la toute premiere
@@ -256,7 +302,14 @@ server {
     }
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://copilote_app;
+        # Bascule sur l'instance de secours si la principale ne repond pas
+        # (connexion refusee pendant un redemarrage). non_idempotent : les
+        # webhooks Twilio sont des POST, sans quoi nginx ne les relancerait
+        # pas ; sans risque ici car la requete n'a jamais atteint la
+        # principale (erreur de connexion uniquement).
+        proxy_next_upstream error non_idempotent;
+        proxy_connect_timeout 2s;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -361,7 +414,14 @@ ${AUTH_BASIC_CONF}
     # signature Twilio cote application (src/api/telephonieRoutes.ts).
     location /telephonie/ {
         auth_basic off;
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://copilote_app;
+        # Bascule sur l'instance de secours si la principale ne repond pas
+        # (connexion refusee pendant un redemarrage). non_idempotent : les
+        # webhooks Twilio sont des POST, sans quoi nginx ne les relancerait
+        # pas ; sans risque ici car la requete n'a jamais atteint la
+        # principale (erreur de connexion uniquement).
+        proxy_next_upstream error non_idempotent;
+        proxy_connect_timeout 2s;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -370,7 +430,14 @@ ${AUTH_BASIC_CONF}
     }
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://copilote_app;
+        # Bascule sur l'instance de secours si la principale ne repond pas
+        # (connexion refusee pendant un redemarrage). non_idempotent : les
+        # webhooks Twilio sont des POST, sans quoi nginx ne les relancerait
+        # pas ; sans risque ici car la requete n'a jamais atteint la
+        # principale (erreur de connexion uniquement).
+        proxy_next_upstream error non_idempotent;
+        proxy_connect_timeout 2s;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -381,6 +448,22 @@ ${AUTH_BASIC_CONF}
 EOF
   nginx -t
   systemctl reload nginx
+fi
+
+echo "== Verification de la bascule sur l'instance de secours =="
+# Coupe volontairement l'instance principale quelques secondes et verifie
+# que le standard telephonique repond quand meme (403 attendu : requete non
+# signee par Twilio, mais bien traitee par l'application de secours).
+if [ -f "$CERT_DIR/fullchain.pem" ]; then
+  systemctl stop copilote-brochant
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:443:127.0.0.1" -X POST "https://${DOMAIN}/telephonie/entrant" || true)
+  systemctl start copilote-brochant
+  attendre_instance 3000 || true
+  if [ "$CODE" = "403" ]; then
+    echo "Bascule OK : instance principale arretee, le standard a repondu via l'instance de secours."
+  else
+    echo "-- ATTENTION : bascule en echec (code HTTP ${CODE}) pendant l'arret de l'instance principale."
+  fi
 fi
 
 echo "== Pare-feu =="

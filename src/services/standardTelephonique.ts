@@ -11,7 +11,7 @@ import {
   FUSEAU,
 } from "./agenda";
 import { getGmailClient } from "./googleAuth";
-import { envoyerSms, smsEstConfigure } from "./twilio";
+import { envoyerSms, smsEstConfigure, telechargerEnregistrement } from "./twilio";
 import { logEvenement } from "./journalService";
 
 /**
@@ -29,9 +29,10 @@ import { logEvenement } from "./journalService";
  * la prise de message et a l'agenda.
  */
 
-// Surchargeable sans toucher au code (ex. modele plus rapide si la latence
-// au telephone s'avere genante).
-const MODELE = process.env.TELEPHONE_MODELE || "claude-opus-5-5";
+// Au telephone, chaque seconde de silence compte : modele rapide par
+// defaut, sans reflexion prealable (voir parametresReflexion). Surchargeable
+// sans toucher au code.
+export const MODELE = process.env.TELEPHONE_MODELE || "claude-sonnet-5-5";
 // Twilio abandonne une requete webhook apres 15 s : on garde de la marge
 // pour repondre (au pire en demandant de repeter) avant cette limite.
 const DELAI_MAX_IA_MS = 11_000;
@@ -42,6 +43,66 @@ export type Intervenant = "appelant" | "agent";
 export interface LigneTranscription {
   qui: Intervenant;
   texte: string;
+  /** Temps de reponse de l'agent pour cette replique (diagnostic de latence). */
+  dureeMs?: number;
+}
+
+// Outils dont le resultat n'a pas besoin d'etre lu par l'IA avant de
+// parler : si la reponse contient deja la phrase a dire, on l'execute et
+// on repond sans second appel a l'IA (le resultat lui est transmis au tour
+// suivant, avec les propos de l'appelant).
+const OUTILS_SANS_ATTENTE = new Set(["enregistrer_message"]);
+
+// Passe a false si l'API refuse le reglage de reflexion : on n'insiste pas
+// pour le reste de la vie du processus (repli sur le comportement par defaut).
+let reflexionDesactivable = MODELE.startsWith("claude-sonnet-5-5");
+
+function parametresReflexion(): Record<string, unknown> {
+  // Claude Sonnet 5.5 : "between_tools" desactive la reflexion prealable
+  // (gain de latence net sur des repliques courtes). Pour un autre modele
+  // (TELEPHONE_MODELE), on laisse son comportement par defaut.
+  return reflexionDesactivable ? { thinking: { type: "between_tools" } } : {};
+}
+
+/**
+ * Un appel a l'IA pour une replique. Exporte pour le test de latence reel
+ * execute au deploiement (scripts/diagnostic-telephonie.ts).
+ */
+export async function appelerIA(
+  client: Anthropic,
+  conversation: Anthropic.Beta.BetaMessageParam[],
+  timeoutMs: number
+): Promise<Anthropic.Beta.BetaMessage> {
+  const requete = () =>
+    client.beta.messages.create(
+      {
+        model: MODELE,
+        max_tokens: 2048,
+        // Effort bas : au telephone, chaque seconde de silence compte, et
+        // les decisions a prendre (noter, proposer un creneau) sont simples.
+        output_config: { effort: "low" },
+        // Instructions et outils identiques d'une replique a l'autre : mis
+        // en cache pour raccourcir le temps de premiere reponse.
+        cache_control: { type: "ephemeral" },
+        system: PROMPT_SYSTEME,
+        tools: OUTILS,
+        messages: conversation,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        ...parametresReflexion(),
+      } as Anthropic.Beta.MessageCreateParamsNonStreaming,
+      { timeout: timeoutMs }
+    );
+  try {
+    return await requete();
+  } catch (err) {
+    if (reflexionDesactivable && err instanceof Anthropic.BadRequestError) {
+      console.error("Standard telephonique - reglage de reflexion refuse, repli :", err.message);
+      reflexionDesactivable = false;
+      return requete();
+    }
+    throw err;
+  }
 }
 
 export interface ResultatTour {
@@ -118,7 +179,10 @@ function presentationEntreprise(): string {
   ];
   if (config.adresse) lignes.push(`Adresse : ${config.adresse}.`);
   if (config.tarifs.length > 0) lignes.push(`Tarifs indicatifs : ${config.tarifs.join(" ; ")}`);
-  else lignes.push("Tarifs : aucun tarif communicable par telephone, on rappelle pour etablir un devis.");
+  else
+    lignes.push(
+      "Tarifs : aucun tarif n'est donne par telephone. Un technicien rappelle le client dans quelques minutes pour prendre plus d'informations et lui donner un tarif."
+    );
   if (config.consignesUrgence) lignes.push(`Consigne en cas d'urgence : ${config.consignesUrgence}`);
   lignes.push(`Delai d'intervention en urgence : ${config.delaiInterventionUrgence}.`);
   for (const info of config.informationsComplementaires as string[]) lignes.push(info);
@@ -147,7 +211,9 @@ confirmer plutot que de le redemander en entier.
 4. Demander s'il s'agit d'une maison ou d'un appartement. Si c'est un appartement, demander \
 l'etage et s'il y a un code d'acces ou d'interphone.
 5. Enregistrer avec enregistrer_message des que des informations sont connues (et a chaque \
-complement), sans attendre la fin.
+complement), sans attendre la fin. Dans le meme message que cet appel d'outil, ecris toujours \
+ta phrase suivante pour l'appelant (accuse de reception et question suivante) : n'attends pas \
+le resultat de l'outil pour parler.
 6. Si c'est urgent : annoncer une intervention en ${config.delaiInterventionUrgence}, puis dire \
 qu'un de nos techniciens va recontacter le client dans les minutes qui suivent. Pas de rendez-vous \
 dans l'agenda.
@@ -155,10 +221,14 @@ dans l'agenda.
 disponible, chercher_creneaux, proposer au plus deux creneaux qui lui conviennent, et reserver \
 avec reserver_creneau seulement apres un accord explicite. Si l'agenda n'est pas disponible, \
 noter le creneau souhaite dans le motif et dire qu'il sera confirme par rappel.
-8. Questions simples : repondre a partir des informations ci-dessus. Pour tout le reste (prix \
-non listes, diagnostic technique, suivi d'un dossier ou d'une facture), dire qu'on transmet et \
-qu'on rappellera.
-9. Quand tout est note, recapituler en une phrase et terminer avec terminer_appel.
+8. Questions simples : repondre a partir des informations ci-dessus. Pour tout le reste \
+(diagnostic technique, suivi d'un dossier ou d'une facture), dire qu'on transmet et qu'on rappellera.
+9. Si le client demande un prix ou un devis : explique clairement que tu ne peux pas donner de \
+tarif par telephone, et qu'un technicien va le rappeler dans quelques minutes pour prendre un \
+peu plus d'informations et lui donner un tarif. Note la demande de tarif dans le motif, puis \
+continue la prise de coordonnees si elle n'est pas terminee. Ne donne jamais de fourchette ni \
+d'estimation, meme approximative, meme si le client insiste.
+10. Quand tout est note, recapituler en une phrase et terminer avec terminer_appel.
 
 Regles de l'oral :
 - Reponds uniquement a ce que le client demande : ne donne pas d'informations qu'il n'a pas \
@@ -169,6 +239,9 @@ markdown, pas d'emoji, pas d'abreviations : tout est lu a voix haute.
 - Dis les horaires en toutes lettres (ex. "quatorze heures"). Relis les numeros de telephone \
 chiffre par chiffre par groupes de deux pour confirmation.
 - La transcription vocale peut deformer les noms et adresses : fais confirmer ou epeler en cas de doute.
+- Code postal : il doit faire cinq chiffres. S'il en manque, redemande-le chiffre par chiffre. \
+Pour le confirmer, relis-le chiffre par chiffre (ex. "sept, sept, sept, zero, zero"), jamais \
+comme un nombre.
 - Est urgent : degat des eaux, inondation, refoulement d'egout, WC ou evacuation totalement \
 bouches, ou tout cas que le client declare urgent. Note-le "urgente" et donne la consigne \
 d'urgence si elle s'applique.
@@ -332,28 +405,15 @@ export async function traiterTour(
   conversation.push({ role: "user", content: texteAppelant });
 
   const etat: EtatTour = { appel, raccrocher: false };
-  const echeance = Date.now() + DELAI_MAX_IA_MS;
+  const debut = Date.now();
+  const echeance = debut + DELAI_MAX_IA_MS;
   let reponse = "";
 
   try {
     for (let tour = 0; tour < MAX_TOURS_OUTILS; tour++) {
       const restant = echeance - Date.now();
       if (restant < 1_000) throw new Error("Delai de reponse depasse");
-      const message = await client.beta.messages.create(
-        {
-          model: MODELE,
-          max_tokens: 2048,
-          // Effort bas : au telephone, chaque seconde de silence compte, et
-          // les decisions a prendre (noter, proposer un creneau) sont simples.
-          output_config: { effort: "low" },
-          system: PROMPT_SYSTEME,
-          tools: OUTILS,
-          messages: conversation,
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default",
-        },
-        { timeout: restant }
-      );
+      const message = await appelerIA(client, conversation, restant);
       conversation.push({ role: "assistant", content: message.content });
 
       if (message.stop_reason !== "tool_use") {
@@ -370,6 +430,14 @@ export async function traiterTour(
       conversation.push({ role: "user", content: resultats });
       if (etat.raccrocher) {
         reponse = [texteDe(message.content), etat.messageFinal].filter(Boolean).join(" ");
+        break;
+      }
+      // Phrase deja ecrite et seuls des outils "sans attente" appeles : on
+      // repond tout de suite (un seul aller-retour vers l'IA au lieu de deux).
+      const texte = texteDe(message.content);
+      const outilsAppeles = message.content.filter((b) => b.type === "tool_use").map((b) => (b as Anthropic.Beta.BetaToolUseBlock).name);
+      if (texte && outilsAppeles.every((nom) => OUTILS_SANS_ATTENTE.has(nom))) {
+        reponse = texte;
         break;
       }
     }
@@ -392,7 +460,7 @@ export async function traiterTour(
   }
 
   if (!reponse) reponse = etat.raccrocher ? "Merci pour votre appel, au revoir." : "Pardon, pouvez-vous preciser ?";
-  transcription.push({ qui: "agent", texte: reponse });
+  transcription.push({ qui: "agent", texte: reponse, dureeMs: Date.now() - debut });
   await prisma.appel.update({
     where: { id: appel.id },
     data: {
@@ -483,7 +551,7 @@ export function construireCompteRendu(appel: Appel): { sujet: string; texte: str
   }
   if (appel.enregistrementUrl) {
     lignes.push("");
-    lignes.push(`Message vocal laisse sur la messagerie de secours : ${appel.enregistrementUrl}`);
+    lignes.push("Message vocal laisse par l'appelant : voir le fichier audio joint a cet e-mail.");
   }
   const transcription = appel.transcription as unknown as LigneTranscription[];
   if (transcription.length > 1) {
@@ -523,7 +591,15 @@ export async function finaliserAppel(prisma: PrismaClient, callSid: string): Pro
   const { gmail, connexion } = connexionGmail;
   const destinataire = process.env.TELEPHONE_EMAIL_NOTIFICATION || connexion.compteEmail;
   try {
-    const composer = new MailComposer({ to: destinataire, subject: sujet, text: texte });
+    // Message vocal joint en fichier audio : les liens Twilio exigent une
+    // authentification, un simple lien ne serait pas ecoutable.
+    const audio = appel.enregistrementUrl ? await telechargerEnregistrement(appel.enregistrementUrl) : null;
+    const composer = new MailComposer({
+      to: destinataire,
+      subject: sujet,
+      text: texte,
+      attachments: audio ? [{ filename: "message-vocal.mp3", content: audio, contentType: "audio/mpeg" }] : [],
+    });
     const message = await composer.compile().build();
     await gmail.users.messages.send({ userId: "me", requestBody: { raw: message.toString("base64url") } });
     await logEvenement(prisma, { evenement: "appel_notifie", action: `Compte rendu d'appel envoye a ${destinataire}`, resultat: sujet });

@@ -13,6 +13,7 @@ import {
   demarrerSurveillanceSynec,
   demarrerDetectionReponsesProspection,
   demarrerEnvoiAutomatiqueCampagnes,
+  demarrerRecuperationMessagesSecours,
 } from "./services/scheduler";
 
 dotenv.config();
@@ -38,12 +39,19 @@ app.listen(PORT, () => {
   console.log(`Outil de reception CSV - Copilote Brochant demarre sur http://localhost:${PORT}`);
 });
 
-demarrerSurveillanceGmail(prisma);
-demarrerRecapQuotidien(prisma);
-demarrerSurveillanceStripe(prisma);
-demarrerSurveillanceSynec(prisma);
-demarrerDetectionReponsesProspection(prisma);
-demarrerEnvoiAutomatiqueCampagnes(prisma);
+// Instance de secours (scripts/deploy/copilote-brochant-secours.service) :
+// sert les requetes pendant le redemarrage de l'instance principale, mais
+// ne lance aucune tache planifiee (sinon e-mails et synchronisations en
+// double).
+if (process.env.PLANIFICATEURS_DESACTIVES !== "true") {
+  demarrerSurveillanceGmail(prisma);
+  demarrerRecapQuotidien(prisma);
+  demarrerSurveillanceStripe(prisma);
+  demarrerSurveillanceSynec(prisma);
+  demarrerDetectionReponsesProspection(prisma);
+  demarrerEnvoiAutomatiqueCampagnes(prisma);
+  demarrerRecuperationMessagesSecours(prisma);
+}
 
 process.on("SIGINT", async () => {
   await prisma.$disconnect();
