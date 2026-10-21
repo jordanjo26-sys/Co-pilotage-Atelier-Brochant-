@@ -30,7 +30,7 @@ export interface MessageMorgane {
 // Nom de modele tel que fourni par la configuration de l'environnement de
 // build (voir la doc interne) : le plus capable disponible, adapte a une
 // conversation avec appel d'outils.
-const MODELE = "claude-sonnet-5";
+const MODELE = "claude-sonnet-5-5";
 const MAX_TOURS_OUTILS = 6;
 
 const OUTILS: Anthropic.Tool[] = [
