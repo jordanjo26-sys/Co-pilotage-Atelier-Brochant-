@@ -25,6 +25,12 @@ import { getGmailClient } from "../services/googleAuth";
 import { typeMimePourAffichage } from "../services/fileType";
 import { genererPdfFacturesImpayees } from "../services/facturesPdf";
 import { genererPdfPaiements } from "../services/paiementsPdf";
+import {
+  creerDemandeIntervention,
+  listerDemandesIntervention,
+  marquerDemandeInterventionSaisie,
+  DemandeInterventionValidationError,
+} from "../services/demandesIntervention";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -523,6 +529,37 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.json(await terminerDecision(prisma, req.params.id));
     } catch {
       res.status(404).json({ erreur: "Decision introuvable." });
+    }
+  });
+
+  // --- Demandes d'intervention (saisie rapide apres un appel client) ------
+  //
+  // Demande utilisateur : remplace la prise de note papier puis la double
+  // saisie dans Synec (qui n'a pas d'API) par une fiche structuree depuis
+  // le telephone. File d'attente "a saisir" tant que Synec lui-meme n'est
+  // pas automatise cote ecriture - voir docs/prospection.md pour le
+  // parallele avec Synec cote lecture (export factures).
+
+  router.post("/demandes-intervention", async (req, res) => {
+    try {
+      const demande = await creerDemandeIntervention(prisma, req.body || {});
+      res.status(201).json(demande);
+    } catch (err) {
+      if (err instanceof DemandeInterventionValidationError) return res.status(400).json({ erreur: err.message });
+      throw err;
+    }
+  });
+
+  router.get("/demandes-intervention", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : "a_saisir";
+    res.json(await listerDemandesIntervention(prisma, statut));
+  });
+
+  router.patch("/demandes-intervention/:id/marquer-saisie", async (req, res) => {
+    try {
+      res.json(await marquerDemandeInterventionSaisie(prisma, req.params.id));
+    } catch {
+      res.status(404).json({ erreur: "Demande introuvable." });
     }
   });
 

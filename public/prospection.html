@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prospection — Atelier Brochant</title>
+  <link rel="icon" href="/logo.png" />
+  <link rel="stylesheet" href="/styles.css?v=15" />
+</head>
+<body>
+  <div class="entete" role="banner">
+    <div class="brand">
+      <img src="/logo.png" alt="Atelier Brochant" />
+      <div>
+        <h1>Prospection commerciale</h1>
+        <p class="sous-titre">Sourcing, mini-CRM et campagnes d'e-mails — syndics/gestionnaires et assurances</p>
+        <nav class="nav-liens"><a href="/">← Retour au cockpit de gestion</a></nav>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <section class="carte accent-bleu">
+      <h2>Tableau de bord</h2>
+      <div id="tuiles-statuts" class="tuile-statuts"></div>
+      <div class="table-scroll">
+        <table id="table-stats-campagnes">
+          <thead>
+            <tr><th>Campagne</th><th>Statut</th><th>Envoyés</th><th>Ouverts</th><th>Cliqués</th><th>Répondus</th><th>Désabonnés</th><th>Tx. ouverture</th><th>Tx. réponse</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="carte accent-teal">
+      <h2>Sourcing — ajouter des prospects</h2>
+      <p class="aide">Import CSV (colonnes : entreprise, type, contact, fonction, email, téléphone, site web, adresse, code postal, ville, marque, service, notes) ou ajout manuel. La recherche automatisée par API (Google Places) reste à activer avec une clé (voir README).</p>
+      <form id="form-import-prospects">
+        <input type="file" id="input-fichier-prospects" accept=".csv" required />
+        <button type="submit">Importer le CSV</button>
+      </form>
+      <div id="resultat-import-prospects"></div>
+
+      <details style="margin-top:14px">
+        <summary class="aide-inline" style="cursor:pointer">Ajouter une fiche manuellement</summary>
+        <form id="form-ajout-prospect" class="form-grille" style="margin-top:10px">
+          <label>Type
+            <select name="type"><option value="syndic">Syndic / gestionnaire</option><option value="assurance">Assurance</option></select>
+          </label>
+          <label>Entreprise *<input name="entreprise" required /></label>
+          <label>Contact (nom)<input name="contactNom" /></label>
+          <label>Fonction<input name="contactFonction" /></label>
+          <label>Email<input name="email" type="email" /></label>
+          <label>Téléphone<input name="telephone" /></label>
+          <label>Site web<input name="siteWeb" placeholder="ex. exemple.fr" /></label>
+          <label>Adresse<input name="adresse" /></label>
+          <label>Code postal<input name="codePostal" /></label>
+          <label>Ville<input name="ville" /></label>
+          <label>Marque proposée
+            <select name="marqueProposee"><option value="">—</option><option value="france_degorgement">France Dégorgement</option><option value="atelier_brochant">Atelier Brochant</option></select>
+          </label>
+          <label>Service ciblé<input name="serviceCible" /></label>
+          <label class="champ-pleine-largeur">Notes<textarea name="notes"></textarea></label>
+          <div class="champ-pleine-largeur"><button type="submit">Ajouter</button></div>
+        </form>
+      </details>
+    </section>
+
+    <section class="carte accent-violet">
+      <h2>Base de contacts</h2>
+      <div class="barre-filtres">
+        <select id="filtre-type"><option value="">Tous types</option><option value="syndic">Syndic</option><option value="assurance">Assurance</option></select>
+        <select id="filtre-statut">
+          <option value="">Tous statuts</option>
+          <option value="a_contacter">À contacter</option>
+          <option value="contacte">Contacté</option>
+          <option value="relance">Relancé</option>
+          <option value="rdv">RDV</option>
+          <option value="client">Client</option>
+          <option value="sans_suite">Sans suite</option>
+        </select>
+        <input id="filtre-cp" placeholder="Code postal (ex. 77)" />
+        <input id="filtre-recherche" placeholder="Rechercher entreprise/contact…" />
+      </div>
+      <div class="table-scroll">
+        <table id="table-prospects">
+          <thead>
+            <tr><th>Entreprise</th><th>Type</th><th>Contact</th><th>Email</th><th>Ville</th><th>Statut</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="fiche-prospect"></div>
+    </section>
+
+    <section class="carte accent-bleu">
+      <h2>Modèles de mail</h2>
+      <div id="liste-templates"></div>
+      <details style="margin-top:10px">
+        <summary class="aide-inline" style="cursor:pointer">Créer un modèle</summary>
+        <form id="form-template" class="form-grille" style="margin-top:10px">
+          <label>Nom *<input name="nom" required /></label>
+          <label>Marque
+            <select name="marque"><option value="">—</option><option value="france_degorgement">France Dégorgement</option><option value="atelier_brochant">Atelier Brochant</option></select>
+          </label>
+          <label class="champ-pleine-largeur">Objet *<input name="objet" required placeholder="ex. {{entreprise}} — proposition de partenariat" /></label>
+          <label class="champ-pleine-largeur">Corps (HTML) *
+            <textarea name="corpsHtml" required placeholder="Bonjour {{contact}}, ..."></textarea>
+          </label>
+          <p class="aide-inline champ-pleine-largeur">Variables disponibles : {{contact}}, {{entreprise}}, {{marque}}, {{service}}. Lien de désinscription et suivi ajoutés automatiquement à l'envoi.</p>
+          <label class="champ-pleine-largeur">Plaquette commerciale à joindre (PDF, PNG ou JPEG — optionnel)
+            <input type="file" name="pieceJointe" accept="application/pdf,image/png,image/jpeg" />
+          </label>
+          <div class="champ-pleine-largeur"><button type="submit">Créer le modèle</button></div>
+        </form>
+      </details>
+    </section>
+
+    <section class="carte accent-ambre">
+      <h2>Campagnes</h2>
+      <div id="liste-campagnes"></div>
+      <details style="margin-top:10px">
+        <summary class="aide-inline" style="cursor:pointer">Créer une campagne</summary>
+        <form id="form-campagne" class="form-grille colonnes-3" style="margin-top:10px">
+          <label>Nom *<input name="nom" required /></label>
+          <label>Modèle *
+            <select name="templateId" id="select-template-campagne" required></select>
+          </label>
+          <label>Relance après (jours)<input name="relanceApresJours" type="number" min="1" placeholder="ex. 7" /></label>
+          <label>Segment — type<select name="segType"><option value="">Tous</option><option value="syndic">Syndic</option><option value="assurance">Assurance</option></select></label>
+          <label>Segment — statut
+            <select name="segStatut">
+              <option value="">Tous</option>
+              <option value="a_contacter">À contacter</option>
+              <option value="contacte">Contacté</option>
+              <option value="relance">Relancé</option>
+            </select>
+          </label>
+          <label>Segment — code postal<input name="segCodePostal" placeholder="ex. 77" /></label>
+          <label class="champ-pleine-largeur">
+            <input type="checkbox" name="automatique" style="width:auto;display:inline-block;margin-right:6px" />
+            Envoi automatique (premiers envois et relances envoyés sans clic, dans la limite du quota quotidien)
+          </label>
+          <div class="champ-pleine-largeur"><button type="submit">Créer la campagne (brouillon)</button></div>
+        </form>
+      </details>
+    </section>
+
+    <section class="carte accent-critique">
+      <h2>Relances dues</h2>
+      <p class="aide">Prospects contactés il y a plus longtemps que le délai de relance de leur campagne, sans réponse reçue. L'envoi reste un geste volontaire, comme pour les relances de facture.</p>
+      <div id="liste-relances-dues"></div>
+    </section>
+  </main>
+
+  <footer class="pied">Copilote de gestion Atelier Brochant — Prospection</footer>
+
+  <script src="/prospection.js?v=1"></script>
+</body>
+</html>
