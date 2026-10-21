@@ -11,6 +11,7 @@ import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { enregistrerDecision, listerDecisions, TypeDecision } from "./decisions";
 import { logEvenement } from "./journalService";
 import { verifierMailsImportants } from "./mailsImportants";
+import { listerCampagnesAds } from "./googleAds";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -161,6 +162,17 @@ const OUTILS: Anthropic.Tool[] = [
       required: ["factureId"],
     },
   },
+  {
+    name: "obtenir_campagnes_ads",
+    description:
+      "Retourne la liste des campagnes Google Ads avec leurs indicateurs de performance sur la periode demandee : impressions, clics, cout, conversions, CTR, CPC moyen, budget quotidien. Lecture seule : aucun outil ne permet de modifier une campagne, un budget ou une enchere pour l'instant.",
+    input_schema: {
+      type: "object",
+      properties: {
+        jours: { type: "number", description: "Nombre de jours a analyser en arriere (30 par defaut)." },
+      },
+    },
+  },
 ];
 
 async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown): Promise<unknown> {
@@ -300,6 +312,15 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "obtenir_campagnes_ads": {
+      const jours = typeof params.jours === "number" && params.jours > 0 ? params.jours : 30;
+      try {
+        return { campagnes: await listerCampagnesAds(prisma, jours) };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
     default:
       return { erreur: `Outil inconnu : ${nom}` };
   }
@@ -332,7 +353,13 @@ repondre a une question ou d'agir sur une facture/un client/un \
 fournisseur precis, verifie via lister_decisions si une decision passee \
 le concerne (delai accorde en cours, exception...) et tiens-en compte.
 - Reste bref : des phrases courtes, des listes plutot que des paragraphes \
-quand c'est plus lisible sur un telephone.`;
+quand c'est plus lisible sur un telephone.
+- Google Ads : tu peux lire les performances des campagnes (obtenir_campagnes_ads) \
+et proposer librement des analyses/optimisations a partir de ces donnees. \
+En revanche tu ne peux PAS agir sur les campagnes (aucune modification de \
+budget, d'enchere, de statut, ni creation) : cette capacite n'existe pas \
+encore. Si l'utilisateur demande d'appliquer un changement, explique que \
+cette action n'est pas encore disponible plutot que de pretendre l'avoir faite.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils

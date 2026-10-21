@@ -16,11 +16,18 @@ import { chiffrer, dechiffrer } from "./cipher";
 // reconnecter via /auth/google pour l'accorder.
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
+// Google Ads (lecture seule pour l'instant, demande explicite de
+// l'utilisateur : analyser ses campagnes). Reutilise la meme connexion
+// Google qu'une fois ce scope accorde : pas de deuxieme ecran de connexion
+// ni de jeton separe a gerer, voir src/services/googleAds.ts.
+export const ADS_SCOPE = "https://www.googleapis.com/auth/adwords";
+
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/gmail.labels",
   CALENDAR_SCOPE,
+  ADS_SCOPE,
 ];
 
 function requireEnv(name: string): string {

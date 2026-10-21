@@ -74,8 +74,11 @@ jobs:
           # webhooks du standard telephonique IA, TWILIO_ACCOUNT_SID /
           # TWILIO_SMS_EXPEDITEUR / TELEPHONE_SMS_DESTINATAIRE son alerte
           # SMS immediate des urgences ; TELEPHONE_NUMERO_SECOURS le
-          # transfert de la messagerie de secours (facultatif). Absents, bootstrap.sh laisse la
+          # transfert de la messagerie de secours (facultatif) ;
+          # GOOGLE_ADS_DEVELOPER_TOKEN / GOOGLE_ADS_CUSTOMER_ID /
+          # GOOGLE_ADS_LOGIN_CUSTOMER_ID l'analyse des campagnes Google Ads
+          # par Morgane (lecture seule, voir .env.example). Absents, bootstrap.sh laisse la
           # configuration existante inchangee.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}'"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}'"

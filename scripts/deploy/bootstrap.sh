@@ -51,6 +51,13 @@ TELEPHONE_SMS_DESTINATAIRE_ARG="${13:-}"
 # secours Twilio transfere les appels si le serveur est indisponible.
 # Facultatif : sans lui, l'appelant laisse directement un message vocal.
 TELEPHONE_NUMERO_SECOURS_ARG="${14:-}"
+# Google Ads (analyse des campagnes par Morgane, lecture seule) : jeton
+# developpeur genere depuis un compte gestionnaire (MCC), numero du compte
+# Ads a analyser et numero de ce compte gestionnaire. Absents, la section
+# Google Ads de Morgane reste desactivee (voir .env.example).
+GOOGLE_ADS_DEVELOPER_TOKEN_ARG="${15:-}"
+GOOGLE_ADS_CUSTOMER_ID_ARG="${16:-}"
+GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG="${17:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -205,6 +212,9 @@ definir_variable TWILIO_ACCOUNT_SID "$TWILIO_ACCOUNT_SID_ARG"
 definir_variable TWILIO_SMS_EXPEDITEUR "$TWILIO_SMS_EXPEDITEUR_ARG"
 definir_variable TELEPHONE_SMS_DESTINATAIRE "$TELEPHONE_SMS_DESTINATAIRE_ARG"
 definir_variable TELEPHONE_NUMERO_SECOURS "$TELEPHONE_NUMERO_SECOURS_ARG"
+definir_variable GOOGLE_ADS_DEVELOPER_TOKEN "$GOOGLE_ADS_DEVELOPER_TOKEN_ARG"
+definir_variable GOOGLE_ADS_CUSTOMER_ID "$GOOGLE_ADS_CUSTOMER_ID_ARG"
+definir_variable GOOGLE_ADS_LOGIN_CUSTOMER_ID "$GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
