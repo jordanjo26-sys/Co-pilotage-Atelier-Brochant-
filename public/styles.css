@@ -482,6 +482,9 @@ tbody tr:hover { background: var(--surface-2); }
 .pastille-rdv { background: color-mix(in srgb, var(--brand-violet) 18%, transparent); color: var(--brand-violet); }
 .pastille-client { background: var(--good-soft); color: var(--good); }
 .pastille-sans_suite { background: var(--critical-soft); color: var(--critical); }
+.pastille-faible { background: var(--surface-2); color: var(--ink-muted); }
+.pastille-normale { background: var(--warning-soft); color: var(--warning); }
+.pastille-urgente { background: var(--critical-soft); color: var(--critical); }
 
 .ligne-prospect { cursor: pointer; }
 .fiche-prospect {

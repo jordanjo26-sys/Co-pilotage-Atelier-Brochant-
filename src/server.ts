@@ -14,6 +14,7 @@ import {
   demarrerDetectionReponsesProspection,
   demarrerEnvoiAutomatiqueCampagnes,
   demarrerRecuperationMessagesSecours,
+  demarrerRecapMailsImportants,
 } from "./services/scheduler";
 
 dotenv.config();
@@ -51,6 +52,7 @@ if (process.env.PLANIFICATEURS_DESACTIVES !== "true") {
   demarrerDetectionReponsesProspection(prisma);
   demarrerEnvoiAutomatiqueCampagnes(prisma);
   demarrerRecuperationMessagesSecours(prisma);
+  demarrerRecapMailsImportants(prisma);
 }
 
 process.on("SIGINT", async () => {

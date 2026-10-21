@@ -504,3 +504,43 @@ model Appel {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
+
+// --- Mails importants (demande utilisateur : repérer par e-mail les
+// demandes d'intervention/urgences noyées dans la boîte Gmail, au lieu
+// d'attendre le récapitulatif du soir) --------------------------------------
+
+// Garde la trace de chaque mail deja examine par la detection horaire, pour
+// ne jamais le reclasser (et donc jamais le re-signaler) a chaque passage -
+// meme principe d'idempotence que la deduplication par hash de
+// DocumentFournisseur.
+model MailExamine {
+  id             String   @id @default(cuid())
+  gmailMessageId String   @unique
+  important      Boolean
+  createdAt      DateTime @default(now())
+}
+
+// --- Demandes d'intervention prises par telephone (saisie manuelle) -------
+//
+// Demande utilisateur : remplace la prise de note papier puis la double
+// saisie dans Synec par une fiche structuree, directement depuis le
+// telephone. Ne pousse rien automatiquement dans Synec (qui n'a pas d'API) :
+// reste une file d'attente "a saisir" tant que l'automatisation du cote
+// ecriture de Synec n'existe pas.
+model DemandeIntervention {
+  id           String    @id @default(cuid())
+  nom          String
+  telephone    String?
+  adresse      String?
+  codePostal   String?
+  ville        String?
+  typeLogement String? // maison | appartement
+  etage        String?
+  codeAcces    String?
+  motif        String?
+  urgence      String? // faible | normale | urgente
+  statut       String    @default("a_saisir") // a_saisir | saisie
+  saisieLe     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}

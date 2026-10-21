@@ -6,6 +6,7 @@ import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
 import { detecterReponses, executerEnvoisAutomatiques } from "./prospection/campagnes";
 import { recupererMessagesSecours } from "./messagerieSecours";
+import { verifierMailsImportants } from "./mailsImportants";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVALLE_VERIF_RECAP_MS = 5 * 60 * 1000; // 5 minutes
@@ -224,4 +225,18 @@ export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void 
       console.error("Recuperation des messages de secours en echec :", (err as Error).message);
     });
   }, 5 * 60 * 1000);
+}
+
+/**
+ * Toutes les heures : repere parmi les mails recus ceux qui ressemblent a
+ * une demande d'intervention ou une urgence client (voir
+ * src/services/mailsImportants.ts) et envoie un recapitulatif par e-mail
+ * uniquement si au moins un a ete trouve.
+ */
+export function demarrerRecapMailsImportants(prisma: PrismaClient): void {
+  setInterval(() => {
+    verifierMailsImportants(prisma).catch((err) => {
+      console.error("Verification des mails importants en echec :", (err as Error).message);
+    });
+  }, 60 * 60 * 1000);
 }

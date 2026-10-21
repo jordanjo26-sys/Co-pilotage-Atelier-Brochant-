@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nouvelle demande client — Atelier Brochant</title>
+  <link rel="icon" href="/logo.png" />
+  <link rel="stylesheet" href="/styles.css?v=23" />
+</head>
+<body>
+  <div class="entete" role="banner">
+    <div class="brand">
+      <img src="/logo.png" alt="Atelier Brochant" />
+      <div>
+        <h1>Nouvelle demande client</h1>
+        <p class="sous-titre">Saisie rapide après un appel, à reporter ensuite dans Synec (client + planning)</p>
+        <nav class="nav-liens"><a href="/">← Retour au cockpit de gestion</a></nav>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <section class="carte accent-teal">
+      <h2>Nouvel appel</h2>
+      <p class="aide">À remplir juste après avoir raccroché, à la place du papier. Seul le nom est obligatoire.</p>
+      <form id="form-demande" class="form-grille">
+        <label>Nom du client *<input name="nom" required /></label>
+        <label>Téléphone<input name="telephone" type="tel" /></label>
+        <label>Adresse (numéro et rue)<input name="adresse" /></label>
+        <label>Code postal<input name="codePostal" /></label>
+        <label>Ville<input name="ville" /></label>
+        <label>Logement
+          <select name="typeLogement"><option value="">—</option><option value="maison">Maison</option><option value="appartement">Appartement</option></select>
+        </label>
+        <label>Étage (si appartement)<input name="etage" /></label>
+        <label>Code d'accès / interphone<input name="codeAcces" /></label>
+        <label>Urgence
+          <select name="urgence">
+            <option value="normale" selected>Normale</option>
+            <option value="urgente">Urgente</option>
+            <option value="faible">Faible (devis/info)</option>
+          </select>
+        </label>
+        <label class="champ-pleine-largeur">Motif / renseignements<textarea name="motif" placeholder="Pièce concernée, depuis quand, créneau souhaité…"></textarea></label>
+        <div class="champ-pleine-largeur"><button type="submit">Enregistrer</button></div>
+      </form>
+    </section>
+
+    <section class="carte accent-ambre">
+      <h2>À saisir dans Synec</h2>
+      <p class="aide">Demandes enregistrées mais pas encore reportées manuellement dans Synec (client + planning). Une fois fait, marque-les comme saisies pour les sortir de cette liste.</p>
+      <div id="liste-demandes"></div>
+    </section>
+  </main>
+
+  <script src="/nouvelle-demande.js"></script>
+</body>
+</html>

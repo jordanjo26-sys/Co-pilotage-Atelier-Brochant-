@@ -10,6 +10,7 @@ import { executerRapprochementBancaire } from "./rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { enregistrerDecision, listerDecisions, TypeDecision } from "./decisions";
 import { logEvenement } from "./journalService";
+import { verifierMailsImportants } from "./mailsImportants";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -145,6 +146,12 @@ const OUTILS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "verifier_mails_importants",
+    description:
+      "Relance immediatement la detection des mails importants (demandes d'intervention, urgences client) au lieu d'attendre le prochain passage automatique (toutes les heures). Envoie un e-mail recapitulatif uniquement si au moins un mail important est trouve.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "envoyer_relance",
     description:
       "Envoie par e-mail la relance proposee pour une facture precise (voir lister_factures_a_relancer pour l'id). N'utiliser que si l'utilisateur a clairement demande de relancer CETTE facture — ne jamais relancer en masse de sa propre initiative.",
@@ -268,6 +275,14 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         objetId: typeof params.objetId === "string" ? params.objetId : undefined,
         activesSeulement: params.activesSeulement !== false,
       });
+
+    case "verifier_mails_importants": {
+      try {
+        return await verifierMailsImportants(prisma);
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
 
     case "lister_fournisseurs":
       return listerFournisseurs(prisma);
