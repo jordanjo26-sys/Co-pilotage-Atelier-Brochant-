@@ -29,6 +29,7 @@ test("demandes d'intervention : creation, validation, file d'attente et marquage
     creerDemandeIntervention,
     listerDemandesIntervention,
     marquerDemandeInterventionSaisie,
+    modifierDemandeIntervention,
     DemandeInterventionValidationError,
   } = await import("../src/services/demandesIntervention");
   const prisma = new PrismaClient();
@@ -57,11 +58,16 @@ test("demandes d'intervention : creation, validation, file d'attente et marquage
       codeAcces: "1234B",
       motif: "WC bouche",
       urgence: "urgente",
+      dateSouhaitee: "2026-11-05T14:30",
     });
     assert.equal(demande.statut, "a_saisir");
     assert.equal(demande.nom, "M. Durand");
     assert.equal(demande.email, "m.durand@example.com");
     assert.equal(demande.urgence, "urgente");
+    // 5 novembre = hors heure d'ete, Paris = UTC+1 : 14h30 Paris -> 13h30 UTC.
+    // Verifie que la date est bien lue comme une heure de Paris (fuseau
+    // explicite), pas celle, souvent UTC, du serveur qui execute ce test.
+    assert.equal(demande.dateSouhaitee?.toISOString(), "2026-11-05T13:30:00.000Z");
   });
 
   await t.test("champs vides -> stockes comme absents (undefined), pas chaine vide", async () => {
@@ -85,6 +91,24 @@ test("demandes d'intervention : creation, validation, file d'attente et marquage
     const miseAJour = toutes.find((d) => d.id === premiere.id)!;
     assert.equal(miseAJour.statut, "saisie");
     assert.ok(miseAJour.saisieLe);
+  });
+
+  await t.test("modification : change les champs fournis, efface ceux envoyes vides", async () => {
+    const demande = await creerDemandeIntervention(prisma, { nom: "Mme Petit", telephone: "0600000000", motif: "Fuite" });
+
+    const modifiee = await modifierDemandeIntervention(prisma, demande.id, {
+      nom: "Mme Petit-Durand",
+      // telephone absent du payload : ne doit pas etre touche.
+      motif: "", // envoye vide : doit effacer le motif existant.
+    });
+    assert.equal(modifiee.nom, "Mme Petit-Durand");
+    assert.equal(modifiee.telephone, "0600000000");
+    assert.equal(modifiee.motif, null);
+  });
+
+  await t.test("modification : nom manquant -> erreur de validation, rien n'est ecrase", async () => {
+    const demande = await creerDemandeIntervention(prisma, { nom: "M. Argent" });
+    await assert.rejects(modifierDemandeIntervention(prisma, demande.id, { nom: "" }), DemandeInterventionValidationError);
   });
 
   await prisma.$disconnect();

@@ -541,6 +541,7 @@ model DemandeIntervention {
   codeAcces    String?
   motif        String?
   urgence      String? // faible | normale | urgente
+  dateSouhaitee DateTime?
   statut       String    @default("a_saisir") // a_saisir | saisie
   saisieLe     DateTime?
   createdAt    DateTime  @default(now())

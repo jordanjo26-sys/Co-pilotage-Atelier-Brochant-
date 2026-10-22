@@ -29,6 +29,7 @@ import {
   creerDemandeIntervention,
   listerDemandesIntervention,
   marquerDemandeInterventionSaisie,
+  modifierDemandeIntervention,
   DemandeInterventionValidationError,
 } from "../services/demandesIntervention";
 import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
@@ -567,6 +568,15 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/demandes-intervention", async (req, res) => {
     const statut = typeof req.query.statut === "string" ? req.query.statut : "a_saisir";
     res.json(await listerDemandesIntervention(prisma, statut));
+  });
+
+  router.patch("/demandes-intervention/:id", async (req, res) => {
+    try {
+      res.json(await modifierDemandeIntervention(prisma, req.params.id, req.body || {}));
+    } catch (err) {
+      if (err instanceof DemandeInterventionValidationError) return res.status(400).json({ erreur: err.message });
+      res.status(404).json({ erreur: "Demande introuvable." });
+    }
   });
 
   router.patch("/demandes-intervention/:id/marquer-saisie", async (req, res) => {

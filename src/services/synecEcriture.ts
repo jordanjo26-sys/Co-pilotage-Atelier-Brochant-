@@ -1,10 +1,17 @@
 import { chromium } from "playwright";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { readFile } from "fs/promises";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import { DemandeIntervention, PrismaClient } from "@prisma/client";
 import { logEvenement } from "./journalService";
 import { marquerDemandeInterventionSaisie } from "./demandesIntervention";
 import { getGmailClient } from "./googleAuth";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+const FUSEAU = "Europe/Paris";
 import {
   CHEMIN_CAPTURE_ECHEC,
   capturerDiagnostic,
@@ -212,6 +219,15 @@ function construireDescriptionEvenement(demande: DemandeIntervention): string {
   return lignes.join("\n") || "Intervention.";
 }
 
+/**
+ * "JJ/MM/AAAA HH:mm", format observe dans le champ de date de l'evenement
+ * (video de l'utilisateur). Formate en heure de Paris (pas celle, souvent
+ * UTC, du serveur) : meme principe que formaterCreneau dans agenda.ts.
+ */
+function formaterDateHeureSynec(d: Date): string {
+  return dayjs(d).tz(FUSEAU).format("DD/MM/YYYY HH:mm");
+}
+
 /** Crée l'événement de planning relié au client (déjà sélectionné dans le formulaire ouvert). */
 async function remplirEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
   const statut = page.locator("select").filter({ has: page.getByText(/pas de statut/i) }).first();
@@ -222,6 +238,20 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
       // non prevu), on laisse le statut par defaut plutot que d'echouer toute
       // la creation pour un champ non bloquant.
     });
+
+  // Date/heure souhaitee par le client (demande explicite : "pour que ca
+  // puisse remonter automatiquement") : sans elle, Synec garde son defaut
+  // (l'instant de creation de l'evenement). Duree par defaut 1h, comme dans
+  // la demonstration de l'utilisateur. Non bloquant si le champ ne reagit
+  // pas a .fill() (saisie masquee non confirmee sans acces direct a Synec) :
+  // l'evenement est alors cree avec la date par defaut plutot que d'echouer
+  // toute la demande pour ce seul champ.
+  if (demande.dateSouhaitee) {
+    const debut = demande.dateSouhaitee;
+    const fin = new Date(debut.getTime() + 60 * 60 * 1000);
+    await remplirApresLibelle(page, /date de début de l'événement/i, formaterDateHeureSynec(debut)).catch(() => {});
+    await remplirApresLibelle(page, /date de fin de l'événement/i, formaterDateHeureSynec(fin)).catch(() => {});
+  }
 
   const champNom = page.getByText(/^nom$/i).last().locator("xpath=following::input[1]").first();
   await champNom
