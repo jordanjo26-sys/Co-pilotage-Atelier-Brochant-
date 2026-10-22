@@ -27,7 +27,7 @@
       </div>
       <div id="morgane-fil" class="morgane-fil"></div>
       <form id="form-morgane" class="morgane-formulaire">
-        <input type="text" id="morgane-saisie" placeholder="Écris à Morgane…" autocomplete="off" />
+        <textarea id="morgane-saisie" rows="1" placeholder="Écris à Morgane…"></textarea>
         <button type="submit">Envoyer</button>
       </form>
     </div>
@@ -51,6 +51,24 @@
   }
   bouton.addEventListener("click", () => basculer(panneau.hidden));
   boutonFermer.addEventListener("click", () => basculer(false));
+
+  // Champ de saisie qui grandit avec le texte (jusqu'a ~6 lignes, voir
+  // styles.css) au lieu d'un champ sur une seule ligne qui defile
+  // horizontalement - demande explicite de l'utilisateur, qui ne pouvait
+  // pas se relire en dictant un message un peu long. Entree envoie (comme
+  // avant, habitude d'un chat), Maj+Entree insere un saut de ligne.
+  const champSaisie = document.getElementById("morgane-saisie");
+  function ajusterHauteurSaisie() {
+    champSaisie.style.height = "auto";
+    champSaisie.style.height = `${champSaisie.scrollHeight}px`;
+  }
+  champSaisie.addEventListener("input", ajusterHauteurSaisie);
+  champSaisie.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById("form-morgane").requestSubmit();
+    }
+  });
 
   // Rouvre automatiquement si elle etait ouverte juste avant de changer de
   // page (meme onglet de navigateur) : evite d'avoir a recliquer la bulle
@@ -101,6 +119,7 @@
     if (!texte) return;
 
     saisie.value = "";
+    saisie.style.height = "auto";
     saisie.disabled = true;
     ajouterBulle("user", texte);
     historique.push({ role: "user", content: texte });

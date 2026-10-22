@@ -277,8 +277,8 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-bottom-right-radius: 4px;
 }
 .morgane-bulle-attente { opacity: 0.6; font-style: italic; }
-.morgane-formulaire { display: flex; gap: 8px; }
-.morgane-formulaire input {
+.morgane-formulaire { display: flex; gap: 8px; align-items: flex-end; }
+.morgane-formulaire input, .morgane-formulaire textarea {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
@@ -289,7 +289,18 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 13.5px;
   font-family: inherit;
 }
-.morgane-formulaire input:focus { outline: 2px solid var(--brand-violet); outline-offset: 1px; }
+.morgane-formulaire input:focus, .morgane-formulaire textarea:focus { outline: 2px solid var(--brand-violet); outline-offset: 1px; }
+/* Grandit avec le texte tape (hauteur geree en JS via scrollHeight) au lieu
+   d'un champ sur une seule ligne qui defile horizontalement - demande
+   explicite de l'utilisateur, qui ne pouvait pas se relire en dictant un
+   message un peu long. Plafonnee a 6 lignes environ puis defilement
+   vertical, pour ne jamais pousser le reste du panneau hors de vue. */
+.morgane-formulaire textarea {
+  resize: none;
+  line-height: 1.4;
+  max-height: 132px;
+  overflow-y: auto;
+}
 
 /* ---------- KPI grid ---------- */
 .grille-cockpit {
