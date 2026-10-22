@@ -464,6 +464,16 @@ ${AUTH_BASIC_CONF}
         # principale (erreur de connexion uniquement).
         proxy_next_upstream error non_idempotent;
         proxy_connect_timeout 2s;
+        # L'envoi automatique vers Synec (src/services/synecEcriture.ts)
+        # pilote un vrai navigateur et peut legitimement prendre plus d'une
+        # minute (plusieurs ecrans, chacun avec sa propre marge d'attente) -
+        # le defaut nginx de 60s sur proxy_read_timeout coupait la requete
+        # en plein milieu (erreur HTTP 504 cote client, alors que
+        # l'automatisation pouvait tres bien reussir juste apres, orpheline
+        # cote serveur). Porte a 180s, sans toucher proxy_connect_timeout
+        # (la bascule rapide sur l'instance de secours reste instantanee).
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
