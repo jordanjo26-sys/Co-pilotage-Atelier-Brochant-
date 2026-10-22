@@ -337,6 +337,42 @@ async function chargerStatutSynec() {
   });
 }
 
+// --- Google Ads (import manuel, en attendant l'acces API) ------------------
+
+async function chargerStatutGoogleAds() {
+  const res = await fetch("/api/google-ads/dernier-import");
+  const data = await res.json();
+  const div = document.getElementById("google-ads-statut");
+
+  div.innerHTML = data
+    ? `<p class="gmail-connecte"><span class="statut-dot">Dernier import</span> — ${echapper(data.fichierNom)}<br/>Déposé le ${fmtDate(data.importeLe)} · ${data.campagnes.length} campagne(s)</p>`
+    : `<p class="statut-dot off">Aucun import pour l'instant.</p>`;
+}
+
+document.getElementById("form-import-ads").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fichier = document.getElementById("fichier-import-ads").files[0];
+  const resultatDiv = document.getElementById("resultat-import-ads");
+  if (!fichier) return;
+
+  const donnees = new FormData();
+  donnees.append("fichier", fichier);
+  resultatDiv.textContent = "Import en cours…";
+  try {
+    const r = await fetch("/api/google-ads/import", { method: "POST", body: donnees });
+    const d = await r.json();
+    if (!r.ok) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+      return;
+    }
+    resultatDiv.innerHTML = `${d.nbCampagnes} campagne(s) importée(s).`;
+    e.target.reset();
+    await chargerStatutGoogleAds();
+  } catch (err) {
+    resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+  }
+});
+
 // Liste individuelle des paiements Stripe deja captes : jusqu'ici seuls des
 // compteurs agreges apparaissaient au moment d'un clic sur "Synchroniser
 // maintenant", sans aucune trace consultable ensuite - impossible de
@@ -984,7 +1020,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

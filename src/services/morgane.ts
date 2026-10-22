@@ -12,6 +12,7 @@ import { enregistrerDecision, listerDecisions, TypeDecision } from "./decisions"
 import { logEvenement } from "./journalService";
 import { verifierMailsImportants } from "./mailsImportants";
 import { listerCampagnesAds } from "./googleAds";
+import { dernieresCampagnesImportees } from "./googleAdsImport";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -314,11 +315,28 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
 
     case "obtenir_campagnes_ads": {
       const jours = typeof params.jours === "number" && params.jours > 0 ? params.jours : 30;
+      // L'API live est prioritaire des qu'elle renvoie quelque chose ; en
+      // attendant la validation de l'acces par Google (section discutee
+      // avec l'utilisateur, "Acces Explorer"), elle repond souvent sans
+      // erreur mais avec zero ligne - on se rabat alors sur le dernier
+      // import manuel, en l'indiquant clairement (source + date) pour que
+      // Morgane ne laisse jamais croire que c'est une donnee temps reel.
       try {
-        return { campagnes: await listerCampagnesAds(prisma, jours) };
-      } catch (err) {
-        return { erreur: (err as Error).message };
+        const campagnes = await listerCampagnesAds(prisma, jours);
+        if (campagnes.length > 0) return { source: "api_google_ads", campagnes };
+      } catch {
+        // Repli silencieux sur l'import manuel ci-dessous : l'erreur API
+        // (acces non valide, connexion absente...) n'est pas interessante
+        // pour l'utilisateur tant qu'un import manuel existe.
       }
+      const importe = await dernieresCampagnesImportees(prisma);
+      if (!importe) {
+        return {
+          erreur:
+            "Aucune donnee disponible : l'API Google Ads n'a rien renvoye (acces probablement pas encore valide par Google) et aucun export CSV n'a ete importe. Deposer un export depuis l'onglet Systeme.",
+        };
+      }
+      return { source: "import_manuel", fichierNom: importe.fichierNom, importeLe: importe.importeLe, campagnes: importe.campagnes };
     }
 
     default:
@@ -356,7 +374,11 @@ le concerne (delai accorde en cours, exception...) et tiens-en compte.
 quand c'est plus lisible sur un telephone.
 - Google Ads : tu peux lire les performances des campagnes (obtenir_campagnes_ads) \
 et proposer librement des analyses/optimisations a partir de ces donnees. \
-En revanche tu ne peux PAS agir sur les campagnes (aucune modification de \
+Le resultat precise sa source ("api_google_ads" = donnees live, ou \
+"import_manuel" = dernier export CSV depose, avec sa date) : si c'est un \
+import manuel, dis-le explicitement a l'utilisateur et rappelle la date \
+(donnees pas forcement a jour), ne laisse jamais croire que c'est en temps \
+reel. En revanche tu ne peux PAS agir sur les campagnes (aucune modification de \
 budget, d'enchere, de statut, ni creation) : cette capacite n'existe pas \
 encore. Si l'utilisateur demande d'appliquer un changement, explique que \
 cette action n'est pas encore disponible plutot que de pretendre l'avoir faite.`;

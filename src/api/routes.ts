@@ -31,6 +31,7 @@ import {
   marquerDemandeInterventionSaisie,
   DemandeInterventionValidationError,
 } from "../services/demandesIntervention";
+import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -561,6 +562,30 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch {
       res.status(404).json({ erreur: "Demande introuvable." });
     }
+  });
+
+  // --- Google Ads : import manuel (palliatif en attendant l'acces API) ----
+  //
+  // Demande utilisateur : analyser les campagnes avec Morgane des
+  // maintenant, sans attendre que Google valide l'acces API ("Acces
+  // Explorer" en attente, voir src/services/googleAds.ts). Chaque depot
+  // remplace la photographie precedente - voir src/services/googleAdsImport.ts.
+
+  router.post("/google-ads/import", upload.single("fichier"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ erreur: "Aucun fichier recu (champ attendu : 'fichier')." });
+    }
+    try {
+      const resultat = await importerCampagnesAds(prisma, req.file.originalname, req.file.buffer);
+      res.status(200).json(resultat);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.get("/google-ads/dernier-import", async (_req, res) => {
+    const resultat = await dernieresCampagnesImportees(prisma);
+    res.json(resultat);
   });
 
   // --- Morgane, assistante IA (Phase 7 du cahier des charges) -------------

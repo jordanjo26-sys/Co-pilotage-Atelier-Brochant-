@@ -448,7 +448,7 @@ model EnvoiCampagne {
 model ImportBatch {
   id             String    @id @default(cuid())
   fichierNom     String
-  typeDetecte    String // synec_factures | synec_clients | stripe_paiements | stripe_payouts | stripe_solde | banque_releve | banque_releve_pdf | inconnu
+  typeDetecte    String // synec_factures | synec_clients | stripe_paiements | stripe_payouts | stripe_solde | banque_releve | banque_releve_pdf | google_ads_campagnes | inconnu
   hashFichier    String    @unique
   dateImport     DateTime  @default(now())
   nbLignes       Int       @default(0)
@@ -463,6 +463,7 @@ model ImportBatch {
   payouts        Payout[]
   mouvements     MouvementBancaire[]
   recapitulatifs RecapitulatifSolde[]
+  campagnesAds   CampagneAdsImport[]
 }
 
 // --- Standard telephonique IA ------------------------------------------------
@@ -543,4 +544,30 @@ model DemandeIntervention {
   saisieLe     DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// --- Google Ads : import manuel en attendant l'acces API (section ----------
+// discutee avec l'utilisateur : l'API Google Ads ne renvoie encore aucune
+// donnee, "Acces Explorer" en attente de validation par Google) -------------
+//
+// Palliatif volontairement simple : chaque depot d'export CSV Google Ads
+// remplace la photographie precedente (pas de deduplication ligne a ligne,
+// contrairement aux factures) - Morgane lit toujours le dernier lot importe.
+// Bascule automatiquement vers l'API live (src/services/googleAds.ts) des
+// qu'elle renvoie des donnees, sans rien a changer ici.
+model CampagneAdsImport {
+  id              String      @id @default(cuid())
+  nom             String
+  statut          String?
+  type            String?
+  budgetQuotidien Float?
+  impressions     Int?
+  clics           Int?
+  cout            Float?
+  conversions     Float?
+  ctr             Float?
+  cpcMoyen        Float?
+  sourceImportId  String
+  sourceImport    ImportBatch @relation(fields: [sourceImportId], references: [id])
+  createdAt       DateTime    @default(now())
 }
