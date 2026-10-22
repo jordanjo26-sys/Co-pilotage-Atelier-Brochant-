@@ -1,7 +1,10 @@
 import { chromium } from "playwright";
+import MailComposer from "nodemailer/lib/mail-composer";
+import { readFile } from "fs/promises";
 import { DemandeIntervention, PrismaClient } from "@prisma/client";
 import { logEvenement } from "./journalService";
 import { marquerDemandeInterventionSaisie } from "./demandesIntervention";
+import { getGmailClient } from "./googleAuth";
 import {
   CHEMIN_CAPTURE_ECHEC,
   capturerDiagnostic,
@@ -296,8 +299,40 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
       action: `Envoi vers Synec de la demande ${demandeId}`,
       resultat: `Échec : ${(err as Error).message}`,
     }).catch(() => {});
+    await alerterEchecParMail(prisma, demande, (err as Error).message).catch(() => {});
     throw err;
   } finally {
     await navigateur.close();
   }
+}
+
+/**
+ * Prévient par e-mail (capture d'écran du blocage jointe) quand l'envoi
+ * échoue : demande explicite de l'utilisateur ("tu peux pas créer un
+ * système qui... te remonte les défauts"). Même mécanisme que le
+ * compte-rendu du standard téléphonique (finaliserAppel dans
+ * standardTelephonique.ts) - une boîte Gmail déjà connectée, jamais
+ * d'échec silencieux qui laisserait la demande bloquée sans que personne
+ * ne le sache. Un échec d'envoi de CET e-mail n'aggrave jamais l'erreur
+ * d'origine (appelé avec .catch(() => {}) par l'appelant).
+ */
+async function alerterEchecParMail(prisma: PrismaClient, demande: DemandeIntervention, messageErreur: string): Promise<void> {
+  const connexionGmail = await getGmailClient(prisma);
+  if (!connexionGmail) return;
+  const { gmail, connexion } = connexionGmail;
+
+  const capture = await readFile(CHEMIN_CAPTURE_ECHEC).catch(() => null);
+  const composer = new MailComposer({
+    to: process.env.TELEPHONE_EMAIL_NOTIFICATION || connexion.compteEmail,
+    subject: `Échec de l'envoi Synec — ${demande.nom}`,
+    text: [
+      `L'envoi automatique vers Synec de la demande de ${demande.nom} a échoué.`,
+      `Elle reste dans la file "à saisir" (rien n'a été modifié côté Synec) : à saisir à la main si besoin, ou réessayer après correction.`,
+      "",
+      `Détail technique : ${messageErreur}`,
+    ].join("\n"),
+    attachments: capture ? [{ filename: "blocage-synec.png", content: capture, contentType: "image/png" }] : [],
+  });
+  const message = await composer.compile().build();
+  await gmail.users.messages.send({ userId: "me", requestBody: { raw: message.toString("base64url") } });
 }

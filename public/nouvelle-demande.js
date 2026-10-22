@@ -75,6 +75,78 @@ async function chargerDemandes() {
   });
 }
 
+// Autocompletion d'adresse via l'API Adresse du gouvernement francais
+// (api-adresse.data.gouv.fr) : gratuite, sans cle a gerer, et taillee pour
+// les adresses francaises (le choix naturel ici, Synec/les clients etant
+// tous en France) - demande explicite "proposer des adresses... code
+// postal et ville se completent automatiquement", le fournisseur exact
+// (Google vs. cette API publique) important moins que le resultat.
+(function () {
+  const champAdresse = document.getElementById("champ-adresse");
+  const liste = document.getElementById("suggestions-adresse");
+  const champCodePostal = document.querySelector('[name="codePostal"]');
+  const champVille = document.querySelector('[name="ville"]');
+  if (!champAdresse || !liste) return;
+
+  let delai = null;
+  let requeteEnCours = 0;
+
+  function fermerSuggestions() {
+    liste.hidden = true;
+    liste.innerHTML = "";
+  }
+
+  async function chercherAdresses(texte) {
+    const idRequete = ++requeteEnCours;
+    try {
+      const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(texte)}&limit=5`);
+      if (!res.ok || idRequete !== requeteEnCours) return;
+      const data = await res.json();
+      const features = data.features || [];
+      if (features.length === 0) {
+        fermerSuggestions();
+        return;
+      }
+      liste.innerHTML = features
+        .map(
+          (f, i) =>
+            `<li data-index="${i}">${echapper(f.properties.label)}</li>`
+        )
+        .join("");
+      liste.hidden = false;
+      liste.querySelectorAll("li").forEach((li) => {
+        li.addEventListener("click", () => {
+          const props = features[Number(li.dataset.index)].properties;
+          champAdresse.value = [props.housenumber, props.street || props.name].filter(Boolean).join(" ");
+          if (champCodePostal) champCodePostal.value = props.postcode || "";
+          if (champVille) champVille.value = props.city || "";
+          fermerSuggestions();
+        });
+      });
+    } catch {
+      // Pas de connexion ou service indisponible : l'utilisateur garde la
+      // main pour taper l'adresse a la main, comme avant cette fonction.
+      fermerSuggestions();
+    }
+  }
+
+  champAdresse.addEventListener("input", () => {
+    clearTimeout(delai);
+    const texte = champAdresse.value.trim();
+    if (texte.length < 3) {
+      fermerSuggestions();
+      return;
+    }
+    delai = setTimeout(() => chercherAdresses(texte), 300);
+  });
+
+  champAdresse.addEventListener("blur", () => {
+    // Laisse le temps au clic sur une suggestion de se declencher avant de
+    // fermer la liste (le blur arrive avant le click sinon).
+    setTimeout(fermerSuggestions, 150);
+  });
+})();
+
 document.getElementById("form-demande").addEventListener("submit", async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target).entries());

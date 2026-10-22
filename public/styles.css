@@ -551,6 +551,34 @@ tbody tr:hover { background: var(--surface-2); }
 .form-grille textarea { min-height: 90px; resize: vertical; font-family: inherit; }
 .form-grille.pleine-largeur, .champ-pleine-largeur { grid-column: 1 / -1; }
 
+/* ---------- Autocomplétion d'adresse (API Adresse gouv.fr) ---------- */
+.champ-autocomplete { position: relative; }
+.liste-suggestions {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.liste-suggestions li {
+  padding: 8px 9px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.liste-suggestions li:hover, .liste-suggestions li:active { background: var(--surface-2); color: var(--ink); }
+
 .barre-filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .barre-filtres select, .barre-filtres input { flex: 1 1 140px; min-width: 0; }
 
