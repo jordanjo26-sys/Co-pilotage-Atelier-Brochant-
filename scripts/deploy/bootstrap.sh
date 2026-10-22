@@ -439,6 +439,22 @@ ${AUTH_BASIC_CONF}
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Pages publiques de presentation/confidentialite/conditions + logo,
+    # necessaires a la validation de marque Google Cloud (Google Ads API,
+    # niveau d'acces "De base") : ses robots de verification ne peuvent pas
+    # s'authentifier derriere le mot de passe nginx qui protege le reste du
+    # site.
+    location ~ ^/(a-propos\.html|confidentialite\.html|conditions\.html|logo\.png|logo-marque\.png)\$ {
+        auth_basic off;
+        proxy_pass http://copilote_app;
+        proxy_connect_timeout 2s;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     location / {
         proxy_pass http://copilote_app;
         # Bascule sur l'instance de secours si la principale ne repond pas
