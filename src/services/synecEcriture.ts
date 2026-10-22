@@ -105,7 +105,11 @@ async function remplirApresLibelle(page: import("playwright").Page, libelle: Reg
  * court alors que la page avait fini de charger quelques centaines de
  * millisecondes plus tard (capture de diagnostic prise juste apres montre
  * deja le bon ecran) : les deux reperes sont donc verifies en parallele,
- * avec une marge plus large.
+ * avec une marge plus large. Un second echec reel a depasse cette marge de
+ * 12s (diagnostic capture quelques secondes plus tard montrait deja le
+ * calendrier charge, evenements compris) : portee a 25s, le chargement du
+ * calendrier visuel restant le plus lent des deux reperes (il attend les
+ * evenements du mois, pas juste la structure de la page).
  */
 async function allerAuPlanning(page: import("playwright").Page): Promise<void> {
   const dejaSurPlanning = async () => {
@@ -113,13 +117,13 @@ async function allerAuPlanning(page: import("playwright").Page): Promise<void> {
       page
         .getByText(/nouvel événement/i)
         .first()
-        .waitFor({ state: "visible", timeout: 12000 })
+        .waitFor({ state: "visible", timeout: 25000 })
         .then(() => true)
         .catch(() => false),
       page
         .getByText(/calendrier visuel/i)
         .first()
-        .waitFor({ state: "visible", timeout: 12000 })
+        .waitFor({ state: "visible", timeout: 25000 })
         .then(() => true)
         .catch(() => false),
     ]);
