@@ -119,9 +119,17 @@ document.querySelectorAll(".onglet").forEach((b) => {
   b.addEventListener("click", () => basculerOnglet(b.dataset.onglet));
 });
 
+// L'accueil (accueil.html) pointe vers des onglets precis via l'URL
+// (ex. /index.html#systeme) : la cible explicite dans le hash prime sur le
+// dernier onglet consulte, elle-meme utilisee a defaut.
+const ongletDepuisHash = location.hash.replace("#", "");
 try {
-  const dernierOnglet = localStorage.getItem(CLE_ONGLET_ACTIF);
-  if (dernierOnglet) basculerOnglet(dernierOnglet);
+  if (ongletDepuisHash && document.querySelector(`.onglet-panneau[data-panneau="${ongletDepuisHash}"]`)) {
+    basculerOnglet(ongletDepuisHash);
+  } else {
+    const dernierOnglet = localStorage.getItem(CLE_ONGLET_ACTIF);
+    if (dernierOnglet) basculerOnglet(dernierOnglet);
+  }
 } catch {
   // ignore
 }

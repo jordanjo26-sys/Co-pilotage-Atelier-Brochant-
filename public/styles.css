@@ -514,7 +514,18 @@ tbody tr:hover { background: var(--surface-2); }
 }
 
 /* ---------- Prospection ---------- */
-.nav-liens { display: flex; gap: 14px; margin-top: 6px; }
+.nav-liens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
+}
+/* flex-wrap seul ne suffit pas : sans largeur minimale, l'overflow-wrap:anywhere
+   global (regle body, pour les longues URL sans espace) continue de couper un
+   lien court au milieu du mot avant de laisser la ligne passer au suivant
+   ("Accueil" -> "Accu/eil" repere a l'ecran, premier lien a ne contenir aucun
+   espace ou s'accrocher). */
+.nav-liens a { flex-shrink: 0; }
 .nav-liens a { font-size: 12.5px; font-weight: 700; color: var(--brand-blue); text-decoration: none; }
 .nav-liens a:hover { text-decoration: underline; }
 
@@ -701,4 +712,77 @@ tbody tr:hover { background: var(--surface-2); }
   color: var(--critical);
 }
 .action-requise .libelle { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+
+/* ---------- Accueil (hub des poles) ----------
+   Un pole par metier plutot qu'un bandeau d'onglets qui s'allonge a chaque
+   nouvelle fonction (demande explicite de l'utilisateur, voir carte de
+   structuration discutee avec lui). Chaque pole garde sa couleur deja
+   utilisee ailleurs dans l'appli (tuiles, accent-* des cartes) pour rester
+   coherent visuellement avec le reste de l'outil plutot que d'inventer une
+   nouvelle palette. */
+.accueil-note {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+.accueil-note strong { color: var(--ink-2); }
+
+.liste-poles { display: flex; flex-direction: column; gap: 10px; }
+.carte-pole-accueil {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 13px 14px;
+  box-shadow: var(--shadow);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .12s ease, border-color .12s ease;
+}
+.carte-pole-accueil:hover { transform: translateY(-1px); border-color: var(--pole-couleur); }
+.carte-pole-accueil:active { transform: translateY(0); opacity: 0.85; }
+.pole-icone {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: var(--pole-couleur, var(--brand-blue));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pole-icone svg { width: 20px; height: 20px; }
+.pole-icone span { font-family: "Manrope", sans-serif; font-weight: 800; font-size: 16px; }
+.pole-corps { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pole-corps h3 { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.pole-corps .pole-desc { font-size: 12px; color: var(--ink-muted); }
+.pole-corps .pole-meta { font-size: 12.5px; font-weight: 600; color: var(--pole-couleur, var(--brand-blue)); margin-top: 2px; min-height: 1em; }
+.pole-chevron { flex: none; color: var(--ink-muted); font-size: 16px; }
+
+.morgane-fab-lien {
+  position: fixed;
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  right: max(20px, env(safe-area-inset-right, 0px));
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--brand-violet);
+  color: #fff;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+.morgane-fab-lien svg { width: 24px; height: 24px; }
+.morgane-fab-lien:hover { opacity: 0.9; }
 .action-requise .fleche { color: var(--ink-muted); flex: none; }
