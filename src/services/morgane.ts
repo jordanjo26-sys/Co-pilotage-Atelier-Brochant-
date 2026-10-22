@@ -324,10 +324,18 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       try {
         const campagnes = await listerCampagnesAds(prisma, jours);
         if (campagnes.length > 0) return { source: "api_google_ads", campagnes };
-      } catch {
-        // Repli silencieux sur l'import manuel ci-dessous : l'erreur API
-        // (acces non valide, connexion absente...) n'est pas interessante
-        // pour l'utilisateur tant qu'un import manuel existe.
+      } catch (err) {
+        // Repli silencieux sur l'import manuel ci-dessous pour
+        // l'utilisateur (l'erreur API n'est pas son probleme tant qu'un
+        // import manuel existe) - mais journalisee quand meme : sans ca,
+        // impossible de diagnostiquer pourquoi l'API live echoue encore
+        // une fois l'acces Google valide (vu avec l'utilisateur en
+        // mettant en place l'acces Explorateur).
+        await logEvenement(prisma, {
+          evenement: "google_ads_api_erreur",
+          action: "obtenir_campagnes_ads : appel API live",
+          resultat: `Repli sur import manuel : ${(err as Error).message}`,
+        }).catch(() => {});
       }
       const importe = await dernieresCampagnesImportees(prisma);
       if (!importe) {
