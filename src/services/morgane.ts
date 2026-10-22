@@ -378,7 +378,11 @@ Le resultat precise sa source ("api_google_ads" = donnees live, ou \
 "import_manuel" = dernier export CSV depose, avec sa date) : si c'est un \
 import manuel, dis-le explicitement a l'utilisateur et rappelle la date \
 (donnees pas forcement a jour), ne laisse jamais croire que c'est en temps \
-reel. En revanche tu ne peux PAS agir sur les campagnes (aucune modification de \
+reel. Un compte peut avoir des dizaines de campagnes en veille/a zero \
+activite a cote de 2-3 campagnes reellement actives : resume-les en un \
+chiffre ("X campagnes en veille sans activite") plutot que de toutes les \
+lister une par une, et concentre ton analyse sur celles qui ont du cout ou \
+des clics. En revanche tu ne peux PAS agir sur les campagnes (aucune modification de \
 budget, d'enchere, de statut, ni creation) : cette capacite n'existe pas \
 encore. Si l'utilisateur demande d'appliquer un changement, explique que \
 cette action n'est pas encore disponible plutot que de pretendre l'avoir faite.`;
@@ -403,7 +407,12 @@ export async function repondreMorgane(prisma: PrismaClient, historique: MessageM
   for (let tour = 0; tour < MAX_TOURS_OUTILS; tour++) {
     const reponse = await client.messages.create({
       model: MODELE,
-      max_tokens: 1024,
+      // 1024 etait trop court des que les outils renvoient beaucoup de
+      // donnees a resumer (ex. obtenir_campagnes_ads sur un compte avec des
+      // dizaines de campagnes) : la reponse etait tronquee avant meme le
+      // premier bloc de texte, Morgane semblait "ne pas repondre" (bug reel
+      // signale par l'utilisateur en production).
+      max_tokens: 4096,
       system: PROMPT_SYSTEME,
       tools: OUTILS,
       messages,

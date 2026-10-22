@@ -134,6 +134,14 @@ export function parserCampagnesAds(buffer: Buffer): LigneCampagneAds[] {
     // rupture ("--") : seule une vraie campagne nommee nous interesse.
     if (!nomBrut || /^(total|--)/i.test(nomBrut)) continue;
 
+    // Meme filtre que l'API live (campaign.status != 'REMOVED') : une
+    // campagne supprimee n'a plus d'interet pour une analyse de
+    // performance actuelle, et un compte en accumule souvent des dizaines
+    // au fil des annees - les inclure gonfle inutilement le volume de
+    // donnees transmis a Morgane.
+    const statutBrut = cellule(ligne, "statut")?.trim();
+    if (statutBrut && /^supprim/i.test(statutBrut)) continue;
+
     lignesCampagnes.push({
       nom: nomBrut,
       statut: cellule(ligne, "statut")?.trim() || null,

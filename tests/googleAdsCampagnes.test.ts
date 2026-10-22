@@ -41,6 +41,17 @@ test("parserCampagnesAds : montants, pourcentages et entiers francais correcteme
   assert.equal(serrurier.conversions, 3);
 });
 
+test("parserCampagnesAds : exclut les campagnes supprimees (meme filtre que l'API live)", () => {
+  const exportAvecSupprimee = [
+    "Campagne,Budget,État,Type de campagne,Clics,Impr.,CTR,CPC moy.,Coût,Conversions",
+    '"Campagne active","18,00 €",Activée,Réseau de Recherche,142,6471,"2,19 %","1,23 €","174,60 €",3',
+    '"Vieille campagne","50,00 €",Supprimée,Réseau de Recherche,0,0,"0,00 %","0,00 €","0,00 €",0',
+  ].join("\n");
+  const lignes = parserCampagnesAds(Buffer.from(exportAvecSupprimee, "utf8"));
+  assert.equal(lignes.length, 1);
+  assert.equal(lignes[0].nom, "Campagne active");
+});
+
 test("parserCampagnesAds : delimiteur point-virgule egalement reconnu", () => {
   const exportPointVirgule = [
     "Rapport des campagnes",
