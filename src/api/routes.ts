@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
-import { getDashboardSummary } from "../services/dashboardService";
+import { getDashboardSummary, getCaSerieTemporelle, GranulariteCa } from "../services/dashboardService";
 import {
   synchroniserGmail,
   resumerErreurs,
@@ -228,6 +228,18 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   router.get("/dashboard/summary", async (_req, res) => {
     res.json(await getDashboardSummary(prisma));
+  });
+
+  // Serie temporelle du CA pour le graphique du tableau de bord (demande
+  // explicite : "pouvoir regarder mon chiffre d'affaires par jour ou par
+  // mois ou par annee").
+  const GRANULARITES_CA_VALIDES: GranulariteCa[] = ["jour", "mois", "annee"];
+  router.get("/dashboard/ca-serie", async (req, res) => {
+    const granularite = req.query.granularite;
+    if (typeof granularite !== "string" || !GRANULARITES_CA_VALIDES.includes(granularite as GranulariteCa)) {
+      return res.status(400).json({ erreur: `granularite invalide, attendu l'un de : ${GRANULARITES_CA_VALIDES.join(", ")}` });
+    }
+    res.json(await getCaSerieTemporelle(prisma, granularite as GranulariteCa));
   });
 
   // --- Gmail -> Dext (section 7) ------------------------------------------

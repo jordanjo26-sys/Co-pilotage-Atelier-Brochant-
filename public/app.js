@@ -131,14 +131,218 @@ async function chargerCockpit() {
   const data = await res.json();
   const cockpit = document.getElementById("cockpit");
   cockpit.innerHTML = `
-    <div class="tuile"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${fmtMontant(data.caVeille)}</div><div class="label">CA veille (${data.dateVeille})</div></div>
-    <div class="tuile${data.impayes.nombre > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.impayes}</div><div class="valeur">${data.impayes.nombre}</div><div class="label">Impayés (${fmtMontant(data.impayes.montantTotal)})</div></div>
-    <div class="tuile"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${data.aValiderImports}</div><div class="label">Imports à vérifier</div></div>
-    <div class="tuile${data.anomaliesOuvertes > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${data.anomaliesOuvertes}</div><div class="label">Anomalies ouvertes</div></div>
+    <div class="tuile tuile-ca"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${fmtMontant(data.caVeille)}</div><div class="label">CA veille (${data.dateVeille})</div></div>
+    <div class="tuile tuile-impayes${data.impayes.nombre > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.impayes}</div><div class="valeur">${data.impayes.nombre}</div><div class="label">Impayés (${fmtMontant(data.impayes.montantTotal)})</div></div>
+    <div class="tuile tuile-imports"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${data.aValiderImports}</div><div class="label">Imports à vérifier</div></div>
+    <div class="tuile tuile-anomalies${data.anomaliesOuvertes > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${data.anomaliesOuvertes}</div><div class="label">Anomalies ouvertes</div></div>
   `;
   etatIndicateurs.aValiderImports = data.aValiderImports;
   mettreAJourBadges();
 }
+
+// --- Graphique du chiffre d'affaires (jour/mois/annee) ----------------------
+//
+// Demande explicite de l'utilisateur : pouvoir regarder le CA par jour, par
+// mois ou par annee, pas seulement le chiffre brut de la veille. Construit
+// a la main en SVG (pas de librairie de graphiques dans ce projet) en
+// suivant les memes principes que le reste de l'interface : sobre, lisible,
+// une seule serie (pas de legende necessaire, le titre de la carte suffit),
+// etiquette de valeur a l'extremite de la courbe, survol avec infobulle.
+
+const VB_GRAPHIQUE_L = 600;
+const VB_GRAPHIQUE_H = 220;
+const MARGE_GRAPHIQUE = { haut: 14, droite: 16, bas: 28, gauche: 46 };
+
+function fmtCompact(n) {
+  const v = Number(n) || 0;
+  if (Math.abs(v) >= 1000) return `${(v / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} k€`;
+  return `${Math.round(v)} €`;
+}
+
+const MOIS_COURTS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const MOIS_LONGS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+function fmtPeriodeAxe(periode, granularite) {
+  if (granularite === "jour") {
+    const [, m, j] = periode.split("-");
+    return `${parseInt(j, 10)} ${MOIS_COURTS[parseInt(m, 10) - 1]}`;
+  }
+  if (granularite === "mois") {
+    const [a, m] = periode.split("-");
+    return `${MOIS_COURTS[parseInt(m, 10) - 1]} ${a.slice(2)}`;
+  }
+  return periode;
+}
+
+function fmtPeriodeComplet(periode, granularite) {
+  if (granularite === "jour") {
+    const [a, m, j] = periode.split("-");
+    return `${parseInt(j, 10)} ${MOIS_LONGS[parseInt(m, 10) - 1]} ${a}`;
+  }
+  if (granularite === "mois") {
+    const [a, m] = periode.split("-");
+    return `${MOIS_LONGS[parseInt(m, 10) - 1]} ${a}`;
+  }
+  return periode;
+}
+
+function creerElementSvg(tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  return el;
+}
+
+let granulariteCaActuelle = "jour";
+
+function dessinerGraphiqueCa(conteneur, points, granularite) {
+  conteneur.innerHTML = "";
+  if (!points || points.length === 0 || points.every((p) => p.montant === 0)) {
+    conteneur.innerHTML = '<p class="aide">Pas encore de chiffre d\'affaires sur cette période.</p>';
+    return;
+  }
+
+  const n = points.length;
+  const maxBrut = Math.max(...points.map((p) => p.montant), 0);
+  const maxY = maxBrut > 0 ? maxBrut * 1.15 : 100;
+  const plotW = VB_GRAPHIQUE_L - MARGE_GRAPHIQUE.gauche - MARGE_GRAPHIQUE.droite;
+  const plotH = VB_GRAPHIQUE_H - MARGE_GRAPHIQUE.haut - MARGE_GRAPHIQUE.bas;
+  const x = (i) => MARGE_GRAPHIQUE.gauche + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const y = (v) => MARGE_GRAPHIQUE.haut + plotH - (v / maxY) * plotH;
+
+  const svg = creerElementSvg("svg", {
+    viewBox: `0 0 ${VB_GRAPHIQUE_L} ${VB_GRAPHIQUE_H}`,
+    class: "graphique-ca-svg",
+    role: "img",
+    "aria-label": `Évolution du chiffre d'affaires sur ${n} périodes, dernière valeur ${fmtMontant(points[n - 1].montant)}`,
+  });
+
+  // Quadrillage + etiquettes Y (0 / 1/3 / 2/3 / max), compact (0 / 1k€...).
+  const axes = creerElementSvg("g", { class: "graphique-axes" });
+  for (let f = 0; f <= 1.0001; f += 1 / 3) {
+    const valeur = maxY * f;
+    const posY = y(valeur);
+    axes.appendChild(
+      creerElementSvg("line", { x1: MARGE_GRAPHIQUE.gauche, x2: VB_GRAPHIQUE_L - MARGE_GRAPHIQUE.droite, y1: posY, y2: posY, class: "graphique-grille" })
+    );
+    const label = creerElementSvg("text", { x: MARGE_GRAPHIQUE.gauche - 6, y: posY, class: "graphique-label-y", "text-anchor": "end", "dominant-baseline": "middle" });
+    label.textContent = fmtCompact(valeur);
+    axes.appendChild(label);
+  }
+
+  // Etiquettes X : un sous-ensemble seulement (jamais un libelle par point
+  // sur 30 jours, illisible) - voir skill dataviz, "label selectively".
+  const pasX = granularite === "jour" ? Math.ceil(n / 6) : 1;
+  points.forEach((p, i) => {
+    if (i % pasX !== 0 && i !== n - 1) return;
+    const label = creerElementSvg("text", { x: x(i), y: VB_GRAPHIQUE_H - 8, class: "graphique-label-x", "text-anchor": "middle" });
+    label.textContent = fmtPeriodeAxe(p.periode, granularite);
+    axes.appendChild(label);
+  });
+  svg.appendChild(axes);
+
+  // Aire (fondu, jamais un aplat sature) puis ligne (2px, jonctions rondes).
+  const chemin = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.montant).toFixed(1)}`).join(" ");
+  const cheminAire = `${chemin} L ${x(n - 1).toFixed(1)} ${y(0).toFixed(1)} L ${x(0).toFixed(1)} ${y(0).toFixed(1)} Z`;
+  svg.appendChild(creerElementSvg("path", { d: cheminAire, class: "graphique-aire" }));
+  svg.appendChild(creerElementSvg("path", { d: chemin, class: "graphique-ligne", fill: "none" }));
+
+  // Point + etiquette de fin (la valeur se lit a l'extremite de la courbe,
+  // pas un chiffre colle sur chaque point).
+  const dernier = points[n - 1];
+  const finX = x(n - 1);
+  const finY = y(dernier.montant);
+  svg.appendChild(creerElementSvg("circle", { cx: finX, cy: finY, r: 7, class: "graphique-marqueur-anneau" }));
+  svg.appendChild(creerElementSvg("circle", { cx: finX, cy: finY, r: 4, class: "graphique-marqueur-point" }));
+  const presDuBord = finX > VB_GRAPHIQUE_L - 70;
+  const etiquetteFin = creerElementSvg("text", {
+    x: presDuBord ? finX : finX,
+    y: Math.max(finY - 12, MARGE_GRAPHIQUE.haut + 8),
+    class: "graphique-etiquette-fin",
+    "text-anchor": presDuBord ? "end" : "middle",
+  });
+  etiquetteFin.textContent = fmtMontant(dernier.montant);
+  svg.appendChild(etiquetteFin);
+
+  // Curseur de survol (crosshair) + infobulle HTML (plus simple a styler
+  // qu'un <foreignObject> SVG) - cf. skill dataviz, "the hover layer is
+  // part of the deliverable".
+  const ligneCurseur = creerElementSvg("line", { y1: MARGE_GRAPHIQUE.haut, y2: VB_GRAPHIQUE_H - MARGE_GRAPHIQUE.bas, class: "graphique-curseur", visibility: "hidden" });
+  const pointSurvole = creerElementSvg("circle", { r: 5, class: "graphique-point-survole", visibility: "hidden" });
+  svg.appendChild(ligneCurseur);
+  svg.appendChild(pointSurvole);
+
+  conteneur.appendChild(svg);
+
+  const infobulle = document.createElement("div");
+  infobulle.className = "graphique-infobulle";
+  infobulle.hidden = true;
+  const infobulleValeur = document.createElement("div");
+  infobulleValeur.className = "graphique-infobulle-valeur";
+  const infobulleDate = document.createElement("div");
+  infobulleDate.className = "graphique-infobulle-date";
+  infobulle.appendChild(infobulleValeur);
+  infobulle.appendChild(infobulleDate);
+  conteneur.appendChild(infobulle);
+
+  const zoneSurvol = creerElementSvg("rect", {
+    x: MARGE_GRAPHIQUE.gauche,
+    y: MARGE_GRAPHIQUE.haut,
+    width: plotW,
+    height: plotH,
+    fill: "transparent",
+    class: "graphique-zone-survol",
+  });
+  svg.appendChild(zoneSurvol);
+
+  const majSurvol = (clientX) => {
+    const rectSvg = svg.getBoundingClientRect();
+    if (rectSvg.width === 0) return;
+    const posViewBoxX = ((clientX - rectSvg.left) / rectSvg.width) * VB_GRAPHIQUE_L;
+    const posRelative = (posViewBoxX - MARGE_GRAPHIQUE.gauche) / plotW;
+    const i = Math.max(0, Math.min(n - 1, Math.round(posRelative * (n - 1))));
+    const p = points[i];
+    const px = x(i);
+    const py = y(p.montant);
+
+    ligneCurseur.setAttribute("x1", px);
+    ligneCurseur.setAttribute("x2", px);
+    ligneCurseur.setAttribute("visibility", "visible");
+    pointSurvole.setAttribute("cx", px);
+    pointSurvole.setAttribute("cy", py);
+    pointSurvole.setAttribute("visibility", "visible");
+
+    infobulle.hidden = false;
+    infobulleValeur.textContent = fmtMontant(p.montant);
+    infobulleDate.textContent = fmtPeriodeComplet(p.periode, granularite);
+    const pctX = (px / VB_GRAPHIQUE_L) * 100;
+    const pctY = (py / VB_GRAPHIQUE_H) * 100;
+    infobulle.style.left = `${pctX}%`;
+    infobulle.style.top = `${pctY}%`;
+    infobulle.classList.toggle("a-droite", pctX > 60);
+  };
+
+  zoneSurvol.addEventListener("pointermove", (e) => majSurvol(e.clientX));
+  zoneSurvol.addEventListener("pointerleave", () => {
+    ligneCurseur.setAttribute("visibility", "hidden");
+    pointSurvole.setAttribute("visibility", "hidden");
+    infobulle.hidden = true;
+  });
+}
+
+async function chargerGraphiqueCa(granularite = granulariteCaActuelle) {
+  granulariteCaActuelle = granularite;
+  const res = await fetch(`/api/dashboard/ca-serie?granularite=${granularite}`);
+  const points = await res.json();
+  dessinerGraphiqueCa(document.getElementById("graphique-ca"), points, granularite);
+}
+
+document.querySelectorAll(".filtre-periode-bouton").forEach((bouton) => {
+  bouton.addEventListener("click", () => {
+    document.querySelectorAll(".filtre-periode-bouton").forEach((b) => b.classList.remove("actif"));
+    bouton.classList.add("actif");
+    chargerGraphiqueCa(bouton.dataset.granularite);
+  });
+});
 
 async function chargerImports() {
   const res = await fetch("/api/imports");
@@ -1020,7 +1224,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

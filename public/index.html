@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=22" />
+  <link rel="stylesheet" href="/styles.css?v=23" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -57,6 +57,18 @@
       <section class="carte accent-bleu carte-cockpit">
         <h2>Cockpit du jour</h2>
         <div id="cockpit" class="grille-cockpit"></div>
+      </section>
+
+      <section class="carte accent-teal carte-graphique-ca">
+        <div class="graphique-entete">
+          <h2>Chiffre d'affaires</h2>
+          <div class="filtre-periode" role="group" aria-label="Période du graphique">
+            <button type="button" class="filtre-periode-bouton actif" data-granularite="jour">Jour</button>
+            <button type="button" class="filtre-periode-bouton" data-granularite="mois">Mois</button>
+            <button type="button" class="filtre-periode-bouton" data-granularite="annee">Année</button>
+          </div>
+        </div>
+        <div id="graphique-ca" class="graphique-ca"></div>
       </section>
 
       <section class="carte accent-ambre">
@@ -213,6 +225,6 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=28"></script>
+  <script src="/app.js?v=29"></script>
 </body>
 </html>

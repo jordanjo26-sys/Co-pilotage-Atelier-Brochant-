@@ -20,6 +20,11 @@
   --critical: #C43B54;
   --critical-soft: #F7DEE3;
   --shadow: 0 1px 2px rgba(22,33,62,0.06), 0 8px 24px -12px rgba(22,33,62,0.18);
+  /* Teinte dediee au trait du graphique de CA : --brand-teal seul passe
+     sous 3:1 de contraste sur fond clair (valide via le script du skill
+     dataviz, scripts/validate_palette.js) - version plus foncee/saturee
+     pour un trait fin qui reste lisible sans dependre d'une etiquette. */
+  --graphique-ligne: #1F8A6E;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +47,9 @@
     --critical: #E5677E;
     --critical-soft: #3B1620;
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.55);
+    /* --brand-teal (dejaplus clair en mode sombre) passe deja >=3:1 sur
+       --surface ici, pas besoin d'une teinte separee comme en mode clair. */
+    --graphique-ligne: #4FCBA8;
   }
 }
 :root[data-theme="dark"] {
@@ -63,6 +71,7 @@
   --critical: #E5677E;
   --critical-soft: #3B1620;
   --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.55);
+  --graphique-ligne: #4FCBA8;
 }
 
 * { box-sizing: border-box; }
@@ -291,25 +300,91 @@ button:disabled { opacity: 0.4; cursor: default; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
+/* Chaque tuile porte sa propre couleur de signification via --tuile-couleur
+   (ex. .tuile-ca = teal, .tuile-impayes = ambre/critique...) plutot qu'un
+   gris uniforme : demande explicite de l'utilisateur ("couleurs vives...
+   qui donne envie"), voir public/app.js (chargerCockpit) pour les classes
+   posees sur chaque tuile. Teinte en fond (::before a faible opacite)
+   plutot qu'un fond plein : reste lisible, fonctionne pareil en mode
+   sombre (la couleur elle-meme change via les tokens --brand-*/--warning/
+   --critical, l'opacite reste la meme). */
 .tuile {
+  --tuile-couleur: var(--brand-blue);
+  position: relative;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px 14px;
+  overflow: hidden;
 }
+.tuile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--tuile-couleur);
+  opacity: 0.1;
+  pointer-events: none;
+}
+.tuile-ca { --tuile-couleur: var(--graphique-ligne); }
+.tuile-impayes { --tuile-couleur: var(--warning); }
+.tuile-imports { --tuile-couleur: var(--brand-blue); }
+.tuile-anomalies { --tuile-couleur: var(--brand-violet); }
+.tuile.alerte { --tuile-couleur: var(--critical); }
 .tuile-icone {
-  width: 30px; height: 30px;
+  position: relative;
+  width: 32px; height: 32px;
   border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 8px;
-  background: color-mix(in srgb, var(--brand-blue) 16%, transparent);
-  color: var(--brand-blue);
+  background: var(--tuile-couleur);
+  color: #fff;
 }
-.tuile-icone svg { width: 16px; height: 16px; }
-.tuile.alerte .tuile-icone { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
-.tuile .valeur { font-size: 21px; font-weight: 800; color: var(--ink); font-family: "Manrope", sans-serif; line-height: 1.1; }
-.tuile .label { font-size: 11px; color: var(--ink-muted); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-.tuile.alerte .valeur { color: var(--critical); }
+.tuile-icone svg { width: 17px; height: 17px; }
+.tuile .valeur { position: relative; font-size: 22px; font-weight: 800; color: var(--tuile-couleur); font-family: "Manrope", sans-serif; line-height: 1.1; }
+.tuile .label { position: relative; font-size: 11px; color: var(--ink-muted); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* ---------- Graphique du chiffre d'affaires ---------- */
+.graphique-entete { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.graphique-entete h2 { margin-bottom: 0; }
+.filtre-periode { display: flex; gap: 3px; background: var(--surface-2); border-radius: 10px; padding: 3px; }
+.filtre-periode-bouton {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.filtre-periode-bouton.actif { background: var(--graphique-ligne); color: #fff; }
+.graphique-ca { position: relative; }
+.graphique-ca-svg { width: 100%; aspect-ratio: 600 / 220; display: block; overflow: visible; }
+.graphique-grille { stroke: var(--line); stroke-width: 1; }
+.graphique-label-y, .graphique-label-x { font-size: 9.5px; fill: var(--ink-muted); font-weight: 600; font-family: "IBM Plex Sans", sans-serif; }
+.graphique-aire { fill: var(--graphique-ligne); opacity: 0.12; }
+.graphique-ligne { stroke: var(--graphique-ligne); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.graphique-marqueur-anneau { fill: var(--surface); }
+.graphique-marqueur-point { fill: var(--graphique-ligne); }
+.graphique-etiquette-fin { font-size: 12.5px; font-weight: 800; fill: var(--ink); font-family: "Manrope", sans-serif; }
+.graphique-curseur { stroke: var(--ink-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.graphique-point-survole { fill: var(--graphique-ligne); stroke: var(--surface); stroke-width: 2; }
+.graphique-zone-survol { cursor: crosshair; }
+.graphique-infobulle {
+  position: absolute;
+  transform: translate(-50%, -115%);
+  pointer-events: none;
+  background: var(--ink);
+  color: var(--surface);
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  z-index: 5;
+}
+.graphique-infobulle.a-droite { transform: translate(-92%, -115%); }
+.graphique-infobulle-valeur { font-weight: 800; font-size: 13px; }
+.graphique-infobulle-date { opacity: 0.7; font-size: 10.5px; margin-top: 1px; }
 
 /* ---------- Anomalies : liste de cartes plutot qu'un tableau (mobile) ---------- */
 .barre-actions-masse[hidden] { display: none; }
