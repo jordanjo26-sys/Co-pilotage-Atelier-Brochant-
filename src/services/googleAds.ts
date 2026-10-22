@@ -55,6 +55,37 @@ async function obtenirClientAds(prisma: PrismaClient): Promise<Customer | null> 
   });
 }
 
+/**
+ * Message d'erreur exploitable pour un echec d'appel a listerCampagnesAds.
+ *
+ * La librairie google-ads-api ne leve pas toujours une Error standard : des
+ * qu'un trailer gRPC "GoogleAdsFailure" accompagne l'echec (ex. jeton
+ * developpeur pas encore approuve, acces refuse...), elle leve directement
+ * l'objet protobuf decode, qui n'a pas de propriete .message - d'ou le
+ * "undefined" observe jusqu'ici dans le Journal (err.message sur cet objet).
+ * Le vrai detail est dans err.errors[0].message.
+ */
+export function messageErreurGoogleAds(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { errors?: unknown; message?: unknown; details?: unknown };
+    if (Array.isArray(e.errors) && e.errors.length > 0) {
+      const premiere = e.errors[0] as { message?: unknown; error_code?: unknown };
+      if (typeof premiere?.message === "string" && premiere.message) {
+        const code = premiere.error_code ? ` (${JSON.stringify(premiere.error_code)})` : "";
+        return `${premiere.message}${code}`;
+      }
+    }
+    if (typeof e.message === "string" && e.message) return e.message;
+    if (typeof e.details === "string" && e.details) return e.details;
+  }
+  if (err instanceof Error) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 export interface CampagneAds {
   id: string;
   nom: string;

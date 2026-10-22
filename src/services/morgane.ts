@@ -11,7 +11,7 @@ import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { enregistrerDecision, listerDecisions, TypeDecision } from "./decisions";
 import { logEvenement } from "./journalService";
 import { verifierMailsImportants } from "./mailsImportants";
-import { listerCampagnesAds } from "./googleAds";
+import { listerCampagnesAds, messageErreurGoogleAds } from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
 
 /**
@@ -334,7 +334,7 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         await logEvenement(prisma, {
           evenement: "google_ads_api_erreur",
           action: "obtenir_campagnes_ads : appel API live",
-          resultat: `Repli sur import manuel : ${(err as Error).message}`,
+          resultat: `Repli sur import manuel : ${messageErreurGoogleAds(err)}`,
         }).catch(() => {});
       }
       const importe = await dernieresCampagnesImportees(prisma);
