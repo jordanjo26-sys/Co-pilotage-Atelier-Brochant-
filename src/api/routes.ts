@@ -31,6 +31,7 @@ import {
   marquerDemandeInterventionSaisie,
   DemandeInterventionValidationError,
 } from "../services/demandesIntervention";
+import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -573,6 +574,18 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.json(await marquerDemandeInterventionSaisie(prisma, req.params.id));
     } catch {
       res.status(404).json({ erreur: "Demande introuvable." });
+    }
+  });
+
+  // Ecriture automatique dans Synec (client + planning), voir
+  // src/services/synecEcriture.ts - declenchee uniquement par ce clic
+  // explicite sur UNE demande precise, jamais automatique.
+  router.post("/demandes-intervention/:id/envoyer-synec", async (req, res) => {
+    try {
+      res.json(await envoyerDemandeVersSynec(prisma, req.params.id));
+    } catch (err) {
+      if (err instanceof SynecEcritureError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
     }
   });
 

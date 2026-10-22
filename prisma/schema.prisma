@@ -532,6 +532,7 @@ model DemandeIntervention {
   id           String    @id @default(cuid())
   nom          String
   telephone    String?
+  email        String?
   adresse      String?
   codePostal   String?
   ville        String?

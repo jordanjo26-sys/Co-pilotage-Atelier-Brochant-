@@ -48,6 +48,7 @@ test("demandes d'intervention : creation, validation, file d'attente et marquage
     const demande = await creerDemandeIntervention(prisma, {
       nom: "M. Durand",
       telephone: "0601020304",
+      email: "m.durand@example.com",
       adresse: "12 rue des Lilas",
       codePostal: "75018",
       ville: "Paris",
@@ -59,6 +60,7 @@ test("demandes d'intervention : creation, validation, file d'attente et marquage
     });
     assert.equal(demande.statut, "a_saisir");
     assert.equal(demande.nom, "M. Durand");
+    assert.equal(demande.email, "m.durand@example.com");
     assert.equal(demande.urgence, "urgente");
   });
 

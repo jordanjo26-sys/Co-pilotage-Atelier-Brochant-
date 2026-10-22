@@ -17,6 +17,7 @@ export class DemandeInterventionValidationError extends Error {}
 export interface DonneesDemandeIntervention {
   nom?: unknown;
   telephone?: unknown;
+  email?: unknown;
   adresse?: unknown;
   codePostal?: unknown;
   ville?: unknown;
@@ -46,6 +47,7 @@ export async function creerDemandeIntervention(prisma: PrismaClient, donnees: Do
     data: {
       nom,
       telephone: texte(donnees.telephone),
+      email: texte(donnees.email),
       adresse: texte(donnees.adresse),
       codePostal: texte(donnees.codePostal),
       ville: texte(donnees.ville),
