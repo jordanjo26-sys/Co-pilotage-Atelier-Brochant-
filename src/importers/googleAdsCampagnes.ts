@@ -7,17 +7,26 @@ import { normalizeHeader, detectDelimiter, parseAmount } from "./csvUtils";
  * conversation avec l'utilisateur, compte en "Acces Explorer").
  *
  * Contrairement aux exports Synec/Stripe (receiveCsv, src/importers/*.ts),
- * un export Google Ads n'a PAS l'en-tete sur la premiere ligne : il commence
- * par un titre de rapport et une periode ("Rapport des campagnes",
- * "1 janv. 2026-21 oct. 2026"...), variable selon la langue/configuration
- * du compte, et se termine souvent par une ligne "Total". Ce module
- * recherche donc la vraie ligne d'en-tete plutot que de supposer qu'elle est
- * en premiere position, et ignore la ligne de total finale.
+ * un export Google Ads peut ne PAS avoir l'en-tete sur la premiere ligne :
+ * certains exports commencent par un titre de rapport et une periode
+ * ("Rapport des campagnes", "1 janv. 2026-21 oct. 2026"...) et se terminent
+ * par une ligne "Total" (export direct depuis la page "Campagnes"). Ce
+ * module recherche donc la vraie ligne d'en-tete plutot que de supposer sa
+ * position, et ignore une eventuelle ligne de total finale - sans gener
+ * l'autre cas reel observe (export groupe depuis "Vue d'ensemble", en-tete
+ * directement en premiere ligne, pas de ligne de total).
  */
 
+// Deux formes rencontrees en pratique pour les memes donnees : les
+// intitules courts de l'export direct de la page "Campagnes" ("Campagne",
+// "État"...) et les intitules longs de l'export groupe depuis "Vue
+// d'ensemble" ("Nom de la campagne", "État de la campagne"...). Alias
+// exacts (pas de correspondance partielle) pour ne jamais confondre "Nom de
+// la campagne" avec "Nom du groupe de campagnes", colonne presente dans
+// l'export "Vue d'ensemble" mais sans rapport.
 const ALIAS_CHAMPS: Record<string, string[]> = {
-  nom: ["campagne"],
-  statut: ["etat", "statut"],
+  nom: ["campagne", "nom de la campagne"],
+  statut: ["etat", "statut", "etat de la campagne"],
   type: ["type de campagne", "type"],
   budgetQuotidien: ["budget"],
   impressions: ["impr", "impressions"],

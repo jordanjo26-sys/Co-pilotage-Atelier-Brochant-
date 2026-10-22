@@ -58,3 +58,34 @@ test("parserCampagnesAds : leve une erreur explicite si aucune en-tete plausible
   const fichierInattendu = "Ceci,nest,pas,un,export,Google,Ads\nabc,def,ghi,jkl,mno,pqr,stu";
   assert.throws(() => parserCampagnesAds(Buffer.from(fichierInattendu, "utf8")), EnteteGoogleAdsIntrouvable);
 });
+
+// Fichier "Campagnes(...).csv" reel fourni par l'utilisateur (extrait du
+// zip "Fiches de la page Vue d'ensemble") : en-tete directement en
+// premiere ligne (pas de titre de rapport), intitules longs ("Nom de la
+// campagne", "État de la campagne"), colonne "Nom du groupe de campagnes"
+// vide a ignorer, et un format different de l'export direct de la page
+// "Campagnes" simule ci-dessus (pas de Budget/Type/Impr./CPC/Conversions
+// dans ce fichier-la).
+const EXPORT_VUE_ENSEMBLE = [
+  "Nom de la campagne,Nom du groupe de campagnes,État de la campagne,Coût,Clics,CTR",
+  'Depannage,,Activé,"6 061,31 €",3 711,"1,18 %"',
+  'Sos Express,,Activé,"2 228,24 €",783,"6,37 %"',
+  'Le Bon Depanneur,,Mis en veille,"166,96 €",77,"3,37 %"',
+].join("\n");
+
+test("parserCampagnesAds : export groupe 'Vue d'ensemble' (intitules longs, en-tete en 1ere ligne)", () => {
+  const lignes = parserCampagnesAds(Buffer.from(EXPORT_VUE_ENSEMBLE, "utf8"));
+  assert.equal(lignes.length, 3);
+
+  const depannage = lignes.find((l) => l.nom === "Depannage")!;
+  assert.equal(depannage.statut, "Activé");
+  assert.equal(depannage.cout, 6061.31);
+  assert.equal(depannage.clics, 3711);
+  assert.equal(depannage.ctr, 1.18);
+  // Colonnes absentes de ce fichier : jamais une valeur devinee.
+  assert.equal(depannage.budgetQuotidien, null);
+  assert.equal(depannage.type, null);
+  assert.equal(depannage.impressions, null);
+  assert.equal(depannage.conversions, null);
+  assert.equal(depannage.cpcMoyen, null);
+});
