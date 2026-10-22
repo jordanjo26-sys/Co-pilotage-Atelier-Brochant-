@@ -83,15 +83,41 @@ async function remplirApresLibelle(page: import("playwright").Page, libelle: Reg
   await champ.fill(valeur);
 }
 
-/** Atteint l'écran "Planning" (menu ☰ → Facturation → Planning). */
+/**
+ * Atteint l'écran "Planning" (menu ☰ → Facturation → Planning, ou
+ * directement un lien "Planning" quand Synec affiche la barre laterale
+ * fixe de type AdminLTE plutot que le tiroir mobile habituel - repere sur
+ * un premier echec reel : "facturation:false" (pas d'accordeon a deplier
+ * sur cette variante de page) suivi quand meme de "planning:true" (le lien
+ * existe directement dans la barre laterale), preuve que cette variante
+ * arrive bel et bien en production).
+ *
+ * "Nouvel événement" (bouton sous la liste des 59 evenements, paginee) met
+ * plus longtemps a s'afficher que "Calendrier visuel" (rendu des le debut
+ * du chargement) - un premier echec reel a montre un timeout de 5s trop
+ * court alors que la page avait fini de charger quelques centaines de
+ * millisecondes plus tard (capture de diagnostic prise juste apres montre
+ * deja le bon ecran) : les deux reperes sont donc verifies en parallele,
+ * avec une marge plus large.
+ */
 async function allerAuPlanning(page: import("playwright").Page): Promise<void> {
-  const dejaSurPlanning = async () =>
-    page
-      .getByText(/nouvel événement/i)
-      .first()
-      .waitFor({ state: "visible", timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
+  const dejaSurPlanning = async () => {
+    const resultats = await Promise.all([
+      page
+        .getByText(/nouvel événement/i)
+        .first()
+        .waitFor({ state: "visible", timeout: 12000 })
+        .then(() => true)
+        .catch(() => false),
+      page
+        .getByText(/calendrier visuel/i)
+        .first()
+        .waitFor({ state: "visible", timeout: 12000 })
+        .then(() => true)
+        .catch(() => false),
+    ]);
+    return resultats.some(Boolean);
+  };
 
   if (await dejaSurPlanning()) return;
 
