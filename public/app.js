@@ -812,85 +812,10 @@ async function chargerDecisions() {
     .join("");
 }
 
-// --- Morgane (assistante IA) -------------------------------------------------
-
-const MORGANE_CLE_SESSION = "copilote_morgane_historique";
-
-function morganeChargerHistorique() {
-  try {
-    const brut = sessionStorage.getItem(MORGANE_CLE_SESSION);
-    return brut ? JSON.parse(brut) : [];
-  } catch {
-    return [];
-  }
-}
-
-function morganeSauverHistorique(historique) {
-  try {
-    sessionStorage.setItem(MORGANE_CLE_SESSION, JSON.stringify(historique.slice(-20)));
-  } catch {
-    // stockage indisponible (navigation privee...) : la conversation reste en memoire pour la session en cours
-  }
-}
-
-let morganeHistorique = morganeChargerHistorique();
-
-function morganeAjouterBulle(role, texte) {
-  const fil = document.getElementById("morgane-fil");
-  const bulle = document.createElement("div");
-  bulle.className = `morgane-message ${role === "user" ? "morgane-bulle-utilisateur" : "morgane-bulle-assistant"}`;
-  bulle.textContent = texte;
-  fil.appendChild(bulle);
-  fil.scrollTop = fil.scrollHeight;
-  return bulle;
-}
-
-// Rejoue la conversation deja en cours (sessionStorage) au chargement de la page.
-for (const m of morganeHistorique) {
-  morganeAjouterBulle(m.role, m.content);
-}
-
-document.getElementById("form-morgane").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const saisie = document.getElementById("morgane-saisie");
-  const texte = saisie.value.trim();
-  if (!texte) return;
-
-  saisie.value = "";
-  saisie.disabled = true;
-  morganeAjouterBulle("user", texte);
-  morganeHistorique.push({ role: "user", content: texte });
-  morganeSauverHistorique(morganeHistorique);
-
-  const bulleAttente = morganeAjouterBulle("assistant", "…");
-  bulleAttente.classList.add("morgane-bulle-attente");
-
-  try {
-    const res = await fetch("/api/morgane/message", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ historique: morganeHistorique }),
-    });
-    const data = await res.json();
-    bulleAttente.classList.remove("morgane-bulle-attente");
-    if (!res.ok) {
-      bulleAttente.textContent = `Erreur : ${data.erreur}`;
-      return;
-    }
-    bulleAttente.textContent = data.reponse;
-    morganeHistorique.push({ role: "assistant", content: data.reponse });
-    morganeSauverHistorique(morganeHistorique);
-    // Une action deleguee (ignorer une anomalie, lancer une synchro...) a pu
-    // changer les donnees affichees ailleurs sur la page.
-    await rafraichirTout();
-  } catch (err) {
-    bulleAttente.classList.remove("morgane-bulle-attente");
-    bulleAttente.textContent = `Erreur : ${err.message}`;
-  } finally {
-    saisie.disabled = false;
-    saisie.focus();
-  }
-});
+// Morgane (assistante IA) : deplacee dans morgane.js (bulle flottante
+// injectee sur chaque page, plus seulement sur ce tableau de bord) -
+// rafraichirTout() reste exposee plus bas pour que ce script la detecte
+// (window.rafraichirTout) apres une action deleguee a Morgane.
 
 // --- Factures fournisseurs recues, pas encore envoyees a Dext -------------
 //

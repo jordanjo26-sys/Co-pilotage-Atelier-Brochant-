@@ -579,6 +579,66 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .liste-suggestions li:hover, .liste-suggestions li:active { background: var(--surface-2); color: var(--ink); }
 
+/* ---------- Morgane flottante (injectee par morgane.js sur chaque page) ---------- */
+.morgane-bulle-ouvrir {
+  position: fixed;
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  right: max(20px, env(safe-area-inset-right, 0px));
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--brand-violet);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 30;
+}
+.morgane-bulle-ouvrir:hover { opacity: 0.9; }
+.morgane-bulle-ouvrir svg { width: 24px; height: 24px; }
+
+.morgane-panneau-flottant {
+  position: fixed;
+  z-index: 29;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: max(84px, calc(env(safe-area-inset-bottom, 0px) + 84px));
+  max-width: 420px;
+  margin-left: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  max-height: min(70vh, 560px);
+}
+.morgane-panneau-flottant[hidden] { display: none; }
+.morgane-entete-flottant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.morgane-entete-flottant strong { font-family: "Manrope", sans-serif; font-size: 14.5px; color: var(--ink); }
+.morgane-entete-flottant button {
+  background: none;
+  border: none;
+  color: var(--ink-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  min-height: auto;
+}
+.morgane-panneau-flottant .morgane-fil { flex: 1; margin: 0; padding: 10px 12px; }
+.morgane-panneau-flottant .morgane-formulaire { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); }
+
 .barre-filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .barre-filtres select, .barre-filtres input { flex: 1 1 140px; min-width: 0; }
 
@@ -796,21 +856,4 @@ tbody tr:hover { background: var(--surface-2); }
 .pole-corps .pole-meta { font-size: 12.5px; font-weight: 600; color: var(--pole-couleur, var(--brand-blue)); margin-top: 2px; min-height: 1em; }
 .pole-chevron { flex: none; color: var(--ink-muted); font-size: 16px; }
 
-.morgane-fab-lien {
-  position: fixed;
-  bottom: max(20px, env(safe-area-inset-bottom, 0px));
-  right: max(20px, env(safe-area-inset-right, 0px));
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  background: var(--brand-violet);
-  color: #fff;
-  box-shadow: var(--shadow);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 20;
-}
-.morgane-fab-lien svg { width: 24px; height: 24px; }
-.morgane-fab-lien:hover { opacity: 0.9; }
 .action-requise .fleche { color: var(--ink-muted); flex: none; }
