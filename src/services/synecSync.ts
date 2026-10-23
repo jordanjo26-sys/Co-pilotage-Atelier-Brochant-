@@ -217,15 +217,33 @@ async function listerCandidatsMenu(page: import("playwright").Page): Promise<str
  * "Nouvel événement" lors de la reouverture d'un formulaire d'evenement
  * juste apres la creation d'un client, demande "Jouot"). Extrait en
  * fonction partagee plutot que duplique a chaque nouveau point d'echec.
+ *
+ * Echec reel (test "TEST-CLAUDE") : le clic de fermeture visait "le premier
+ * bouton/lien qui suit le titre du dialogue" - sur le formulaire "Création
+ * d'un client" (plus de champs que celui de l'événement), ce premier
+ * element suivant n'etait PAS un bouton de fermeture mais le menu deroulant
+ * "Consultable par" du formulaire, ouvrant un <select> errant qui bloquait
+ * encore plus les clics suivants. Echap d'abord (sans risque de mal cibler
+ * quoi que ce soit), le clic sur un bouton de fermeture explicite seulement
+ * en repli, et uniquement sur un element qui ressemble vraiment a une
+ * fermeture (classe "close", aria-label, ou "×") plutot que le premier
+ * bouton/lien quelconque.
  */
 export async function fermerDialoguesResiduels(page: import("playwright").Page): Promise<void> {
   for (const motif of [/création d'un client/i, /création d'un nouvel événement/i]) {
     const dialogueResiduel = page.getByText(motif).first();
     if (await dialogueResiduel.isVisible().catch(() => false)) {
-      await dialogueResiduel
-        .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
-        .click({ timeout: 5000 })
-        .catch(() => page.keyboard.press("Escape"));
+      await page.keyboard.press("Escape").catch(() => {});
+      const fermeParEchap = await dialogueResiduel
+        .waitFor({ state: "hidden", timeout: 2000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!fermeParEchap) {
+        await dialogueResiduel
+          .locator("xpath=following::*[contains(@class,'close') or @aria-label='Close' or @aria-label='Fermer' or normalize-space(text())='×'][1]")
+          .click({ timeout: 3000 })
+          .catch(() => {});
+      }
       await dialogueResiduel.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
     }
   }
