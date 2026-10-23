@@ -148,6 +148,24 @@ async function allerAuPlanning(page: import("playwright").Page): Promise<void> {
 }
 
 /**
+ * Clique sur "Nouvel événement" pour ouvrir le formulaire de création.
+ * Echec reel (demande "Jouot") malgre allerAuPlanning() revenu sans
+ * erreur : celui-ci se satisfait de "calendrier visuel" seul (repere le
+ * plus rapide des deux, voir plus haut), ce qui laisse chercherEtSelec...
+ * potentiellement 0s de marge reelle pour "nouvel événement" (le plus
+ * lent des deux, bouton sous la liste paginee des evenements) avant de le
+ * cliquer - l'ancien code s'appuyait alors sur le seul timeout implicite
+ * de Playwright (30s par defaut sur .click()), deja observe insuffisant.
+ * Attente explicite, et plus large, avant le clic.
+ */
+async function ouvrirNouvelEvenement(page: import("playwright").Page): Promise<void> {
+  const bouton = page.getByText(/nouvel événement/i).first();
+  await bouton.waitFor({ state: "visible", timeout: 45000 });
+  await bouton.click();
+  await page.getByText(/création d'un nouvel événement/i).first().waitFor({ state: "visible", timeout: 8000 });
+}
+
+/**
  * Crée une fiche client (section "Clients", formulaire "Création d'un
  * client" vu dans la vidéo). Volontairement minimal : seuls les champs que
  * l'intake collecte déjà sont remplis (nom, téléphone, e-mail, adresse) -
@@ -315,8 +333,7 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     await seConnecter(page, identifiant, motDePasse);
 
     await allerAuPlanning(page);
-    await page.getByText(/nouvel événement/i).first().click();
-    await page.getByText(/création d'un nouvel événement/i).first().waitFor({ state: "visible", timeout: 8000 });
+    await ouvrirNouvelEvenement(page);
 
     let clientReutilise = await chercherEtSelectionnerClient(page, demande.nom);
 
@@ -333,8 +350,7 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
       await creerClient(page, demande);
 
       await allerAuPlanning(page);
-      await page.getByText(/nouvel événement/i).first().click();
-      await page.getByText(/création d'un nouvel événement/i).first().waitFor({ state: "visible", timeout: 8000 });
+      await ouvrirNouvelEvenement(page);
       const retrouve = await chercherEtSelectionnerClient(page, demande.nom);
       if (!retrouve) {
         const diagnostic = await capturerDiagnostic(page);
