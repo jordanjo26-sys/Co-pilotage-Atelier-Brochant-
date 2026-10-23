@@ -267,20 +267,12 @@ async function remplirMenuApresLibelle(page: import("playwright").Page, libelle:
 
   const selectNatif = label.locator("xpath=following::select[1]").first();
   if (await selectNatif.count().then((c) => c > 0).catch(() => false)) {
-    const choisi = await selectNatif
-      .selectOption({ label: texteOption })
-      .then(() => true)
-      .catch(() => false);
-    if (choisi) {
-      // Echec reel sur les champs de date (meme famille de bug : un clic
-      // ou un remplissage "reussi" sans que la valeur ne reste en place) -
-      // revérifie desormais systematiquement ce qui est reellement
-      // selectionne plutot que de faire confiance au seul succes du clic.
-      const texteSelectionne = await selectNatif
-        .evaluate(`(el) => el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : null`)
-        .catch(() => null);
-      if (texteSelectionne === texteOption) return true;
-    }
+    // Insensible a la casse (voir selectionnerOptionInsensibleCasse) :
+    // meme risque qu'avec le statut "PLANIFIER" (texte reel possiblement
+    // different de l'affichage visuel, ex. transforme en majuscules par
+    // du CSS).
+    const texteSelectionne = await selectionnerOptionInsensibleCasse(selectNatif, texteOption).catch(() => null);
+    if (texteSelectionne) return true;
   }
 
   const selecteur = label.locator("xpath=following::*[contains(@class,'select2-selection')][1]");
@@ -518,6 +510,28 @@ async function fermerSelecteurDateSiOuvert(page: import("playwright").Page): Pro
   }
 }
 
+/**
+ * Selectionne une option d'un <select> natif par texte, insensible a la
+ * casse et aux espaces de bord - plutot que .selectOption({label}), qui
+ * exige une correspondance EXACTE. Echec reel (demande "TEST-CLAUDE9") :
+ * le menu "Statut" restait sur "Pas de statut" malgre .selectOption({
+ * label: "PLANIFIER" }), capture d'ecran a l'appui - tres probablement un
+ * texte reel different de "PLANIFIER" (ex. "Planifier"), affiche en
+ * majuscules par une simple regle CSS (text-transform) invisible dans le
+ * DOM que Playwright interroge. Retourne le texte reel de l'option
+ * choisie (ou null si aucune ne correspond), a comparer insensible a la
+ * casse plutot que par egalite stricte.
+ */
+async function selectionnerOptionInsensibleCasse(select: import("playwright").Locator, texteCible: string): Promise<string | null> {
+  const options = (await select
+    .evaluate(`(el) => Array.from(el.options).map((o) => ({ value: o.value, text: o.text }))`)
+    .catch(() => [])) as Array<{ value: string; text: string }>;
+  const trouve = options.find((o) => o.text.trim().toLowerCase() === texteCible.trim().toLowerCase());
+  if (!trouve) return null;
+  await select.selectOption({ value: trouve.value });
+  return trouve.text;
+}
+
 /** Crée l'événement de planning relié au client (déjà sélectionné dans le formulaire ouvert). */
 async function remplirEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
   // Echec reel signale par l'utilisateur ("il oublie de mettre le statut...
@@ -528,16 +542,8 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   // selectionnee et fait echouer l'envoi si elle ne correspond pas, plutot
   // que de laisser l'evenement se creer sans statut sans avertir personne.
   const statut = page.locator("select").filter({ has: page.getByText(/pas de statut/i) }).first();
-  const statutChoisi = await statut
-    .selectOption({ label: "PLANIFIER" })
-    .then(() => true)
-    .catch(() => false);
-  const statutConfirme = statutChoisi
-    ? await statut
-        .evaluate(`(el) => el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : null`)
-        .catch(() => null)
-    : null;
-  if (statutConfirme !== "PLANIFIER") {
+  const statutConfirme = await selectionnerOptionInsensibleCasse(statut, "PLANIFIER").catch(() => null);
+  if (!statutConfirme || statutConfirme.trim().toLowerCase() !== "planifier") {
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`Le statut n'a pas pu être mis sur "PLANIFIER" (trouvé : "${statutConfirme}"). État final : ${diagnostic}`);
   }
