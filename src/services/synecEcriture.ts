@@ -220,23 +220,26 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
 
-  // Echecs reels tres variables d'un essai a l'autre (2 boutons identiques
-  // une fois, 0 bouton trouve une autre fois, alors que les memes champs
-  // viennent d'etre remplis avec succes a chaque fois) : plus un simple
-  // doublon fixe, plutot un re-rendu en cours (ex. lookup automatique
-  // code postal -> ville) qui retire puis recree ce bouton. Attend que le
-  // reseau soit calme (fin des requetes en cours) avant toute tentative,
-  // puis reessaie plusieurs fois avec une pause entre chaque, plutot
-  // qu'un essai unique.
+  // Echec reel decisif : un essai rate ("0 bouton trouve") montrait
+  // pourtant, sur la capture de diagnostic prise au meme instant, le
+  // bouton "Enregistrer et fermer" bel et bien visible et intact. Cause
+  // trouvee : getByText(/^enregistrer et fermer$/i) exige une
+  // correspondance EXACTE (ancres ^...$), alors que le tout premier
+  // diagnostic qui avait reussi a lister ce bouton utilisait une
+  // correspondance PARTIELLE (texte contenant "enregistrer et fermer",
+  // sans ancres) - un espace insecable ou un caractere invisible genere
+  // par Synec dans ce texte suffit a faire echouer l'egalite stricte.
+  // Retire les ancres : simple sous-chaine, comme le diagnostic qui a
+  // fonctionne.
   await page.waitForLoadState("networkidle").catch(() => {});
 
   const compteAvantEnregistrer = await page.getByText(/création d'un client/i).count();
-  const compteBoutons = await page.getByText(/^enregistrer et fermer$/i).count();
+  const compteBoutons = await page.getByText(/enregistrer et fermer/i).count();
 
   let dernierEchec: Error | undefined;
   let clique = false;
   for (let essai = 1; essai <= 4 && !clique; essai++) {
-    const bouton = page.getByText(/^enregistrer et fermer$/i).first();
+    const bouton = page.getByText(/enregistrer et fermer/i).first();
     clique = await bouton
       .click({ force: true, timeout: 6000 })
       .then(() => true)
