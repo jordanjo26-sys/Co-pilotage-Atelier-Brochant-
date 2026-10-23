@@ -383,21 +383,17 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
       await titreEvenement.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
       await creerClient(page, demande);
 
-      // Echec reel : apres un enregistrement reussi (fenetre "Création d'un
-      // client" bien refermee dans creerClient), un NOUVEAU dialogue
-      // identique (identifiant different a chaque fois : data-id-reload)
-      // pouvait se rouvrir tout seul quelques secondes plus tard - cote
-      // Synec, pas du code ici (peut-etre un hash d'URL ou un etat de
-      // formulaire residuel qui re-declenche l'ouverture) - et bloquait la
-      // navigation suivante. Fermeture defensive si c'est le cas.
-      const dialogueResiduel = page.getByText(/création d'un client/i).first();
-      if (await dialogueResiduel.isVisible().catch(() => false)) {
-        await dialogueResiduel
-          .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
-          .click({ timeout: 5000 })
-          .catch(() => page!.keyboard.press("Escape"));
-        await dialogueResiduel.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
-      }
+      // Echec reel, persistant malgre une boucle de fermeture de 60s : apres
+      // un enregistrement reussi (fenetre "Création d'un client" bien
+      // refermee dans creerClient), un NOUVEAU dialogue identique (jamais
+      // le meme data-id-reload, "superposition" grimpant a 2) se rouvrait
+      // tout seul - cote Synec, pas du code ici - et resistait a toute
+      // tentative de fermeture. Plutot que de continuer a le combattre,
+      // repart d'une page fraichement rechargee : la fiche client vient
+      // d'etre enregistree cote serveur (confirme par la fermeture de sa
+      // fenetre juste avant), un rechargement suffit donc a retrouver un
+      // etat propre sans aucun dialogue residuel.
+      await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
       await allerAuPlanning(page);
       await ouvrirNouvelEvenement(page);
