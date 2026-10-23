@@ -789,9 +789,15 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     // Non bloquant (voir renseignerSourceEtCategorieSurFiche) : seulement
     // si demande, et un echec ici ne doit jamais faire echouer tout
     // l'envoi alors que le client et l'evenement sont deja bien crees.
+    // Capture quand meme une preuve de l'echec (meme mecanisme que l'echec
+    // principal) : sans ca, impossible de diagnostiquer une etape non
+    // bloquante qui echoue silencieusement.
     let noteSourceCategorie = "";
     if (demande.sourceAcquisition || demande.categorie) {
-      noteSourceCategorie = await renseignerSourceEtCategorieSurFiche(page, demande).catch((err) => `échec : ${(err as Error).message}`);
+      noteSourceCategorie = await renseignerSourceEtCategorieSurFiche(page, demande).catch(async (err) => {
+        await page?.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
+        return `échec : ${(err as Error).message}`;
+      });
     }
 
     await marquerDemandeInterventionSaisie(prisma, demandeId);
