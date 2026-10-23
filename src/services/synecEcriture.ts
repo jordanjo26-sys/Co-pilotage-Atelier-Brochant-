@@ -231,21 +231,21 @@ async function creerClient(page: import("playwright").Page, demande: DemandeInte
   const boutonEnregistrer = page.getByText(/^enregistrer et fermer$/i).first();
   await boutonEnregistrer.click();
 
-  const confirmation = page.getByText(/enregistré/i).first();
-  const confirme = await confirmation
-    .waitFor({ state: "visible", timeout: 10000 })
+  // Echec reel : le texte "enregistré" (sans portee) pouvait deja etre
+  // present ailleurs sur la page (aide/texte statique) avant meme le clic,
+  // donnant une fausse confirmation immediate - le code continuait alors
+  // que la fenetre "Création d'un client" etait en realite toujours
+  // ouverte (champ "Nom principal du client" vide sur la capture de
+  // diagnostic), bloquant le clic suivant sur le menu. Seul signal fiable :
+  // la disparition effective de la fenetre elle-meme.
+  const confirme = await enTeteFormulaire
+    .waitFor({ state: "hidden", timeout: 15000 })
     .then(() => true)
     .catch(() => false);
   if (!confirme) {
     const diagnostic = await capturerDiagnostic(page);
-    throw new SynecEcritureError(`La fiche client ne semble pas enregistrée. État final : ${diagnostic}`);
+    throw new SynecEcritureError(`La fiche client ne semble pas enregistrée (fenêtre toujours ouverte). État final : ${diagnostic}`);
   }
-  // Echec reel : malgre le bouton "Enregistrer et fermer", la fenetre
-  // "Création d'un client" pouvait rester ouverte (confirmation "enregistré"
-  // visible avant la fin de l'animation de fermeture) et bloquait le clic
-  // suivant sur le menu - meme famille de bug que la fenetre evenement.
-  // Attente explicite de sa disparition avant de continuer.
-  await enTeteFormulaire.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
   await page.waitForLoadState("networkidle");
 }
 
