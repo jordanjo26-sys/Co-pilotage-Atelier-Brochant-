@@ -208,6 +208,29 @@ async function listerCandidatsMenu(page: import("playwright").Page): Promise<str
  * echouait en permanence meme en etant sur la bonne page (lien stylise ou
  * composant personnalise, invisible pour getByRole).
  */
+/**
+ * Ferme toute fenetre "Création d'un client" ou "Création d'un nouvel
+ * événement" encore ouverte (residuelle d'une etape precedente) - un
+ * dialogue de ce type peut rester present dans le DOM et intercepter les
+ * clics suivants meme apres son enregistrement (echec reel constate a la
+ * fois sur le bouton ☰ - voir ouvrirMenuFacturation - et sur le bouton
+ * "Nouvel événement" lors de la reouverture d'un formulaire d'evenement
+ * juste apres la creation d'un client, demande "Jouot"). Extrait en
+ * fonction partagee plutot que duplique a chaque nouveau point d'echec.
+ */
+export async function fermerDialoguesResiduels(page: import("playwright").Page): Promise<void> {
+  for (const motif of [/création d'un client/i, /création d'un nouvel événement/i]) {
+    const dialogueResiduel = page.getByText(motif).first();
+    if (await dialogueResiduel.isVisible().catch(() => false)) {
+      await dialogueResiduel
+        .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
+        .click({ timeout: 5000 })
+        .catch(() => page.keyboard.press("Escape"));
+      await dialogueResiduel.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+    }
+  }
+}
+
 export async function cliquerSiVisible(page: import("playwright").Page, motif: RegExp): Promise<boolean> {
   const locator = page.getByText(motif).first();
   const visible = await locator
@@ -265,23 +288,10 @@ export async function ouvrirMenuFacturation(page: import("playwright").Page): Pr
     // malgre elle). Boucle fermeture+clic jusqu'a 60s, plutot qu'un essai
     // unique. Sans effet pour la synchronisation en lecture (ces dialogues
     // n'existent pas sur ce chemin).
-    const fermerDialoguesResiduels = async (): Promise<void> => {
-      for (const motif of [/création d'un client/i, /création d'un nouvel événement/i]) {
-        const dialogueResiduel = page.getByText(motif).first();
-        if (await dialogueResiduel.isVisible().catch(() => false)) {
-          await dialogueResiduel
-            .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
-            .click({ timeout: 5000 })
-            .catch(() => page.keyboard.press("Escape"));
-          await dialogueResiduel.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
-        }
-      }
-    };
-
     const debutTentatives = Date.now();
     let clique = false;
     while (!clique && Date.now() - debutTentatives < 60000) {
-      await fermerDialoguesResiduels();
+      await fermerDialoguesResiduels(page);
       clique = await bouton
         .click({ timeout: 3000 })
         .then(() => true)

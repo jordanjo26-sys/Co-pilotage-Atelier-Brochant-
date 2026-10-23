@@ -16,6 +16,7 @@ import {
   CHEMIN_CAPTURE_ECHEC,
   capturerDiagnostic,
   cliquerSiVisible,
+  fermerDialoguesResiduels,
   obtenirIdentifiants,
   ouvrirMenuFacturation,
   seConnecter,
@@ -176,11 +177,30 @@ async function allerAuPlanning(page: import("playwright").Page): Promise<void> {
  * cliquer - l'ancien code s'appuyait alors sur le seul timeout implicite
  * de Playwright (30s par defaut sur .click()), deja observe insuffisant.
  * Attente explicite, et plus large, avant le clic.
+ *
+ * Deuxieme echec reel (meme demande "Jouot", reouverture de ce meme
+ * formulaire juste apres la creation d'un client) : le clic est intercepte
+ * par la fenetre "Création d'un nouvel événement" de l'etape precedente,
+ * toujours presente dans le DOM malgre un enregistrement reussi - exactement
+ * le dialogue fantome deja rencontre sur le bouton ☰ (voir
+ * fermerDialoguesResiduels dans synecSync.ts). Meme traitement ici : fermer
+ * les dialogues residuels avant chaque tentative de clic, en boucle.
  */
 async function ouvrirNouvelEvenement(page: import("playwright").Page): Promise<void> {
   const bouton = page.getByText(/nouvel événement/i).first();
   await bouton.waitFor({ state: "visible", timeout: 45000 });
-  await bouton.click();
+
+  const debutTentatives = Date.now();
+  let clique = false;
+  while (!clique && Date.now() - debutTentatives < 60000) {
+    await fermerDialoguesResiduels(page);
+    clique = await bouton
+      .click({ timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+  }
+  if (!clique) await bouton.click();
+
   await page.getByText(/création d'un nouvel événement/i).first().waitFor({ state: "visible", timeout: 8000 });
 }
 
