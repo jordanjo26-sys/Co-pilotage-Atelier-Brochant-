@@ -201,6 +201,14 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   const enTeteFormulaire = page.getByText(/création d'un client/i).first();
   await enTeteFormulaire.waitFor({ state: "visible", timeout: 8000 });
 
+  // Diagnostic (echecs reels successifs sur le clic final, meme avec
+  // { force: true }) : compte le nombre de fenetres "Création d'un
+  // client" a plusieurs etapes, pour savoir si le dedoublement existe des
+  // l'ouverture (probable comportement Synec, duplique pour une raison de
+  // mise en page) ou apparait seulement plus tard (probable consequence
+  // d'une de nos propres actions).
+  const compteOuverture = await page.getByText(/création d'un client/i).count();
+
   // Memes valeurs dans "Nom principal du client" (General) ET "Nom"
   // (Facturation) : reproduit exactement ce que l'utilisateur a fait dans
   // sa propre video de demonstration, plutot que de deviner un autre choix.
@@ -212,19 +220,24 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
 
-  // Diagnostic reel (apres plusieurs echecs de selecteurs) : DEUX boutons
-  // "Enregistrer et fermer" strictement identiques (meme classes, meme
-  // position, meme taille, tous deux visible=true) coexistent a l'ecran -
-  // la fenetre "Création d'un client" ouverte depuis le raccourci inline
-  // semble se dupliquer entierement (meme phenomene que les autres
-  // "fantomes" rencontres plus tot dans la fenetre d'evenement). Comme les
-  // deux sont identiques et correctement remplis (les champs precedents
-  // utilisent la meme regle .first(), donc le meme exemplaire), le clic
-  // echoue seulement parce que l'un des deux intercepte les evenements de
-  // pointeur destines a l'autre - { force: true } passe outre cette
-  // verification au lieu de deviner lequel des deux cliquer "normalement".
+  const compteAvantEnregistrer = await page.getByText(/création d'un client/i).count();
+  const compteBoutons = await page.getByText(/^enregistrer et fermer$/i).count();
+
+  // Petite pause de stabilisation avant le clic final : les echecs reels
+  // precedents (meme avec { force: true }, qui pourtant ignore les
+  // verifications habituelles de Playwright) suggerent un etat encore
+  // instable au moment du clic plutot qu'un simple doublon fixe.
+  await page.waitForTimeout(1000);
+
   const boutonEnregistrer = page.getByText(/^enregistrer et fermer$/i).first();
-  await boutonEnregistrer.click({ force: true, timeout: 10000 });
+  try {
+    await boutonEnregistrer.click({ force: true, timeout: 15000 });
+  } catch (err) {
+    const compteApresEchec = await page.getByText(/création d'un client/i).count().catch(() => -1);
+    throw new SynecEcritureError(
+      `Clic "Enregistrer et fermer" impossible meme force. Fenetres "Création d'un client" : a l'ouverture=${compteOuverture}, avant le clic=${compteAvantEnregistrer}, apres l'echec=${compteApresEchec}. Boutons "Enregistrer et fermer" trouves=${compteBoutons}. Erreur : ${(err as Error).message}`
+    );
+  }
 
   const confirme = await enTeteFormulaire
     .waitFor({ state: "hidden", timeout: 15000 })
