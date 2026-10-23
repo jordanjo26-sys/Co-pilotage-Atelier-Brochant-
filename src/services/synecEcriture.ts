@@ -405,6 +405,15 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
       // provoquait un dialogue fantome recidivant jamais rencontre par
       // l'utilisateur en usage normal.
       await creerClientDepuisFormulaireEvenement(page, demande);
+
+      // Echec reel : une fois le client cree et enregistre, l'enchainement
+      // ramene sur l'ecran general du Planning plutot que de rester dans
+      // la fenetre d'evenement (qui se ferme entierement, pas seulement le
+      // sous-dialogue client) - il faut donc rouvrir un formulaire
+      // d'evenement avant de pouvoir re-chercher le client qui vient
+      // d'etre cree.
+      await allerAuPlanning(page);
+      await ouvrirNouvelEvenement(page);
       const retrouve = await chercherEtSelectionnerClient(page, demande.nom);
       if (!retrouve) {
         const diagnostic = await capturerDiagnostic(page);
