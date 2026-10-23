@@ -544,8 +544,23 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   const statut = page.locator("select").filter({ has: page.getByText(/pas de statut/i) }).first();
   const statutConfirme = await selectionnerOptionInsensibleCasse(statut, "PLANIFIER").catch(() => null);
   if (!statutConfirme || statutConfirme.trim().toLowerCase() !== "planifier") {
+    // Diagnostic decisif (deux echecs identiques malgre la comparaison
+    // insensible a la casse) : liste TOUS les <select> de la page avec
+    // leurs options reelles, pour arreter de deviner le bon selecteur ou
+    // le bon texte a l'aveugle.
+    const tousLesSelects = await page
+      .evaluate(
+        `() => Array.from(document.querySelectorAll('select')).map((s, i) => ({
+          index: i,
+          selectionne: s.options[s.selectedIndex] ? s.options[s.selectedIndex].text : null,
+          options: Array.from(s.options).map((o) => o.text),
+        }))`
+      )
+      .catch((err) => `(introspection impossible : ${(err as Error).message})`);
     const diagnostic = await capturerDiagnostic(page);
-    throw new SynecEcritureError(`Le statut n'a pas pu être mis sur "PLANIFIER" (trouvé : "${statutConfirme}"). État final : ${diagnostic}`);
+    throw new SynecEcritureError(
+      `Le statut n'a pas pu être mis sur "PLANIFIER" (trouvé : "${statutConfirme}"). Tous les <select> de la page : ${JSON.stringify(tousLesSelects)}. État final : ${diagnostic}`
+    );
   }
 
   // Date/heure souhaitee par le client (demande explicite : "pour que ca
