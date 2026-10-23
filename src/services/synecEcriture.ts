@@ -548,13 +548,16 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     // insensible a la casse) : liste TOUS les <select> de la page avec
     // leurs options reelles, pour arreter de deviner le bon selecteur ou
     // le bon texte a l'aveugle.
+    // Fonction auto-invoquee (IIFE), pas une simple reference de fonction -
+    // meme pattern que listerCandidatsMenu dans synecSync.ts, le precedent
+    // qui fonctionne deja dans ce projet pour ce genre d'introspection.
     const tousLesSelects = await page
       .evaluate(
-        `() => Array.from(document.querySelectorAll('select')).map((s, i) => ({
+        `(() => Array.from(document.querySelectorAll('select')).map((s, i) => ({
           index: i,
           selectionne: s.options[s.selectedIndex] ? s.options[s.selectedIndex].text : null,
           options: Array.from(s.options).map((o) => o.text),
-        }))`
+        })))()`
       )
       .catch((err) => `(introspection impossible : ${(err as Error).message})`);
     const diagnostic = await capturerDiagnostic(page);
