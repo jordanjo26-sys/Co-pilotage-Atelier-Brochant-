@@ -74,12 +74,19 @@ async function chercherEtSelectionnerClient(page: import("playwright").Page, nom
   await selecteur.waitFor({ state: "visible", timeout: 8000 });
   await selecteur.click();
 
-  const champRecherche = page.locator(".select2-search__field").first();
+  // Echec reel : .select2-search__field (sans portee) resolvait sur un
+  // champ cache d'un AUTRE widget select2 present ailleurs sur la page
+  // (placeholder "Search for a repository", rien a voir avec Synec). Le
+  // menu qu'on vient d'ouvrir recoit la classe "select2-container--open" -
+  // on y limite desormais la recherche du champ ET des resultats, pour ne
+  // plus jamais retomber sur un autre widget select2 de la page.
+  const menuOuvert = page.locator(".select2-container--open");
+  const champRecherche = menuOuvert.locator(".select2-search__field").first();
   await champRecherche.waitFor({ state: "visible", timeout: 5000 });
   await champRecherche.fill(nom);
   await page.waitForTimeout(1200); // laisse la recherche (debounce + requete reseau) revenir
 
-  const resultats = page.locator(".select2-results__option");
+  const resultats = menuOuvert.locator(".select2-results__option");
   const nombre = await resultats.count().catch(() => 0);
   for (let i = 0; i < nombre; i++) {
     const texte = (await resultats.nth(i).textContent().catch(() => null))?.trim();
