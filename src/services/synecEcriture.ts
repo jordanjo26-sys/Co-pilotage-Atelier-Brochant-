@@ -62,11 +62,15 @@ async function chercherEtSelectionnerClient(page: import("playwright").Page, nom
   // vrai menu deroulant select2 est un peu plus bas dans le DOM (hors de ce
   // parent) - remonter aux ancetres ne le trouvait donc jamais. Cherche
   // plutot le premier element select2-selection qui SUIT le libelle dans le
-  // document, sans presumer de la structure exacte autour.
+  // document - mais uniquement "--single" (un seul client) : "following::"
+  // remonte sinon sur le select2 cache du champ multi-valeurs "Liste des
+  // utilisateurs affectes a cette tache" plus bas dans la page (classe
+  // select2-selection--multiple, confirme par un echec reel : "resolved to
+  // hidden <span ... select2-selection--multiple>").
   const selecteur = page
     .getByText(/^client$/i)
     .first()
-    .locator("xpath=following::*[contains(@class,'select2-selection')][1]");
+    .locator("xpath=following::*[contains(@class,'select2-selection--single')][1]");
   await selecteur.waitFor({ state: "visible", timeout: 8000 });
   await selecteur.click();
 
