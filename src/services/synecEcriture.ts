@@ -212,38 +212,19 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
 
-  // Echecs reels successifs (ouverture via le raccourci inline, dialogue
-  // empile sur la fenetre d'evenement) : ni une recherche sans portee, ni
-  // "following::" (elements qui suivent le titre dans le document), ni un
-  // conteneur ".modal" ancetre n'ont trouve le bouton - alors qu'il est a
-  // chaque fois bien visible et cliquable sur la capture de diagnostic.
-  // Plutot que deviner un quatrieme selecteur a l'aveugle, diagnostic reel
-  // si le clic echoue : liste tous les candidats "enregistrer" avec leur
-  // position/visibilite/classes exactes (meme principe que
-  // listerCandidatsMenu dans synecSync.ts).
+  // Diagnostic reel (apres plusieurs echecs de selecteurs) : DEUX boutons
+  // "Enregistrer et fermer" strictement identiques (meme classes, meme
+  // position, meme taille, tous deux visible=true) coexistent a l'ecran -
+  // la fenetre "Création d'un client" ouverte depuis le raccourci inline
+  // semble se dupliquer entierement (meme phenomene que les autres
+  // "fantomes" rencontres plus tot dans la fenetre d'evenement). Comme les
+  // deux sont identiques et correctement remplis (les champs precedents
+  // utilisent la meme regle .first(), donc le meme exemplaire), le clic
+  // echoue seulement parce que l'un des deux intercepte les evenements de
+  // pointeur destines a l'autre - { force: true } passe outre cette
+  // verification au lieu de deviner lequel des deux cliquer "normalement".
   const boutonEnregistrer = page.getByText(/^enregistrer et fermer$/i).first();
-  try {
-    await boutonEnregistrer.click({ timeout: 10000 });
-  } catch (err) {
-    const candidats = await page
-      .evaluate(
-        `(() => {
-          const els = Array.from(document.querySelectorAll('button, a, [role="button"], input[type="submit"], input[type="button"]'))
-            .filter(el => ((el.textContent || el.value || '').toLowerCase().includes('enregistrer')))
-            .slice(0, 15);
-          return els.map((el, i) => {
-            const r = el.getBoundingClientRect();
-            const s = window.getComputedStyle(el);
-            const visible = r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
-            const texte = (el.textContent || el.value || '').trim().replace(/\\s+/g, ' ').slice(0, 40);
-            const classes = typeof el.className === 'string' ? el.className.slice(0, 80) : '';
-            return i + ':' + el.tagName + (classes ? '.' + classes.replace(/ /g, '.') : '') + ' texte="' + texte + '" pos=(' + Math.round(r.x) + ',' + Math.round(r.y) + ') taille=' + Math.round(r.width) + 'x' + Math.round(r.height) + ' visible=' + visible;
-          }).join(' | ');
-        })()`
-      )
-      .catch((e) => `(introspection impossible : ${(e as Error).message})`);
-    throw new SynecEcritureError(`Bouton "Enregistrer et fermer" introuvable : ${(err as Error).message}. Candidats : ${candidats}`);
-  }
+  await boutonEnregistrer.click({ force: true, timeout: 10000 });
 
   const confirme = await enTeteFormulaire
     .waitFor({ state: "hidden", timeout: 15000 })
