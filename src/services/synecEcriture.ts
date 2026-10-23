@@ -492,6 +492,12 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   // peut faire echouer l'egalite stricte), reseau calme avant le clic, et
   // plusieurs tentatives plutot qu'un essai unique.
   await page.waitForLoadState("networkidle").catch(() => {});
+
+  // URL du formulaire ouvert (contient "/create", vu dans le href du bouton
+  // "Nouvel événement") - repere pour le signal de confirmation ci-dessous,
+  // capture AVANT le clic de sauvegarde.
+  const urlFormulaireOuvert = page.url();
+
   let evenementEnregistre = false;
   let dernierEchecEvenement: Error | undefined;
   for (let essai = 1; essai <= 4 && !evenementEnregistre; essai++) {
@@ -512,29 +518,34 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     );
   }
 
-  // Echec reel (test "TEST-CLAUDE2") : ce signal (le titre du dialogue
-  // devient "hidden") a depasse son delai de 10s, alors que la capture de
-  // diagnostic prise juste apres montrait deja l'ecran Planning propre -
-  // delai elargi a 25s (cet essai-la etait probablement juste plus lent,
-  // formulaire plus charge que celui de Jouot/Beaudeux).
+  // Echec reel repete (tests "TEST-CLAUDE2") : le seul signal texte (le
+  // titre du dialogue devient "hidden") a deux fois depasse son delai
+  // (10s puis 25s), alors que la capture de diagnostic prise juste apres
+  // montrait a chaque fois l'ecran Planning deja propre - l'enregistrement
+  // avait donc bien reussi, ce signal texte est juste anormalement lent ou
+  // peu fiable ici (cause exacte non confirmee). Un essai intermediaire
+  // avait ajoute un second signal ("calendrier visuel" redevenu visible) -
+  // retire car potentiellement deja vrai AVANT meme le clic (texte
+  // present sous la fenetre modale, Playwright ne verifiant pas
+  // l'occultation), donc pas une vraie transition.
   //
-  // Un essai precedent avait ajoute ici un second signal en parallele ("
-  // calendrier visuel" redevenu visible) pour eviter de dependre d'un seul
-  // repere - retire : ce texte existe tres probablement DEJA dans la page,
-  // juste visuellement recouvert par la fenetre modale encore ouverte,
-  // donc "visible" selon Playwright (qui ne verifie pas l'occultation par
-  // un element au-dessus) MEME SI le dialogue n'est pas encore ferme - un
-  // evenement "TEST-CLAUDE2" introuvable ensuite sur le planning malgre un
-  // succes rapporte laisse penser que ce faux positif s'est bel et bien
-  // produit (le navigateur se fermant alors avant la fin reelle de
-  // l'enregistrement). Un seul repere fiable : le dialogue qui disparait
-  // vraiment.
-  const formulaireFerme = await page
-    .getByText(/création d'un nouvel événement/i)
-    .first()
-    .waitFor({ state: "hidden", timeout: 25000 })
-    .then(() => true)
-    .catch(() => false);
+  // Repere plus sur, confirme par le href du bouton "Nouvel événement"
+  // (qui contient "/create") : le navigateur quitte reellement cette URL
+  // une fois l'evenement enregistre et revient sur l'URL de base du
+  // planning - une vraie transition, pas un etat deja atteint avant le
+  // clic. Les deux signaux tournent en parallele, premier arrive gagne.
+  const formulaireFerme = await Promise.all([
+    page
+      .getByText(/création d'un nouvel événement/i)
+      .first()
+      .waitFor({ state: "hidden", timeout: 30000 })
+      .then(() => true)
+      .catch(() => false),
+    page
+      .waitForURL((url) => url.toString() !== urlFormulaireOuvert, { timeout: 30000 })
+      .then(() => true)
+      .catch(() => false),
+  ]).then((resultats) => resultats.some(Boolean));
   if (!formulaireFerme) {
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`L'événement ne semble pas enregistré. État final : ${diagnostic}`);
