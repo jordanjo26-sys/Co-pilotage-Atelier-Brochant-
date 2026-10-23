@@ -452,8 +452,17 @@ async function remplirDescriptionEvenement(page: import("playwright").Page, text
 
 /**
  * Ferme un selecteur calendrier/heure encore ouvert (bouton "Apply" si
- * present, sinon Echap) - voir le commentaire sur son appel dans
- * remplirEvenement pour l'echec reel qui a motive cette fonction.
+ * present) - voir le commentaire sur son appel dans remplirEvenement pour
+ * l'echec reel qui a motive cette fonction.
+ *
+ * Echec reel (test "TEST-CLAUDE3") : avec Echap en repli quand "Apply"
+ * n'etait pas trouve, la valeur lue ensuite dans le champ n'etait PAS
+ * celle saisie mais l'heure ACTUELLE (l'instant du test) - Echap signifie
+ * tres probablement "annuler" pour ce widget, qui reinitialise alors le
+ * champ a sa valeur par defaut plutot que de garder la saisie. Remplace
+ * par un clic neutre ailleurs dans le formulaire (le titre du dialogue,
+ * jamais un bouton d'action) : fait perdre le focus au champ sans
+ * declencher la moindre action d'annulation.
  */
 async function fermerSelecteurDateSiOuvert(page: import("playwright").Page): Promise<void> {
   const boutonApply = page.getByText(/^apply$/i).first();
@@ -461,7 +470,11 @@ async function fermerSelecteurDateSiOuvert(page: import("playwright").Page): Pro
   if (visible) {
     await boutonApply.click().catch(() => {});
   } else {
-    await page.keyboard.press("Escape").catch(() => {});
+    await page
+      .getByText(/création d'un nouvel événement/i)
+      .first()
+      .click({ timeout: 2000 })
+      .catch(() => {});
   }
 }
 
