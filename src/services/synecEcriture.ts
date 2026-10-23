@@ -111,6 +111,37 @@ async function remplirApresLibelle(page: import("playwright").Page, libelle: Reg
 }
 
 /**
+ * Variante de remplirApresLibelle pour les deux champs de date de
+ * l'evenement ("Date de début/fin de l'événement", icone horloge) : un
+ * .fill() classique n'y laisse jamais la valeur saisie (confirme par
+ * capture d'ecran reelle, test "TEST-CLAUDE3" - le champ affichait
+ * l'heure ACTUELLE apres saisie, jamais celle tapee), signe d'un widget
+ * gere en JS qui ignore un simple changement de value() sans les
+ * evenements qu'il ecoute reellement. Passe par le vrai setter natif de
+ * <input> (contourne un setter intercepte par le framework de Synec, qui
+ * ferait sinon perdre la valeur au prochain rendu) puis declenche
+ * explicitement "input" ET "change" - exactement ce qu'une vraie saisie
+ * clavier declenche, contrairement a une affectation .value directe.
+ */
+async function forcerChampDateApresLibelle(page: import("playwright").Page, libelle: RegExp, valeur: string): Promise<void> {
+  const label = page.getByText(libelle).first();
+  await label.waitFor({ state: "visible", timeout: 5000 });
+  const champ = label.locator("xpath=following::input[1]").first();
+  // Code evalue cote navigateur (pas dans ce process Node, pas de lib DOM
+  // dans tsconfig) : chaine plutot que fonction TypeScript, meme pattern
+  // que seConnecter dans synecSync.ts.
+  await champ.evaluate(
+    `(el, v) => {
+      const descripteur = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+      descripteur && descripteur.set && descripteur.set.call(el, v);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }`,
+    valeur
+  );
+}
+
+/**
  * Atteint l'écran "Planning" (menu ☰ → Facturation → Planning, ou
  * directement un lien "Planning" quand Synec affiche la barre laterale
  * fixe de type AdminLTE plutot que le tiroir mobile habituel - repere sur
@@ -519,9 +550,9 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     const champDebut = page.getByText(/date de début de l'événement/i).first().locator("xpath=following::input[1]").first();
     const champFin = page.getByText(/date de fin de l'événement/i).first().locator("xpath=following::input[1]").first();
 
-    await remplirApresLibelle(page, /date de début de l'événement/i, texteDebut).catch(() => {});
+    await forcerChampDateApresLibelle(page, /date de début de l'événement/i, texteDebut).catch(() => {});
     await fermerSelecteurDateSiOuvert(page);
-    await remplirApresLibelle(page, /date de fin de l'événement/i, texteFin).catch(() => {});
+    await forcerChampDateApresLibelle(page, /date de fin de l'événement/i, texteFin).catch(() => {});
     await fermerSelecteurDateSiOuvert(page);
 
     // Echec reel grave (demande "Weisser") : la date/heure saisie n'etait
