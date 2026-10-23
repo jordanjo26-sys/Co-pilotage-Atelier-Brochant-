@@ -220,22 +220,36 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
 
+  // Echecs reels tres variables d'un essai a l'autre (2 boutons identiques
+  // une fois, 0 bouton trouve une autre fois, alors que les memes champs
+  // viennent d'etre remplis avec succes a chaque fois) : plus un simple
+  // doublon fixe, plutot un re-rendu en cours (ex. lookup automatique
+  // code postal -> ville) qui retire puis recree ce bouton. Attend que le
+  // reseau soit calme (fin des requetes en cours) avant toute tentative,
+  // puis reessaie plusieurs fois avec une pause entre chaque, plutot
+  // qu'un essai unique.
+  await page.waitForLoadState("networkidle").catch(() => {});
+
   const compteAvantEnregistrer = await page.getByText(/création d'un client/i).count();
   const compteBoutons = await page.getByText(/^enregistrer et fermer$/i).count();
 
-  // Petite pause de stabilisation avant le clic final : les echecs reels
-  // precedents (meme avec { force: true }, qui pourtant ignore les
-  // verifications habituelles de Playwright) suggerent un etat encore
-  // instable au moment du clic plutot qu'un simple doublon fixe.
-  await page.waitForTimeout(1000);
-
-  const boutonEnregistrer = page.getByText(/^enregistrer et fermer$/i).first();
-  try {
-    await boutonEnregistrer.click({ force: true, timeout: 15000 });
-  } catch (err) {
+  let dernierEchec: Error | undefined;
+  let clique = false;
+  for (let essai = 1; essai <= 4 && !clique; essai++) {
+    const bouton = page.getByText(/^enregistrer et fermer$/i).first();
+    clique = await bouton
+      .click({ force: true, timeout: 6000 })
+      .then(() => true)
+      .catch((err) => {
+        dernierEchec = err as Error;
+        return false;
+      });
+    if (!clique) await page.waitForTimeout(2000);
+  }
+  if (!clique) {
     const compteApresEchec = await page.getByText(/création d'un client/i).count().catch(() => -1);
     throw new SynecEcritureError(
-      `Clic "Enregistrer et fermer" impossible meme force. Fenetres "Création d'un client" : a l'ouverture=${compteOuverture}, avant le clic=${compteAvantEnregistrer}, apres l'echec=${compteApresEchec}. Boutons "Enregistrer et fermer" trouves=${compteBoutons}. Erreur : ${(err as Error).message}`
+      `Clic "Enregistrer et fermer" impossible apres 4 essais. Fenetres "Création d'un client" : a l'ouverture=${compteOuverture}, avant le clic=${compteAvantEnregistrer}, apres l'echec=${compteApresEchec}. Boutons "Enregistrer et fermer" trouves=${compteBoutons}. Erreur : ${dernierEchec?.message}`
     );
   }
 
