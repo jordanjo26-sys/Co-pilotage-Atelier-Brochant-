@@ -638,11 +638,20 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
 /**
  * Atteint l'écran "Clients" (même chemin que "Planning" : menu ☰ →
  * Facturation → Clients, voir allerAuPlanning pour le parallèle).
+ *
+ * Echec reel (test "TEST-CLAUDE6") : la navigation reussissait en realite
+ * (capture d'ecran prise au moment de l'echec montrait bien l'ecran
+ * "Clients", titre + recherche + bouton "+ Nouveau client" + liste) mais
+ * n'etait jamais detectee - meme famille de bug que "Enregistrer et
+ * fermer" plus tot dans ce fichier : `/^nouveau client$/i` exige une
+ * correspondance EXACTE, probablement cassee par l'icone "+" ou un
+ * espace insecable dans le texte du bouton. Sous-chaine plutot que
+ * correspondance exacte.
  */
 async function allerAuxClients(page: import("playwright").Page): Promise<void> {
   const dejaSurClients = async () =>
     page
-      .getByText(/^nouveau client$/i)
+      .getByText(/nouveau client/i)
       .first()
       .waitFor({ state: "visible", timeout: 10000 })
       .then(() => true)
