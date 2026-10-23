@@ -204,6 +204,63 @@ async function ouvrirNouvelEvenement(page: import("playwright").Page): Promise<v
   await page.getByText(/création d'un nouvel événement/i).first().waitFor({ state: "visible", timeout: 8000 });
 }
 
+const LIBELLE_SOURCE_SYNEC: Record<string, string> = { google: "Google", pages_jaunes: "Pages Jaunes", maps: "Maps" };
+const LIBELLE_CATEGORIE_SYNEC: Record<string, string> = {
+  plomberie: "Plomberie",
+  serrurerie: "Serrurerie",
+  electricite: "Électricité",
+  assainissement: "Assainissement",
+};
+
+/**
+ * Selectionne une option dans un menu (natif <select> ou select2) repere
+ * par un libelle visible qui le precede - best effort, jamais bloquant
+ * (champ non confirme en l'absence d'acces direct a Synec pour verifier le
+ * libelle exact du champ cote Synec, contrairement aux champs deja
+ * confirmes par la video de l'utilisateur). Essaie d'abord un <select>
+ * natif, puis un widget select2 (meme famille que le champ "Client" -
+ * ouvre le menu, cherche l'option dont le texte CONTIENT la valeur visee).
+ */
+async function remplirMenuApresLibelle(page: import("playwright").Page, libelle: RegExp, texteOption: string): Promise<boolean> {
+  const label = page.getByText(libelle).first();
+  const labelVisible = await label
+    .waitFor({ state: "visible", timeout: 4000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!labelVisible) return false;
+
+  const selectNatif = label.locator("xpath=following::select[1]").first();
+  if (await selectNatif.count().then((c) => c > 0).catch(() => false)) {
+    const choisi = await selectNatif
+      .selectOption({ label: texteOption })
+      .then(() => true)
+      .catch(() => false);
+    if (choisi) return true;
+  }
+
+  const selecteur = label.locator("xpath=following::*[contains(@class,'select2-selection')][1]");
+  const select2Visible = await selecteur
+    .waitFor({ state: "visible", timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!select2Visible) return false;
+
+  await selecteur.click();
+  const menuOuvert = page.locator(".select2-container--open");
+  const resultats = menuOuvert.locator(".select2-results__option");
+  await page.waitForTimeout(500);
+  const nombre = await resultats.count().catch(() => 0);
+  for (let i = 0; i < nombre; i++) {
+    const texte = (await resultats.nth(i).textContent().catch(() => null))?.trim();
+    if (texte && texte.toLowerCase().includes(texteOption.toLowerCase())) {
+      await resultats.nth(i).click();
+      return true;
+    }
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+  return false;
+}
+
 /**
  * Remplit et enregistre le formulaire "Création d'un client" (deja
  * ouvert), quel que soit le chemin utilise pour l'ouvrir. Volontairement
@@ -211,6 +268,12 @@ async function ouvrirNouvelEvenement(page: import("playwright").Page): Promise<v
  * telephone, e-mail, adresse) - Attestation TVA, prenom/nom separes
  * laisses tels quels ("trop tot pour automatiser", decision explicite de
  * l'utilisateur), a completer a la main dans Synec si besoin.
+ *
+ * Source d'acquisition / Categorie (demande explicite de l'utilisateur,
+ * "comme Synec" pour la source) : libelle exact cote Synec non confirme
+ * par une capture ou une video (contrairement aux autres champs ci-dessus)
+ * - best effort via remplirMenuApresLibelle, qui n'interrompt jamais la
+ * creation du client si le champ attendu n'est pas trouve avec ce libelle.
  *
  * Echec reel sur la confirmation : le texte "enregistré" (sans portee)
  * pouvait deja etre present ailleurs sur la page (aide/texte statique)
@@ -239,6 +302,12 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.adresse) await remplirApresLibelle(page, /ligne d'adresse 1/i, demande.adresse);
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
+  if (demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]) {
+    await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => {});
+  }
+  if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
+    await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => {});
+  }
 
   // Echec reel decisif : un essai rate ("0 bouton trouve") montrait
   // pourtant, sur la capture de diagnostic prise au meme instant, le
@@ -394,14 +463,19 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
 
   // Date/heure souhaitee par le client (demande explicite : "pour que ca
   // puisse remonter automatiquement") : sans elle, Synec garde son defaut
-  // (l'instant de creation de l'evenement). Duree par defaut 1h, comme dans
-  // la demonstration de l'utilisateur. Non bloquant si le champ ne reagit
-  // pas a .fill() (saisie masquee non confirmee sans acces direct a Synec) :
-  // l'evenement est alors cree avec la date par defaut plutot que d'echouer
-  // toute la demande pour ce seul champ.
+  // (l'instant de creation de l'evenement). Non bloquant si le champ ne
+  // reagit pas a .fill() (saisie masquee non confirmee sans acces direct a
+  // Synec) : l'evenement est alors cree avec la date par defaut plutot que
+  // d'echouer toute la demande pour ce seul champ.
+  //
+  // Fin explicite (dateSouhaiteeFin, demande explicite de l'utilisateur :
+  // "rendez-vous... entre 11 heures et midi" -> debut ET fin precis, pas
+  // une duree fixe devinee) quand elle est fournie ; a defaut (anciennes
+  // demandes saisies avant l'ajout de ce champ, ou champ laisse vide),
+  // repli sur l'ancien calcul debut+1h plutot que de laisser la fin vide.
   if (demande.dateSouhaitee) {
     const debut = demande.dateSouhaitee;
-    const fin = new Date(debut.getTime() + 60 * 60 * 1000);
+    const fin = demande.dateSouhaiteeFin || new Date(debut.getTime() + 60 * 60 * 1000);
     await remplirApresLibelle(page, /date de début de l'événement/i, formaterDateHeureSynec(debut)).catch(() => {});
     await remplirApresLibelle(page, /date de fin de l'événement/i, formaterDateHeureSynec(fin)).catch(() => {});
   }

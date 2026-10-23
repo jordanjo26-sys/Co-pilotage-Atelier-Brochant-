@@ -32,6 +32,8 @@ function versDatetimeLocal(iso) {
 }
 
 const LIBELLE_URGENCE = { faible: "Faible", normale: "Normale", urgente: "Urgente" };
+const LIBELLE_SOURCE = { google: "Google", pages_jaunes: "Pages Jaunes", maps: "Maps" };
+const LIBELLE_CATEGORIE = { plomberie: "Plomberie", serrurerie: "Serrurerie", electricite: "Électricité", assainissement: "Assainissement" };
 
 async function appelApi(url, options) {
   const res = await fetch(url, options);
@@ -61,7 +63,9 @@ async function chargerDemandes() {
       <div class="historique-ligne">Téléphone : ${echapper(d.telephone || "non donné")}</div>
       ${d.email ? `<div class="historique-ligne">E-mail : ${echapper(d.email)}</div>` : ""}
       <div class="historique-ligne">Adresse : ${echapper(adresseComplete(d))}${d.typeLogement ? ` (${echapper(d.typeLogement)}${d.etage ? ", étage " + echapper(d.etage) : ""}${d.codeAcces ? ", code " + echapper(d.codeAcces) : ""})` : ""}</div>
-      ${d.dateSouhaitee ? `<div class="historique-ligne">Date souhaitée : ${fmtDateHeureParis(d.dateSouhaitee)}</div>` : ""}
+      ${d.dateSouhaitee ? `<div class="historique-ligne">Date souhaitée : ${fmtDateHeureParis(d.dateSouhaitee)}${d.dateSouhaiteeFin ? ` → ${fmtDateHeureParis(d.dateSouhaiteeFin)}` : ""}</div>` : ""}
+      ${d.sourceAcquisition ? `<div class="historique-ligne">Source : ${echapper(LIBELLE_SOURCE[d.sourceAcquisition] || d.sourceAcquisition)}</div>` : ""}
+      ${d.categorie ? `<div class="historique-ligne">Catégorie : ${echapper(LIBELLE_CATEGORIE[d.categorie] || d.categorie)}</div>` : ""}
       ${d.motif ? `<div class="historique-ligne">Motif : ${echapper(d.motif)}</div>` : ""}
       <div id="synec-erreur-${d.id}" class="historique-ligne" style="color:var(--critical)" hidden></div>
       <div class="ligne-boutons" style="margin-top:8px">
@@ -204,6 +208,9 @@ function entrerEnModeModification(demande) {
   formulaire.querySelector('[name="codeAcces"]').value = demande.codeAcces || "";
   formulaire.querySelector('[name="urgence"]').value = demande.urgence || "normale";
   formulaire.querySelector('[name="dateSouhaitee"]').value = versDatetimeLocal(demande.dateSouhaitee);
+  formulaire.querySelector('[name="dateSouhaiteeFin"]').value = versDatetimeLocal(demande.dateSouhaiteeFin);
+  formulaire.querySelector('[name="sourceAcquisition"]').value = demande.sourceAcquisition || "";
+  formulaire.querySelector('[name="categorie"]').value = demande.categorie || "";
   formulaire.querySelector('[name="motif"]').value = demande.motif || "";
   boutonSoumettre.textContent = "Enregistrer les modifications";
   boutonAnnulerModification.hidden = false;

@@ -542,6 +542,9 @@ model DemandeIntervention {
   motif        String?
   urgence      String? // faible | normale | urgente
   dateSouhaitee DateTime?
+  dateSouhaiteeFin DateTime?
+  sourceAcquisition String? // google | pages_jaunes | maps
+  categorie    String? // plomberie | serrurerie | electricite | assainissement
   statut       String    @default("a_saisir") // a_saisir | saisie
   saisieLe     DateTime?
   createdAt    DateTime  @default(now())

@@ -25,6 +25,8 @@ const FUSEAU = "Europe/Paris";
 
 export const URGENCES_VALIDES = ["faible", "normale", "urgente"] as const;
 export const TYPES_LOGEMENT_VALIDES = ["maison", "appartement"] as const;
+export const SOURCES_ACQUISITION_VALIDES = ["google", "pages_jaunes", "maps"] as const;
+export const CATEGORIES_VALIDES = ["plomberie", "serrurerie", "electricite", "assainissement"] as const;
 
 export class DemandeInterventionValidationError extends Error {}
 
@@ -41,6 +43,9 @@ export interface DonneesDemandeIntervention {
   motif?: unknown;
   urgence?: unknown;
   dateSouhaitee?: unknown;
+  dateSouhaiteeFin?: unknown;
+  sourceAcquisition?: unknown;
+  categorie?: unknown;
 }
 
 // Trois cas distincts (important pour modifierDemandeIntervention, un
@@ -77,6 +82,9 @@ function validerEtPreparer(donnees: DonneesDemandeIntervention): {
   motif?: string | null;
   urgence?: string | null;
   dateSouhaitee?: Date | null;
+  dateSouhaiteeFin?: Date | null;
+  sourceAcquisition?: string | null;
+  categorie?: string | null;
 } {
   const nom = texte(donnees.nom);
   if (!nom) throw new DemandeInterventionValidationError("Le nom du client est requis.");
@@ -89,6 +97,22 @@ function validerEtPreparer(donnees: DonneesDemandeIntervention): {
   }
   if (donnees.typeLogement && !(TYPES_LOGEMENT_VALIDES as readonly unknown[]).includes(donnees.typeLogement)) {
     throw new DemandeInterventionValidationError(`typeLogement invalide, attendu l'un de : ${TYPES_LOGEMENT_VALIDES.join(", ")}`);
+  }
+  if (donnees.sourceAcquisition && !(SOURCES_ACQUISITION_VALIDES as readonly unknown[]).includes(donnees.sourceAcquisition)) {
+    throw new DemandeInterventionValidationError(`sourceAcquisition invalide, attendu l'un de : ${SOURCES_ACQUISITION_VALIDES.join(", ")}`);
+  }
+  if (donnees.categorie && !(CATEGORIES_VALIDES as readonly unknown[]).includes(donnees.categorie)) {
+    throw new DemandeInterventionValidationError(`categorie invalide, attendu l'un de : ${CATEGORIES_VALIDES.join(", ")}`);
+  }
+
+  // Coherence des dates : une fin avant le debut n'a pas de sens et viendrait
+  // d'une erreur de saisie plutot que d'un cas reel (demande explicite :
+  // "date de debut... date de fin... pour que celui-ci se mette directement
+  // au planning", jamais d'inversion attendue).
+  const dateSouhaitee = date(donnees.dateSouhaitee);
+  const dateSouhaiteeFin = date(donnees.dateSouhaiteeFin);
+  if (dateSouhaitee && dateSouhaiteeFin && dateSouhaiteeFin.getTime() < dateSouhaitee.getTime()) {
+    throw new DemandeInterventionValidationError("La date de fin souhaitée ne peut pas être avant la date de début.");
   }
 
   return {
@@ -103,7 +127,10 @@ function validerEtPreparer(donnees: DonneesDemandeIntervention): {
     codeAcces: texte(donnees.codeAcces),
     motif: texte(donnees.motif),
     urgence: texte(donnees.urgence),
-    dateSouhaitee: date(donnees.dateSouhaitee),
+    dateSouhaitee,
+    dateSouhaiteeFin,
+    sourceAcquisition: texte(donnees.sourceAcquisition),
+    categorie: texte(donnees.categorie),
   };
 }
 

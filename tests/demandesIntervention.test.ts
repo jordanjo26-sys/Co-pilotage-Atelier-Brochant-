@@ -93,6 +93,38 @@ test("demandes d'intervention : creation, validation, file d'attente et marquage
     assert.ok(miseAJour.saisieLe);
   });
 
+  await t.test("debut + fin souhaites, source et categorie -> enregistres tels quels", async () => {
+    const demande = await creerDemandeIntervention(prisma, {
+      nom: "M. Fin",
+      dateSouhaitee: "2026-11-05T11:00",
+      dateSouhaiteeFin: "2026-11-05T12:00",
+      sourceAcquisition: "pages_jaunes",
+      categorie: "plomberie",
+    });
+    assert.equal(demande.dateSouhaitee?.toISOString(), "2026-11-05T10:00:00.000Z");
+    assert.equal(demande.dateSouhaiteeFin?.toISOString(), "2026-11-05T11:00:00.000Z");
+    assert.equal(demande.sourceAcquisition, "pages_jaunes");
+    assert.equal(demande.categorie, "plomberie");
+  });
+
+  await t.test("fin souhaitee avant le debut -> erreur de validation", async () => {
+    await assert.rejects(
+      creerDemandeIntervention(prisma, {
+        nom: "M. Inverse",
+        dateSouhaitee: "2026-11-05T12:00",
+        dateSouhaiteeFin: "2026-11-05T11:00",
+      }),
+      DemandeInterventionValidationError
+    );
+  });
+
+  await t.test("categorie invalide -> erreur de validation", async () => {
+    await assert.rejects(
+      creerDemandeIntervention(prisma, { nom: "M. Metier", categorie: "jardinage" }),
+      DemandeInterventionValidationError
+    );
+  });
+
   await t.test("modification : change les champs fournis, efface ceux envoyes vides", async () => {
     const demande = await creerDemandeIntervention(prisma, { nom: "Mme Petit", telephone: "0600000000", motif: "Fuite" });
 

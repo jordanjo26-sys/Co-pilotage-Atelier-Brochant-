@@ -45,8 +45,26 @@
             <option value="faible">Faible (devis/info)</option>
           </select>
         </label>
-        <label>Date et heure souhaitées<input name="dateSouhaitee" type="datetime-local" /></label>
-        <label class="champ-pleine-largeur">Motif / renseignements<textarea name="motif" placeholder="Pièce concernée, depuis quand, créneau souhaité…"></textarea></label>
+        <label>Début souhaité<input name="dateSouhaitee" type="datetime-local" /></label>
+        <label>Fin souhaitée<input name="dateSouhaiteeFin" type="datetime-local" /></label>
+        <label>Source d'acquisition
+          <select name="sourceAcquisition">
+            <option value="">—</option>
+            <option value="google">Google</option>
+            <option value="pages_jaunes">Pages Jaunes</option>
+            <option value="maps">Maps</option>
+          </select>
+        </label>
+        <label>Catégorie
+          <select name="categorie">
+            <option value="">—</option>
+            <option value="plomberie">Plomberie</option>
+            <option value="serrurerie">Serrurerie</option>
+            <option value="electricite">Électricité</option>
+            <option value="assainissement">Assainissement</option>
+          </select>
+        </label>
+        <label class="champ-pleine-largeur">Motif / renseignements<textarea name="motif" placeholder="Pièce concernée, depuis quand…"></textarea></label>
         <div class="champ-pleine-largeur ligne-boutons">
           <button type="submit" id="bouton-soumettre-demande">Enregistrer</button>
           <button type="button" class="ghost" id="bouton-annuler-modification" hidden>Annuler la modification</button>
