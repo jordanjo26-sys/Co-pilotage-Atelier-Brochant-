@@ -361,11 +361,20 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
       // cree le client depuis l'ecran "Clients" (chemin confirme par la
       // video de l'utilisateur), puis revient creer l'evenement - la
       // recherche retrouvera alors ce client tout juste cree.
-      await page
-        .getByRole("button", { name: /close|fermer|×/i })
-        .first()
-        .click()
+      //
+      // Echec reel : le selecteur generique (bouton "close/fermer/x" sur
+      // toute la page) ne fermait pas la fenetre a temps - le clic suivant
+      // (menu "Toggle navigation" pour atteindre l'ecran Clients) restait
+      // bloque, intercepte par la fenetre encore ouverte. Meme principe que
+      // pour le select2 "Client" : cible le premier element cliquable qui
+      // SUIT le titre de la fenetre, et attend explicitement sa disparition
+      // avant de continuer.
+      const titreEvenement = page.getByText(/création d'un nouvel événement/i).first();
+      await titreEvenement
+        .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
+        .click({ timeout: 5000 })
         .catch(() => page!.keyboard.press("Escape"));
+      await titreEvenement.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
       await creerClient(page, demande);
 
       await allerAuPlanning(page);
