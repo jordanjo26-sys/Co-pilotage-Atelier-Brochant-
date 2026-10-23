@@ -215,13 +215,15 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   // Echec reel (ouverture via le raccourci inline, dialogue empile sur la
   // fenetre d'evenement) : le bouton "Enregistrer et fermer" cherche sans
   // portee resolvait sur un doublon cache ailleurs sur la page - meme
-  // famille de bug que les selecteurs select2 corriges plus tot. Limite
-  // desormais la recherche aux boutons/liens qui SUIVENT le titre de cette
-  // fenetre precise.
-  const boutonEnregistrer = enTeteFormulaire
-    .locator("xpath=following::*[self::button or self::a or @role='button']")
-    .filter({ hasText: /^enregistrer et fermer$/i })
-    .first();
+  // famille de bug que les selecteurs select2 corriges plus tot. Un essai
+  // "following::" (elements qui suivent le titre dans le document) n'a pas
+  // fonctionne non plus (echec reel : rien trouve, alors que le bouton est
+  // bien visible sur la capture de diagnostic - probablement pas place
+  // apres le titre dans l'ordre du DOM malgre les apparences visuelles).
+  // Plus fiable : remonter au conteneur ".modal" de cette fenetre precise,
+  // puis chercher le bouton SEULEMENT a l'interieur.
+  const conteneurModal = enTeteFormulaire.locator("xpath=ancestor::div[contains(@class,'modal')][1]");
+  const boutonEnregistrer = conteneurModal.getByText(/^enregistrer et fermer$/i).first();
   await boutonEnregistrer.click();
 
   const confirme = await enTeteFormulaire
