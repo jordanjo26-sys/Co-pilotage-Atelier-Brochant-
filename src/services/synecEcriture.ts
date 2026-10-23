@@ -185,20 +185,17 @@ async function ouvrirNouvelEvenement(page: import("playwright").Page): Promise<v
 }
 
 /**
- * Crée une fiche client (section "Clients", formulaire "Création d'un
- * client" vu dans la vidéo). Volontairement minimal : seuls les champs que
- * l'intake collecte déjà sont remplis (nom, téléphone, e-mail, adresse) -
- * Attestation TVA, prénom/nom séparés laissés tels quels ("trop tôt pour
- * automatiser", décision explicite de l'utilisateur), à compléter à la main
- * dans Synec si besoin.
- */
-/**
  * Remplit et enregistre le formulaire "Création d'un client" (deja
- * ouvert), quel que soit le chemin utilise pour l'ouvrir. Echec reel sur
- * la confirmation : le texte "enregistré" (sans portee) pouvait deja etre
- * present ailleurs sur la page (aide/texte statique) avant meme le clic,
- * donnant une fausse confirmation immediate - seul signal fiable, la
- * disparition effective de la fenetre elle-meme.
+ * ouvert), quel que soit le chemin utilise pour l'ouvrir. Volontairement
+ * minimal : seuls les champs que l'intake collecte deja sont remplis (nom,
+ * telephone, e-mail, adresse) - Attestation TVA, prenom/nom separes
+ * laisses tels quels ("trop tot pour automatiser", decision explicite de
+ * l'utilisateur), a completer a la main dans Synec si besoin.
+ *
+ * Echec reel sur la confirmation : le texte "enregistré" (sans portee)
+ * pouvait deja etre present ailleurs sur la page (aide/texte statique)
+ * avant meme le clic, donnant une fausse confirmation immediate - seul
+ * signal fiable, la disparition effective de la fenetre elle-meme.
  */
 async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
   const enTeteFormulaire = page.getByText(/création d'un client/i).first();
@@ -215,7 +212,16 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
 
-  const boutonEnregistrer = page.getByText(/^enregistrer et fermer$/i).first();
+  // Echec reel (ouverture via le raccourci inline, dialogue empile sur la
+  // fenetre d'evenement) : le bouton "Enregistrer et fermer" cherche sans
+  // portee resolvait sur un doublon cache ailleurs sur la page - meme
+  // famille de bug que les selecteurs select2 corriges plus tot. Limite
+  // desormais la recherche aux boutons/liens qui SUIVENT le titre de cette
+  // fenetre precise.
+  const boutonEnregistrer = enTeteFormulaire
+    .locator("xpath=following::*[self::button or self::a or @role='button']")
+    .filter({ hasText: /^enregistrer et fermer$/i })
+    .first();
   await boutonEnregistrer.click();
 
   const confirme = await enTeteFormulaire
