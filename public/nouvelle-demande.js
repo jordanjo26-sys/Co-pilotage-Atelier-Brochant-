@@ -194,9 +194,11 @@ const formulaire = document.getElementById("form-demande");
 const boutonSoumettre = document.getElementById("bouton-soumettre-demande");
 const boutonAnnulerModification = document.getElementById("bouton-annuler-modification");
 let idEnModification = null;
+let finModifieeManuellement = false;
 
 function entrerEnModeModification(demande) {
   idEnModification = demande.id;
+  finModifieeManuellement = true; // valeurs existantes chargees telles quelles, jamais recalculees
   formulaire.querySelector('[name="nom"]').value = demande.nom || "";
   formulaire.querySelector('[name="telephone"]').value = demande.telephone || "";
   formulaire.querySelector('[name="email"]').value = demande.email || "";
@@ -223,9 +225,33 @@ function sortirDuModeModification() {
   formulaire.querySelector('[name="urgence"]').value = "normale";
   boutonSoumettre.textContent = "Enregistrer";
   boutonAnnulerModification.hidden = true;
+  finModifieeManuellement = false;
 }
 
 boutonAnnulerModification.addEventListener("click", sortirDuModeModification);
+
+// Demande explicite de l'utilisateur : "je mets 10h dans début souhaité,
+// ça met automatiquement 11h dans fin souhaité" - une heure de battement
+// par defaut, sans empecher de la changer ensuite (un edit manuel du
+// champ fin desactive cet auto-remplissage tant que le formulaire n'est
+// pas reinitialise, pour ne jamais ecraser un choix delibere).
+(function () {
+  const champDebut = formulaire.querySelector('[name="dateSouhaitee"]');
+  const champFin = formulaire.querySelector('[name="dateSouhaiteeFin"]');
+
+  champFin.addEventListener("input", () => {
+    finModifieeManuellement = true;
+  });
+
+  champDebut.addEventListener("change", () => {
+    if (finModifieeManuellement || !champDebut.value) return;
+    const debut = new Date(champDebut.value);
+    if (Number.isNaN(debut.getTime())) return;
+    const fin = new Date(debut.getTime() + 60 * 60 * 1000);
+    const pad = (n) => String(n).padStart(2, "0");
+    champFin.value = `${fin.getFullYear()}-${pad(fin.getMonth() + 1)}-${pad(fin.getDate())}T${pad(fin.getHours())}:${pad(fin.getMinutes())}`;
+  });
+})();
 
 formulaire.addEventListener("submit", async (e) => {
   e.preventDefault();
