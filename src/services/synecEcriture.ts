@@ -329,6 +329,58 @@ function formaterDateHeureSynec(d: Date): string {
   return dayjs(d).tz(FUSEAU).format("DD/MM/YYYY HH:mm");
 }
 
+/**
+ * Remplit la zone "Description" de l'événement - un éditeur de texte riche
+ * (barre d'outils gras/italique/souligné...), pas un simple <textarea>.
+ *
+ * Echec reel (vidéo fournie par l'utilisateur, demande "Jouot") : le champ
+ * "Description" reste visiblement VIDE dans Synec après l'envoi, alors que
+ * le code précédent cliquait et tapait sans lever d'erreur. Cause la plus
+ * probable : ce type d'éditeur (barre d'outils identique à TinyMCE) place
+ * souvent sa vraie zone éditable DANS UN <iframe> - invisible par défaut
+ * pour `page.locator()`, qui ne cherche jamais dans les iframes sans qu'on
+ * le lui demande explicitement. Le premier `[contenteditable="true"]` de la
+ * page principale matchait donc probablement un AUTRE élément (silencieux,
+ * aucune erreur), d'où une saisie qui semblait réussir sans jamais se
+ * retrouver dans le bon champ.
+ *
+ * Essaie dans l'ordre : la zone qui suit directement le libellé
+ * "Description" dans la page principale, puis le premier contenteditable
+ * de la page principale (comportement précédent, au cas où), puis chaque
+ * iframe de la page. Vérifie à chaque essai que le texte est bien repassé
+ * en lecture (innerText) avant de considérer l'essai réussi - sinon passe
+ * au suivant plutôt que de s'arrêter sur un faux succès.
+ */
+async function remplirDescriptionEvenement(page: import("playwright").Page, texte: string): Promise<boolean> {
+  const essayer = async (zone: import("playwright").Locator): Promise<boolean> => {
+    const visible = await zone.isVisible().catch(() => false);
+    if (!visible) return false;
+    await zone.click().catch(() => {});
+    await zone.type(texte).catch(() => {});
+    const contenu = (await zone.innerText().catch(() => "")).trim();
+    return contenu.length > 0;
+  };
+
+  const libelle = page.getByText(/^description$/i).first();
+  const libelleVisible = await libelle
+    .waitFor({ state: "visible", timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (libelleVisible) {
+    const zoneProche = libelle.locator("xpath=following::*[@contenteditable='true'][1]");
+    if (await essayer(zoneProche)) return true;
+  }
+
+  if (await essayer(page.locator('[contenteditable="true"]').first())) return true;
+
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    if (await essayer(frame.locator('[contenteditable="true"], body#tinymce').first())) return true;
+  }
+
+  return false;
+}
+
 /** Crée l'événement de planning relié au client (déjà sélectionné dans le formulaire ouvert). */
 async function remplirEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
   const statut = page.locator("select").filter({ has: page.getByText(/pas de statut/i) }).first();
@@ -359,15 +411,7 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     .fill(`${demande.nom} — ${demande.urgence === "urgente" ? "URGENT" : "intervention"}`)
     .catch(() => {});
 
-  const zoneDescription = page.locator('[contenteditable="true"]').first();
-  const descriptionVisible = await zoneDescription
-    .waitFor({ state: "visible", timeout: 5000 })
-    .then(() => true)
-    .catch(() => false);
-  if (descriptionVisible) {
-    await zoneDescription.click();
-    await zoneDescription.type(construireDescriptionEvenement(demande));
-  }
+  await remplirDescriptionEvenement(page, construireDescriptionEvenement(demande));
 
   // Meme correctif que pour la fiche client (remplirEtEnregistrerFicheClient)
   // : sous-chaine plutot que correspondance exacte (un caractere invisible
