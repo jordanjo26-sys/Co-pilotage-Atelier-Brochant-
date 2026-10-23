@@ -349,8 +349,30 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     await zoneDescription.type(construireDescriptionEvenement(demande));
   }
 
-  const boutonEnregistrer = page.getByText(/^enregistrer et fermer$/i).first();
-  await boutonEnregistrer.click();
+  // Meme correctif que pour la fiche client (remplirEtEnregistrerFicheClient)
+  // : sous-chaine plutot que correspondance exacte (un caractere invisible
+  // peut faire echouer l'egalite stricte), reseau calme avant le clic, et
+  // plusieurs tentatives plutot qu'un essai unique.
+  await page.waitForLoadState("networkidle").catch(() => {});
+  let evenementEnregistre = false;
+  let dernierEchecEvenement: Error | undefined;
+  for (let essai = 1; essai <= 4 && !evenementEnregistre; essai++) {
+    const bouton = page.getByText(/enregistrer et fermer/i).first();
+    evenementEnregistre = await bouton
+      .click({ force: true, timeout: 6000 })
+      .then(() => true)
+      .catch((err) => {
+        dernierEchecEvenement = err as Error;
+        return false;
+      });
+    if (!evenementEnregistre) await page.waitForTimeout(2000);
+  }
+  if (!evenementEnregistre) {
+    const diagnostic = await capturerDiagnostic(page);
+    throw new SynecEcritureError(
+      `L'événement ne semble pas enregistré (bouton "Enregistrer et fermer" introuvable apres 4 essais : ${dernierEchecEvenement?.message}). État final : ${diagnostic}`
+    );
+  }
 
   const formulaireFerme = await page
     .getByText(/création d'un nouvel événement/i)
