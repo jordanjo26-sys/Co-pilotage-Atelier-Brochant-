@@ -266,7 +266,16 @@ async function remplirMenuApresLibelle(page: import("playwright").Page, libelle:
       .selectOption({ label: texteOption })
       .then(() => true)
       .catch(() => false);
-    if (choisi) return true;
+    if (choisi) {
+      // Echec reel sur les champs de date (meme famille de bug : un clic
+      // ou un remplissage "reussi" sans que la valeur ne reste en place) -
+      // revérifie desormais systematiquement ce qui est reellement
+      // selectionne plutot que de faire confiance au seul succes du clic.
+      const texteSelectionne = await selectNatif
+        .evaluate(`(el) => el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : null`)
+        .catch(() => null);
+      if (texteSelectionne === texteOption) return true;
+    }
   }
 
   const selecteur = label.locator("xpath=following::*[contains(@class,'select2-selection')][1]");
@@ -285,7 +294,8 @@ async function remplirMenuApresLibelle(page: import("playwright").Page, libelle:
     const texte = (await resultats.nth(i).textContent().catch(() => null))?.trim();
     if (texte && texte.toLowerCase().includes(texteOption.toLowerCase())) {
       await resultats.nth(i).click();
-      return true;
+      const texteAffiche = (await selecteur.textContent().catch(() => null))?.trim();
+      return !!texteAffiche && texteAffiche.toLowerCase().includes(texteOption.toLowerCase());
     }
   }
   await page.keyboard.press("Escape").catch(() => {});
@@ -301,10 +311,12 @@ async function remplirMenuApresLibelle(page: import("playwright").Page, libelle:
  * l'utilisateur), a completer a la main dans Synec si besoin.
  *
  * Source d'acquisition / Categorie (demande explicite de l'utilisateur,
- * "comme Synec" pour la source) : libelle exact cote Synec non confirme
- * par une capture ou une video (contrairement aux autres champs ci-dessus)
- * - best effort via remplirMenuApresLibelle, qui n'interrompt jamais la
- * creation du client si le champ attendu n'est pas trouve avec ce libelle.
+ * confirme present dans ce meme formulaire) : meme principe que pour les
+ * dates de l'evenement - la premiere version se contentait d'un essai
+ * "best effort" jamais verifie, qui laissait ces deux champs silencieusement
+ * vides sans que personne ne le sache. Verifie desormais, et fait echouer
+ * l'envoi si l'un des deux champs demandes n'a pas pu etre reellement
+ * selectionne, plutot que de continuer en silence.
  *
  * Echec reel sur la confirmation : le texte "enregistré" (sans portee)
  * pouvait deja etre present ailleurs sur la page (aide/texte statique)
@@ -334,10 +346,22 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
   if (demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]) {
-    await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => {});
+    const ok = await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
+    if (!ok) {
+      const diagnostic = await capturerDiagnostic(page);
+      throw new SynecEcritureError(
+        `Le champ "Source d'acquisition" n'a pas pu être renseigné (valeur demandée : "${LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]}"). État final : ${diagnostic}`
+      );
+    }
   }
   if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
-    await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => {});
+    const ok = await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => false);
+    if (!ok) {
+      const diagnostic = await capturerDiagnostic(page);
+      throw new SynecEcritureError(
+        `Le champ "Catégorie" n'a pas pu être renseigné (valeur demandée : "${LIBELLE_CATEGORIE_SYNEC[demande.categorie]}"). État final : ${diagnostic}`
+      );
+    }
   }
 
   // Echec reel decisif : un essai rate ("0 bouton trouve") montrait
