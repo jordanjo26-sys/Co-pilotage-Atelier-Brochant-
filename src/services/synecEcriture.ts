@@ -450,6 +450,21 @@ async function remplirDescriptionEvenement(page: import("playwright").Page, text
   return false;
 }
 
+/**
+ * Ferme un selecteur calendrier/heure encore ouvert (bouton "Apply" si
+ * present, sinon Echap) - voir le commentaire sur son appel dans
+ * remplirEvenement pour l'echec reel qui a motive cette fonction.
+ */
+async function fermerSelecteurDateSiOuvert(page: import("playwright").Page): Promise<void> {
+  const boutonApply = page.getByText(/^apply$/i).first();
+  const visible = await boutonApply.isVisible().catch(() => false);
+  if (visible) {
+    await boutonApply.click().catch(() => {});
+  } else {
+    await page.keyboard.press("Escape").catch(() => {});
+  }
+}
+
 /** Crée l'événement de planning relié au client (déjà sélectionné dans le formulaire ouvert). */
 async function remplirEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
   const statut = page.locator("select").filter({ has: page.getByText(/pas de statut/i) }).first();
@@ -473,11 +488,23 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   // une duree fixe devinee) quand elle est fournie ; a defaut (anciennes
   // demandes saisies avant l'ajout de ce champ, ou champ laisse vide),
   // repli sur l'ancien calcul debut+1h plutot que de laisser la fin vide.
+  // Capture d'echec decisive (test "TEST-CLAUDE2", capture-echec.png
+  // inspectee directement) : remplir ces deux champs de date ouvre a
+  // chaque fois un selecteur calendrier/heure (boutons "Apply"/"Cancel")
+  // qui ne se referme jamais tout seul - les DEUX restaient ouverts et
+  // empiles au moment de l'echec, bloquant silencieusement
+  // l'enregistrement final malgre un clic "reussi" sur "Enregistrer et
+  // fermer" (capture montrait d'ailleurs ce bouton bien visible, non
+  // recouvert - la cause est donc cote formulaire/validation, pas un clic
+  // mal cible). Ferme explicitement le selecteur (bouton "Apply" si
+  // visible, sinon Echap) juste apres chaque remplissage.
   if (demande.dateSouhaitee) {
     const debut = demande.dateSouhaitee;
     const fin = demande.dateSouhaiteeFin || new Date(debut.getTime() + 60 * 60 * 1000);
     await remplirApresLibelle(page, /date de début de l'événement/i, formaterDateHeureSynec(debut)).catch(() => {});
+    await fermerSelecteurDateSiOuvert(page);
     await remplirApresLibelle(page, /date de fin de l'événement/i, formaterDateHeureSynec(fin)).catch(() => {});
+    await fermerSelecteurDateSiOuvert(page);
   }
 
   const champNom = page.getByText(/^nom$/i).last().locator("xpath=following::input[1]").first();
@@ -492,11 +519,6 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   // peut faire echouer l'egalite stricte), reseau calme avant le clic, et
   // plusieurs tentatives plutot qu'un essai unique.
   await page.waitForLoadState("networkidle").catch(() => {});
-
-  // URL du formulaire ouvert (contient "/create", vu dans le href du bouton
-  // "Nouvel événement") - repere pour le signal de confirmation ci-dessous,
-  // capture AVANT le clic de sauvegarde.
-  const urlFormulaireOuvert = page.url();
 
   let evenementEnregistre = false;
   let dernierEchecEvenement: Error | undefined;
@@ -518,34 +540,22 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     );
   }
 
-  // Echec reel repete (tests "TEST-CLAUDE2") : le seul signal texte (le
-  // titre du dialogue devient "hidden") a deux fois depasse son delai
-  // (10s puis 25s), alors que la capture de diagnostic prise juste apres
-  // montrait a chaque fois l'ecran Planning deja propre - l'enregistrement
-  // avait donc bien reussi, ce signal texte est juste anormalement lent ou
-  // peu fiable ici (cause exacte non confirmee). Un essai intermediaire
-  // avait ajoute un second signal ("calendrier visuel" redevenu visible) -
-  // retire car potentiellement deja vrai AVANT meme le clic (texte
-  // present sous la fenetre modale, Playwright ne verifiant pas
-  // l'occultation), donc pas une vraie transition.
-  //
-  // Repere plus sur, confirme par le href du bouton "Nouvel événement"
-  // (qui contient "/create") : le navigateur quitte reellement cette URL
-  // une fois l'evenement enregistre et revient sur l'URL de base du
-  // planning - une vraie transition, pas un etat deja atteint avant le
-  // clic. Les deux signaux tournent en parallele, premier arrive gagne.
-  const formulaireFerme = await Promise.all([
-    page
-      .getByText(/création d'un nouvel événement/i)
-      .first()
-      .waitFor({ state: "hidden", timeout: 30000 })
-      .then(() => true)
-      .catch(() => false),
-    page
-      .waitForURL((url) => url.toString() !== urlFormulaireOuvert, { timeout: 30000 })
-      .then(() => true)
-      .catch(() => false),
-  ]).then((resultats) => resultats.some(Boolean));
+  // Cause racine trouvee (capture-echec.png du test "TEST-CLAUDE2"
+  // inspectee directement) : ce n'etait pas ce signal de confirmation qui
+  // posait probleme, mais l'enregistrement lui-meme, silencieusement
+  // bloque par deux selecteurs calendrier/heure restes ouverts (remplissage
+  // des champs de date plus haut) - voir fermerSelecteurDateSiOuvert.
+  // L'URL ne change jamais (panneau affiche en ligne dans la page, pas une
+  // vraie navigation - confirme par la meme capture, qui montrait les
+  // lignes du planning juste en dessous du formulaire encore ouvert) :
+  // un essai precedent avec un signal base sur l'URL n'a donc jamais pu se
+  // declencher, retire.
+  const formulaireFerme = await page
+    .getByText(/création d'un nouvel événement/i)
+    .first()
+    .waitFor({ state: "hidden", timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
   if (!formulaireFerme) {
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`L'événement ne semble pas enregistré. État final : ${diagnostic}`);
