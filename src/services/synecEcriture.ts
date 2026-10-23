@@ -383,6 +383,22 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
       await titreEvenement.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
       await creerClient(page, demande);
 
+      // Echec reel : apres un enregistrement reussi (fenetre "Création d'un
+      // client" bien refermee dans creerClient), un NOUVEAU dialogue
+      // identique (identifiant different a chaque fois : data-id-reload)
+      // pouvait se rouvrir tout seul quelques secondes plus tard - cote
+      // Synec, pas du code ici (peut-etre un hash d'URL ou un etat de
+      // formulaire residuel qui re-declenche l'ouverture) - et bloquait la
+      // navigation suivante. Fermeture defensive si c'est le cas.
+      const dialogueResiduel = page.getByText(/création d'un client/i).first();
+      if (await dialogueResiduel.isVisible().catch(() => false)) {
+        await dialogueResiduel
+          .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
+          .click({ timeout: 5000 })
+          .catch(() => page!.keyboard.press("Escape"));
+        await dialogueResiduel.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
+      }
+
       await allerAuPlanning(page);
       await ouvrirNouvelEvenement(page);
       const retrouve = await chercherEtSelectionnerClient(page, demande.nom);
