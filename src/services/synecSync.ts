@@ -256,19 +256,23 @@ export async function ouvrirMenuFacturation(page: import("playwright").Page): Pr
       .catch(() => false);
     if (!visible) return false;
 
-    // Echec reel (synecEcriture.ts, creation de client) : un dialogue
-    // "Création d'un client" peut se rouvrir tout seul cote Synec quelques
-    // secondes apres un enregistrement reussi (cause non identifiee), et
-    // intercepte alors ce clic en boucle jusqu'au timeout. Sans effet pour
-    // la synchronisation en lecture (ce dialogue n'existe pas sur ce
-    // chemin) : fermeture defensive, inoffensive si rien n'est ouvert.
-    const dialogueResiduel = page.getByText(/création d'un client/i).first();
-    if (await dialogueResiduel.isVisible().catch(() => false)) {
-      await dialogueResiduel
-        .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
-        .click({ timeout: 5000 })
-        .catch(() => page.keyboard.press("Escape"));
-      await dialogueResiduel.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
+    // Echec reel (synecEcriture.ts, creation de client puis d'evenement) :
+    // un dialogue ("Création d'un client" OU "Création d'un nouvel
+    // événement") peut se rouvrir tout seul cote Synec quelques secondes
+    // apres avoir ete ferme (cause non identifiee - les deux dialogues sont
+    // concernes, pas un seul), et intercepte alors ce clic en boucle
+    // jusqu'au timeout. Sans effet pour la synchronisation en lecture (ces
+    // dialogues n'existent pas sur ce chemin) : fermeture defensive des
+    // deux, inoffensive si rien n'est ouvert.
+    for (const motif of [/création d'un client/i, /création d'un nouvel événement/i]) {
+      const dialogueResiduel = page.getByText(motif).first();
+      if (await dialogueResiduel.isVisible().catch(() => false)) {
+        await dialogueResiduel
+          .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
+          .click({ timeout: 5000 })
+          .catch(() => page.keyboard.press("Escape"));
+        await dialogueResiduel.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
+      }
     }
 
     await bouton.click();
