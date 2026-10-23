@@ -512,27 +512,29 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     );
   }
 
-  // Echec reel (test "TEST-CLAUDE2") : ce seul signal (le titre du dialogue
+  // Echec reel (test "TEST-CLAUDE2") : ce signal (le titre du dialogue
   // devient "hidden") a depasse son delai de 10s, alors que la capture de
-  // diagnostic prise juste apres montrait deja l'ecran Planning propre
-  // (l'enregistrement avait donc bel et bien reussi, juste plus lentement
-  // que prevu) - delai elargi, et second signal en parallele (retour
-  // visible sur Planning, meme reperes que dejaSurPlanning dans
-  // allerAuPlanning) plutot qu'un seul.
-  const formulaireFerme = await Promise.all([
-    page
-      .getByText(/création d'un nouvel événement/i)
-      .first()
-      .waitFor({ state: "hidden", timeout: 25000 })
-      .then(() => true)
-      .catch(() => false),
-    page
-      .getByText(/calendrier visuel/i)
-      .first()
-      .waitFor({ state: "visible", timeout: 25000 })
-      .then(() => true)
-      .catch(() => false),
-  ]).then((resultats) => resultats.some(Boolean));
+  // diagnostic prise juste apres montrait deja l'ecran Planning propre -
+  // delai elargi a 25s (cet essai-la etait probablement juste plus lent,
+  // formulaire plus charge que celui de Jouot/Beaudeux).
+  //
+  // Un essai precedent avait ajoute ici un second signal en parallele ("
+  // calendrier visuel" redevenu visible) pour eviter de dependre d'un seul
+  // repere - retire : ce texte existe tres probablement DEJA dans la page,
+  // juste visuellement recouvert par la fenetre modale encore ouverte,
+  // donc "visible" selon Playwright (qui ne verifie pas l'occultation par
+  // un element au-dessus) MEME SI le dialogue n'est pas encore ferme - un
+  // evenement "TEST-CLAUDE2" introuvable ensuite sur le planning malgre un
+  // succes rapporte laisse penser que ce faux positif s'est bel et bien
+  // produit (le navigateur se fermant alors avant la fin reelle de
+  // l'enregistrement). Un seul repere fiable : le dialogue qui disparait
+  // vraiment.
+  const formulaireFerme = await page
+    .getByText(/création d'un nouvel événement/i)
+    .first()
+    .waitFor({ state: "hidden", timeout: 25000 })
+    .then(() => true)
+    .catch(() => false);
   if (!formulaireFerme) {
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`L'événement ne semble pas enregistré. État final : ${diagnostic}`);
