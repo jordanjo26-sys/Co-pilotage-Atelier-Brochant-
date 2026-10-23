@@ -192,28 +192,15 @@ async function ouvrirNouvelEvenement(page: import("playwright").Page): Promise<v
  * automatiser", décision explicite de l'utilisateur), à compléter à la main
  * dans Synec si besoin.
  */
-async function creerClient(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
-  const { etapes, diagnosticApresMenu, candidats } = await ouvrirMenuFacturation(page);
-  const clientsOuvert = await cliquerSiVisible(page, /^clients$/i);
-  etapes.push(`clients:${clientsOuvert}`);
-  await page.waitForLoadState("networkidle");
-
-  const boutonNouveauClient = page.getByText(/nouveau client/i).first();
-  const visible = await boutonNouveauClient
-    .waitFor({ state: "visible", timeout: 8000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!visible) {
-    const diagnostic = await capturerDiagnostic(page);
-    throw new SynecEcritureError(
-      `Écran "Clients" introuvable (étapes : ${etapes.join(", ")}).` +
-        (candidats ? ` ${candidats}` : "") +
-        (diagnosticApresMenu ? ` Juste après le clic sur le menu : ${diagnosticApresMenu}` : "") +
-        ` État final : ${diagnostic}`
-    );
-  }
-  await boutonNouveauClient.click();
-
+/**
+ * Remplit et enregistre le formulaire "Création d'un client" (deja
+ * ouvert), quel que soit le chemin utilise pour l'ouvrir. Echec reel sur
+ * la confirmation : le texte "enregistré" (sans portee) pouvait deja etre
+ * present ailleurs sur la page (aide/texte statique) avant meme le clic,
+ * donnant une fausse confirmation immediate - seul signal fiable, la
+ * disparition effective de la fenetre elle-meme.
+ */
+async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
   const enTeteFormulaire = page.getByText(/création d'un client/i).first();
   await enTeteFormulaire.waitFor({ state: "visible", timeout: 8000 });
 
@@ -231,13 +218,6 @@ async function creerClient(page: import("playwright").Page, demande: DemandeInte
   const boutonEnregistrer = page.getByText(/^enregistrer et fermer$/i).first();
   await boutonEnregistrer.click();
 
-  // Echec reel : le texte "enregistré" (sans portee) pouvait deja etre
-  // present ailleurs sur la page (aide/texte statique) avant meme le clic,
-  // donnant une fausse confirmation immediate - le code continuait alors
-  // que la fenetre "Création d'un client" etait en realite toujours
-  // ouverte (champ "Nom principal du client" vide sur la capture de
-  // diagnostic), bloquant le clic suivant sur le menu. Seul signal fiable :
-  // la disparition effective de la fenetre elle-meme.
   const confirme = await enTeteFormulaire
     .waitFor({ state: "hidden", timeout: 15000 })
     .then(() => true)
@@ -246,7 +226,23 @@ async function creerClient(page: import("playwright").Page, demande: DemandeInte
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`La fiche client ne semble pas enregistrée (fenêtre toujours ouverte). État final : ${diagnostic}`);
   }
-  await page.waitForLoadState("networkidle");
+}
+
+/**
+ * Cree le client directement depuis le raccourci "+ Créer un nouveau
+ * client" integre a la fenetre de creation d'evenement (visible dans la
+ * video de l'utilisateur, juste a cote du champ "Client") - le chemin que
+ * l'utilisateur emprunte reellement. L'ancien chemin (fermer cette
+ * fenetre, detour par l'ecran "Clients", puis rouvrir un evenement)
+ * provoquait un dialogue fantome recidivant, jamais observe par
+ * l'utilisateur en usage normal : preuve que ce detour ne correspond pas
+ * au fonctionnement reel de Synec.
+ */
+async function creerClientDepuisFormulaireEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
+  const boutonCreerClient = page.getByText(/créer un nouveau client/i).first();
+  await boutonCreerClient.waitFor({ state: "visible", timeout: 8000 });
+  await boutonCreerClient.click();
+  await remplirEtEnregistrerFicheClient(page, demande);
 }
 
 function construireDescriptionEvenement(demande: DemandeIntervention): string {
@@ -363,40 +359,14 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     let clientReutilise = await chercherEtSelectionnerClient(page, demande.nom);
 
     if (!clientReutilise) {
-      // Pas de correspondance exacte : ferme ce formulaire d'evenement,
-      // cree le client depuis l'ecran "Clients" (chemin confirme par la
-      // video de l'utilisateur), puis revient creer l'evenement - la
-      // recherche retrouvera alors ce client tout juste cree.
-      //
-      // Echec reel : le selecteur generique (bouton "close/fermer/x" sur
-      // toute la page) ne fermait pas la fenetre a temps - le clic suivant
-      // (menu "Toggle navigation" pour atteindre l'ecran Clients) restait
-      // bloque, intercepte par la fenetre encore ouverte. Meme principe que
-      // pour le select2 "Client" : cible le premier element cliquable qui
-      // SUIT le titre de la fenetre, et attend explicitement sa disparition
-      // avant de continuer.
-      const titreEvenement = page.getByText(/création d'un nouvel événement/i).first();
-      await titreEvenement
-        .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
-        .click({ timeout: 5000 })
-        .catch(() => page!.keyboard.press("Escape"));
-      await titreEvenement.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
-      await creerClient(page, demande);
-
-      // Echec reel, persistant malgre une boucle de fermeture de 60s : apres
-      // un enregistrement reussi (fenetre "Création d'un client" bien
-      // refermee dans creerClient), un NOUVEAU dialogue identique (jamais
-      // le meme data-id-reload, "superposition" grimpant a 2) se rouvrait
-      // tout seul - cote Synec, pas du code ici - et resistait a toute
-      // tentative de fermeture. Plutot que de continuer a le combattre,
-      // repart d'une page fraichement rechargee : la fiche client vient
-      // d'etre enregistree cote serveur (confirme par la fermeture de sa
-      // fenetre juste avant), un rechargement suffit donc a retrouver un
-      // etat propre sans aucun dialogue residuel.
-      await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-
-      await allerAuPlanning(page);
-      await ouvrirNouvelEvenement(page);
+      // Pas de correspondance exacte : cree le client directement depuis
+      // cette meme fenetre, via son raccourci integre "+ Créer un nouveau
+      // client" (voir creerClientDepuisFormulaireEvenement) - le chemin
+      // reellement emprunte par l'utilisateur. L'ancien chemin (fermer
+      // cette fenetre, detour par l'ecran "Clients", rouvrir un evenement)
+      // provoquait un dialogue fantome recidivant jamais rencontre par
+      // l'utilisateur en usage normal.
+      await creerClientDepuisFormulaireEvenement(page, demande);
       const retrouve = await chercherEtSelectionnerClient(page, demande.nom);
       if (!retrouve) {
         const diagnostic = await capturerDiagnostic(page);
