@@ -537,6 +537,7 @@ model DemandeIntervention {
   codePostal   String?
   ville        String?
   typeLogement String? // maison | appartement
+  occupation   String? // proprietaire | locataire
   etage        String?
   codeAcces    String?
   motif        String?

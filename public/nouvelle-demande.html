@@ -36,6 +36,13 @@
         <label>Logement
           <select name="typeLogement"><option value="">—</option><option value="maison">Maison</option><option value="appartement">Appartement</option></select>
         </label>
+        <label>Locataire ou propriétaire
+          <select name="occupation">
+            <option value="">—</option>
+            <option value="proprietaire">Propriétaire</option>
+            <option value="locataire">Locataire</option>
+          </select>
+        </label>
         <label>Étage (si appartement)<input name="etage" /></label>
         <label>Code d'accès / interphone<input name="codeAcces" /></label>
         <label>Urgence
@@ -79,7 +86,7 @@
     </section>
   </main>
 
-  <script src="/nouvelle-demande.js?v=3"></script>
+  <script src="/nouvelle-demande.js?v=4"></script>
   <script src="/morgane.js?v=2"></script>
 </body>
 </html>

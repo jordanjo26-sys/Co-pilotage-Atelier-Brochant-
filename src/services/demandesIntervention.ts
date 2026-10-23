@@ -27,6 +27,7 @@ export const URGENCES_VALIDES = ["faible", "normale", "urgente"] as const;
 export const TYPES_LOGEMENT_VALIDES = ["maison", "appartement"] as const;
 export const SOURCES_ACQUISITION_VALIDES = ["google", "pages_jaunes", "maps"] as const;
 export const CATEGORIES_VALIDES = ["plomberie", "serrurerie", "electricite", "assainissement"] as const;
+export const OCCUPATIONS_VALIDES = ["proprietaire", "locataire"] as const;
 
 export class DemandeInterventionValidationError extends Error {}
 
@@ -38,6 +39,7 @@ export interface DonneesDemandeIntervention {
   codePostal?: unknown;
   ville?: unknown;
   typeLogement?: unknown;
+  occupation?: unknown;
   etage?: unknown;
   codeAcces?: unknown;
   motif?: unknown;
@@ -77,6 +79,7 @@ function validerEtPreparer(donnees: DonneesDemandeIntervention): {
   codePostal?: string | null;
   ville?: string | null;
   typeLogement?: string | null;
+  occupation?: string | null;
   etage?: string | null;
   codeAcces?: string | null;
   motif?: string | null;
@@ -104,6 +107,9 @@ function validerEtPreparer(donnees: DonneesDemandeIntervention): {
   if (donnees.categorie && !(CATEGORIES_VALIDES as readonly unknown[]).includes(donnees.categorie)) {
     throw new DemandeInterventionValidationError(`categorie invalide, attendu l'un de : ${CATEGORIES_VALIDES.join(", ")}`);
   }
+  if (donnees.occupation && !(OCCUPATIONS_VALIDES as readonly unknown[]).includes(donnees.occupation)) {
+    throw new DemandeInterventionValidationError(`occupation invalide, attendu l'un de : ${OCCUPATIONS_VALIDES.join(", ")}`);
+  }
 
   // Coherence des dates : une fin avant le debut n'a pas de sens et viendrait
   // d'une erreur de saisie plutot que d'un cas reel (demande explicite :
@@ -123,6 +129,7 @@ function validerEtPreparer(donnees: DonneesDemandeIntervention): {
     codePostal: texte(donnees.codePostal),
     ville: texte(donnees.ville),
     typeLogement: texte(donnees.typeLogement),
+    occupation: texte(donnees.occupation),
     etage: texte(donnees.etage),
     codeAcces: texte(donnees.codeAcces),
     motif: texte(donnees.motif),

@@ -242,6 +242,11 @@ const LIBELLE_CATEGORIE_SYNEC: Record<string, string> = {
   electricite: "Électricité",
   assainissement: "Assainissement",
 };
+// Pour l'attestation TVA (demande explicite de l'utilisateur) : "Occupant
+// du logement" (proprietaire/locataire) et "Nature du bien" - deduite du
+// champ "Logement" deja collecte (typeLogement), pas un nouveau champ.
+const LIBELLE_OCCUPATION_SYNEC: Record<string, string> = { proprietaire: "Propriétaire", locataire: "Locataire" };
+const LIBELLE_NATURE_BIEN_SYNEC: Record<string, string> = { maison: "Maison", appartement: "Immeuble collectif" };
 
 /**
  * Selectionne une option dans un menu (natif <select> ou select2) repere
@@ -515,14 +520,27 @@ async function fermerSelecteurDateSiOuvert(page: import("playwright").Page): Pro
 
 /** Crée l'événement de planning relié au client (déjà sélectionné dans le formulaire ouvert). */
 async function remplirEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
+  // Echec reel signale par l'utilisateur ("il oublie de mettre le statut...
+  // sur planifier") : ce .selectOption() "reussissait" sans jamais verifier
+  // que la selection restait bien en place - meme famille de bug que les
+  // dates et Source/Categorie (un succes apparent qui ne se retrouve pas
+  // reellement cote Synec). Verifie desormais la valeur reellement
+  // selectionnee et fait echouer l'envoi si elle ne correspond pas, plutot
+  // que de laisser l'evenement se creer sans statut sans avertir personne.
   const statut = page.locator("select").filter({ has: page.getByText(/pas de statut/i) }).first();
-  await statut
+  const statutChoisi = await statut
     .selectOption({ label: "PLANIFIER" })
-    .catch(() => {
-      // Si ce selecteur precis n'est pas un <select> natif (menu personnalise
-      // non prevu), on laisse le statut par defaut plutot que d'echouer toute
-      // la creation pour un champ non bloquant.
-    });
+    .then(() => true)
+    .catch(() => false);
+  const statutConfirme = statutChoisi
+    ? await statut
+        .evaluate(`(el) => el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : null`)
+        .catch(() => null)
+    : null;
+  if (statutConfirme !== "PLANIFIER") {
+    const diagnostic = await capturerDiagnostic(page);
+    throw new SynecEcritureError(`Le statut n'a pas pu être mis sur "PLANIFIER" (trouvé : "${statutConfirme}"). État final : ${diagnostic}`);
+  }
 
   // Date/heure souhaitee par le client (demande explicite : "pour que ca
   // puisse remonter automatiquement") : sans elle, Synec garde son defaut
@@ -698,15 +716,17 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
     await page.waitForTimeout(800);
   }
 
-  // Echec reel (demandes "Marzin", "TEST-CLAUDE7") : ce point d'echec
-  // renvoyait simplement une chaine plutot que de lever une erreur, donc
-  // aucune capture d'ecran n'etait prise (le mecanisme de capture, au
-  // point d'appel, ne reagit qu'aux erreurs levees) - impossible de
-  // diagnostiquer avec une preuve reelle. Leve desormais une erreur ici
-  // comme partout ailleurs dans ce fichier.
+  // Echec reel (demandes "Marzin", "TEST-CLAUDE7", "TEST-CLAUDE8") : ce
+  // point d'echec renvoyait simplement une chaine plutot que de lever une
+  // erreur (corrige), puis une capture d'ecran reelle a montre que le
+  // client etait en fait bien present, tout en haut de la liste - juste
+  // pas encore rendu au moment du controle (delai de 5s trop court pour
+  // une liste paginee de plusieurs centaines de clients, meme famille de
+  // probleme que "Nouvel événement" plus tot dans ce fichier). Delai
+  // elargi.
   const ligneClient = page.getByText(demande.nom, { exact: false }).first();
   const trouve = await ligneClient
-    .waitFor({ state: "visible", timeout: 5000 })
+    .waitFor({ state: "visible", timeout: 20000 })
     .then(() => true)
     .catch(() => false);
   if (!trouve) {
@@ -728,11 +748,22 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
 
   let sourceOk = true;
   let categorieOk = true;
+  let occupationOk = true;
+  let natureBienOk = true;
   if (demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]) {
     sourceOk = await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
   }
   if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
     categorieOk = await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => false);
+  }
+  // Attestation TVA (demande explicite de l'utilisateur) : label Synec
+  // exact non confirme par capture (contrairement a Source/Categorie) -
+  // best effort comme les autres champs de cette fiche, jamais bloquant.
+  if (demande.occupation && LIBELLE_OCCUPATION_SYNEC[demande.occupation]) {
+    occupationOk = await remplirMenuApresLibelle(page, /occupant du logement/i, LIBELLE_OCCUPATION_SYNEC[demande.occupation]).catch(() => false);
+  }
+  if (demande.typeLogement && LIBELLE_NATURE_BIEN_SYNEC[demande.typeLogement]) {
+    natureBienOk = await remplirMenuApresLibelle(page, /nature du bien/i, LIBELLE_NATURE_BIEN_SYNEC[demande.typeLogement]).catch(() => false);
   }
 
   await page
@@ -741,10 +772,12 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
     .click({ force: true, timeout: 6000 })
     .catch(() => {});
 
-  if (sourceOk && categorieOk) return "ok";
+  if (sourceOk && categorieOk && occupationOk && natureBienOk) return "ok";
   const details: string[] = [];
   if (!sourceOk) details.push("source d'acquisition non confirmée");
   if (!categorieOk) details.push("catégorie non confirmée");
+  if (!occupationOk) details.push("occupant du logement non confirmé");
+  if (!natureBienOk) details.push("nature du bien non confirmée");
   return details.join(", ");
 }
 
@@ -814,7 +847,7 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     // principal) : sans ca, impossible de diagnostiquer une etape non
     // bloquante qui echoue silencieusement.
     let noteSourceCategorie = "";
-    if (demande.sourceAcquisition || demande.categorie) {
+    if (demande.sourceAcquisition || demande.categorie || demande.occupation) {
       noteSourceCategorie = await renseignerSourceEtCategorieSurFiche(page, demande).catch(async (err) => {
         await page?.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
         return `échec : ${(err as Error).message}`;

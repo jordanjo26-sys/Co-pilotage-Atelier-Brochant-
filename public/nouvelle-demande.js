@@ -34,6 +34,7 @@ function versDatetimeLocal(iso) {
 const LIBELLE_URGENCE = { faible: "Faible", normale: "Normale", urgente: "Urgente" };
 const LIBELLE_SOURCE = { google: "Google", pages_jaunes: "Pages Jaunes", maps: "Maps" };
 const LIBELLE_CATEGORIE = { plomberie: "Plomberie", serrurerie: "Serrurerie", electricite: "Électricité", assainissement: "Assainissement" };
+const LIBELLE_OCCUPATION = { proprietaire: "Propriétaire", locataire: "Locataire" };
 
 async function appelApi(url, options) {
   const res = await fetch(url, options);
@@ -63,6 +64,7 @@ async function chargerDemandes() {
       <div class="historique-ligne">Téléphone : ${echapper(d.telephone || "non donné")}</div>
       ${d.email ? `<div class="historique-ligne">E-mail : ${echapper(d.email)}</div>` : ""}
       <div class="historique-ligne">Adresse : ${echapper(adresseComplete(d))}${d.typeLogement ? ` (${echapper(d.typeLogement)}${d.etage ? ", étage " + echapper(d.etage) : ""}${d.codeAcces ? ", code " + echapper(d.codeAcces) : ""})` : ""}</div>
+      ${d.occupation ? `<div class="historique-ligne">${echapper(LIBELLE_OCCUPATION[d.occupation] || d.occupation)}</div>` : ""}
       ${d.dateSouhaitee ? `<div class="historique-ligne">Date souhaitée : ${fmtDateHeureParis(d.dateSouhaitee)}${d.dateSouhaiteeFin ? ` → ${fmtDateHeureParis(d.dateSouhaiteeFin)}` : ""}</div>` : ""}
       ${d.sourceAcquisition ? `<div class="historique-ligne">Source : ${echapper(LIBELLE_SOURCE[d.sourceAcquisition] || d.sourceAcquisition)}</div>` : ""}
       ${d.categorie ? `<div class="historique-ligne">Catégorie : ${echapper(LIBELLE_CATEGORIE[d.categorie] || d.categorie)}</div>` : ""}
@@ -206,6 +208,7 @@ function entrerEnModeModification(demande) {
   formulaire.querySelector('[name="codePostal"]').value = demande.codePostal || "";
   formulaire.querySelector('[name="ville"]').value = demande.ville || "";
   formulaire.querySelector('[name="typeLogement"]').value = demande.typeLogement || "";
+  formulaire.querySelector('[name="occupation"]').value = demande.occupation || "";
   formulaire.querySelector('[name="etage"]').value = demande.etage || "";
   formulaire.querySelector('[name="codeAcces"]').value = demande.codeAcces || "";
   formulaire.querySelector('[name="urgence"]').value = demande.urgence || "normale";
