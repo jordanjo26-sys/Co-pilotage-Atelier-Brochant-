@@ -240,6 +240,12 @@ async function creerClient(page: import("playwright").Page, demande: DemandeInte
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`La fiche client ne semble pas enregistrée. État final : ${diagnostic}`);
   }
+  // Echec reel : malgre le bouton "Enregistrer et fermer", la fenetre
+  // "Création d'un client" pouvait rester ouverte (confirmation "enregistré"
+  // visible avant la fin de l'animation de fermeture) et bloquait le clic
+  // suivant sur le menu - meme famille de bug que la fenetre evenement.
+  // Attente explicite de sa disparition avant de continuer.
+  await enTeteFormulaire.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
   await page.waitForLoadState("networkidle");
 }
 
