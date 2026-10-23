@@ -255,6 +255,22 @@ export async function ouvrirMenuFacturation(page: import("playwright").Page): Pr
       .then(() => true)
       .catch(() => false);
     if (!visible) return false;
+
+    // Echec reel (synecEcriture.ts, creation de client) : un dialogue
+    // "Création d'un client" peut se rouvrir tout seul cote Synec quelques
+    // secondes apres un enregistrement reussi (cause non identifiee), et
+    // intercepte alors ce clic en boucle jusqu'au timeout. Sans effet pour
+    // la synchronisation en lecture (ce dialogue n'existe pas sur ce
+    // chemin) : fermeture defensive, inoffensive si rien n'est ouvert.
+    const dialogueResiduel = page.getByText(/création d'un client/i).first();
+    if (await dialogueResiduel.isVisible().catch(() => false)) {
+      await dialogueResiduel
+        .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
+        .click({ timeout: 5000 })
+        .catch(() => page.keyboard.press("Escape"));
+      await dialogueResiduel.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
+    }
+
     await bouton.click();
     await page.waitForTimeout(500);
     return page
