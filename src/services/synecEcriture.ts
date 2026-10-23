@@ -310,13 +310,12 @@ async function remplirMenuApresLibelle(page: import("playwright").Page, libelle:
  * laisses tels quels ("trop tot pour automatiser", decision explicite de
  * l'utilisateur), a completer a la main dans Synec si besoin.
  *
- * Source d'acquisition / Categorie (demande explicite de l'utilisateur,
- * confirme present dans ce meme formulaire) : meme principe que pour les
- * dates de l'evenement - la premiere version se contentait d'un essai
- * "best effort" jamais verifie, qui laissait ces deux champs silencieusement
- * vides sans que personne ne le sache. Verifie desormais, et fait echouer
- * l'envoi si l'un des deux champs demandes n'a pas pu etre reellement
- * selectionne, plutot que de continuer en silence.
+ * Source d'acquisition / Categorie : confirme par l'utilisateur ABSENTES
+ * de ce petit formulaire rapide (verifie aussi par capture d'ecran reelle,
+ * section "Général" puis "Facturation" - aucune trace de ces deux champs)
+ * - disponibles seulement sur la fiche complete du client, via l'ecran
+ * "Clients" → "Modifier" (voir renseignerSourceEtCategorieSurFiche, appele
+ * en etape separee APRES la creation du client et de l'evenement).
  *
  * Echec reel sur la confirmation : le texte "enregistré" (sans portee)
  * pouvait deja etre present ailleurs sur la page (aide/texte statique)
@@ -345,25 +344,6 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.adresse) await remplirApresLibelle(page, /ligne d'adresse 1/i, demande.adresse);
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
-  if (demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]) {
-    const ok = await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
-    if (!ok) {
-      const diagnostic = await capturerDiagnostic(page);
-      throw new SynecEcritureError(
-        `Le champ "Source d'acquisition" n'a pas pu être renseigné (valeur demandée : "${LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]}"). État final : ${diagnostic}`
-      );
-    }
-  }
-  if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
-    const ok = await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => false);
-    if (!ok) {
-      const diagnostic = await capturerDiagnostic(page);
-      throw new SynecEcritureError(
-        `Le champ "Catégorie" n'a pas pu être renseigné (valeur demandée : "${LIBELLE_CATEGORIE_SYNEC[demande.categorie]}"). État final : ${diagnostic}`
-      );
-    }
-  }
-
   // Echec reel decisif : un essai rate ("0 bouton trouve") montrait
   // pourtant, sur la capture de diagnostic prise au meme instant, le
   // bouton "Enregistrer et fermer" bel et bien visible et intact. Cause
@@ -655,6 +635,98 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   }
 }
 
+/**
+ * Atteint l'écran "Clients" (même chemin que "Planning" : menu ☰ →
+ * Facturation → Clients, voir allerAuPlanning pour le parallèle).
+ */
+async function allerAuxClients(page: import("playwright").Page): Promise<void> {
+  const dejaSurClients = async () =>
+    page
+      .getByText(/^nouveau client$/i)
+      .first()
+      .waitFor({ state: "visible", timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+
+  if (await dejaSurClients()) return;
+
+  const { etapes, diagnosticApresMenu, candidats } = await ouvrirMenuFacturation(page);
+  etapes.push(`clients:${await cliquerSiVisible(page, /^clients$/i)}`);
+
+  await page.waitForLoadState("networkidle");
+  if (await dejaSurClients()) return;
+
+  const diagnostic = await capturerDiagnostic(page);
+  throw new SynecEcritureError(
+    `Écran "Clients" introuvable (étapes : ${etapes.join(", ")}).` +
+      (candidats ? ` ${candidats}` : "") +
+      (diagnosticApresMenu ? ` Juste après le clic sur le menu : ${diagnosticApresMenu}` : "") +
+      ` État final : ${diagnostic}`
+  );
+}
+
+/**
+ * Renseigne Source d'acquisition / Catégorie sur la fiche COMPLÈTE du
+ * client - confirmé absentes du petit formulaire de création rapide
+ * (confirmé par l'utilisateur, et par capture d'écran réelle qui montre
+ * tout le formulaire sans ces deux champs) : navigue vers l'écran
+ * "Clients", rouvre la fiche du client qu'on vient de créer/réutiliser,
+ * clique "Modifier", renseigne les deux champs puis enregistre.
+ *
+ * Étape séparée et NON bloquante (appelée après la création réussie du
+ * client et de l'événement, jamais avant) : ce chemin n'a jamais été
+ * automatisé avant (contrairement au reste de ce fichier), donc plus
+ * fragile par nature - un échec ici ne doit jamais remettre en cause le
+ * client+événement déjà créés avec succès. Le résultat (ok / quoi a
+ * échoué) est reporté dans le journal plutôt que silencieusement perdu.
+ */
+async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
+  await allerAuxClients(page);
+
+  const champRecherche = page.getByPlaceholder(/recherche/i).first();
+  if (await champRecherche.isVisible().catch(() => false)) {
+    await champRecherche.fill(demande.nom);
+    await page.waitForTimeout(800);
+  }
+
+  const ligneClient = page.getByText(demande.nom, { exact: false }).first();
+  const trouve = await ligneClient
+    .waitFor({ state: "visible", timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!trouve) return "fiche client introuvable depuis l'écran Clients";
+  await ligneClient.click();
+
+  const boutonModifier = page.getByText(/^modifier$/i).first();
+  const modifierVisible = await boutonModifier
+    .waitFor({ state: "visible", timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!modifierVisible) return `bouton "Modifier" introuvable sur la fiche client`;
+  await boutonModifier.click();
+
+  let sourceOk = true;
+  let categorieOk = true;
+  if (demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]) {
+    sourceOk = await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
+  }
+  if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
+    categorieOk = await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => false);
+  }
+
+  await page
+    .getByText(/enregistrer et fermer/i)
+    .first()
+    .click({ force: true, timeout: 6000 })
+    .catch(() => {});
+
+  if (sourceOk && categorieOk) return "ok";
+  const details: string[] = [];
+  if (!sourceOk) details.push("source d'acquisition non confirmée");
+  if (!categorieOk) details.push("catégorie non confirmée");
+  return details.join(", ");
+}
+
 export interface ResultatEnvoiSynec {
   clientReutilise: boolean;
 }
@@ -714,11 +786,21 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
 
     await remplirEvenement(page, demande);
 
+    // Non bloquant (voir renseignerSourceEtCategorieSurFiche) : seulement
+    // si demande, et un echec ici ne doit jamais faire echouer tout
+    // l'envoi alors que le client et l'evenement sont deja bien crees.
+    let noteSourceCategorie = "";
+    if (demande.sourceAcquisition || demande.categorie) {
+      noteSourceCategorie = await renseignerSourceEtCategorieSurFiche(page, demande).catch((err) => `échec : ${(err as Error).message}`);
+    }
+
     await marquerDemandeInterventionSaisie(prisma, demandeId);
     await logEvenement(prisma, {
       evenement: "synec_ecriture",
       action: `Envoi vers Synec de la demande de ${demande.nom}`,
-      resultat: clientReutilise ? "Client existant réutilisé, événement créé." : "Nouveau client créé, événement créé.",
+      resultat:
+        (clientReutilise ? "Client existant réutilisé, événement créé." : "Nouveau client créé, événement créé.") +
+        (noteSourceCategorie ? ` Source/Catégorie : ${noteSourceCategorie}.` : ""),
     });
 
     return { clientReutilise };
