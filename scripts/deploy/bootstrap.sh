@@ -470,10 +470,14 @@ ${AUTH_BASIC_CONF}
         # le defaut nginx de 60s sur proxy_read_timeout coupait la requete
         # en plein milieu (erreur HTTP 504 cote client, alors que
         # l'automatisation pouvait tres bien reussir juste apres, orpheline
-        # cote serveur). Porte a 180s, sans toucher proxy_connect_timeout
-        # (la bascule rapide sur l'instance de secours reste instantanee).
-        proxy_read_timeout 180s;
-        proxy_send_timeout 180s;
+        # cote serveur). Porte une premiere fois a 180s puis a 300s (la
+        # boucle de fermeture de dialogues residuels dans
+        # ouvrirMenuFacturation peut a elle seule prendre jusqu'a 60s, et
+        # est appelee plusieurs fois dans un seul envoi), sans toucher
+        # proxy_connect_timeout (la bascule rapide sur l'instance de
+        # secours reste instantanee).
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
