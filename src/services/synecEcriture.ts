@@ -501,10 +501,35 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   if (demande.dateSouhaitee) {
     const debut = demande.dateSouhaitee;
     const fin = demande.dateSouhaiteeFin || new Date(debut.getTime() + 60 * 60 * 1000);
-    await remplirApresLibelle(page, /date de début de l'événement/i, formaterDateHeureSynec(debut)).catch(() => {});
+    const texteDebut = formaterDateHeureSynec(debut);
+    const texteFin = formaterDateHeureSynec(fin);
+    const champDebut = page.getByText(/date de début de l'événement/i).first().locator("xpath=following::input[1]").first();
+    const champFin = page.getByText(/date de fin de l'événement/i).first().locator("xpath=following::input[1]").first();
+
+    await remplirApresLibelle(page, /date de début de l'événement/i, texteDebut).catch(() => {});
     await fermerSelecteurDateSiOuvert(page);
-    await remplirApresLibelle(page, /date de fin de l'événement/i, formaterDateHeureSynec(fin)).catch(() => {});
+    await remplirApresLibelle(page, /date de fin de l'événement/i, texteFin).catch(() => {});
     await fermerSelecteurDateSiOuvert(page);
+
+    // Echec reel grave (demande "Weisser") : la date/heure saisie n'etait
+    // PAS celle retrouvee ensuite dans l'evenement cree (celui-ci portait
+    // la date/heure d'AUJOURD'HUI, l'instant de creation - signe que la
+    // saisie n'a pas ete prise en compte par le selecteur Synec), sans
+    // qu'aucune erreur ne soit remontee : un echec entierement silencieux
+    // sur un vrai client. Verification systematique desormais : si la
+    // valeur affichee dans le champ ne correspond pas a ce qu'on vient d'y
+    // saisir, on arrete tout plutot que de laisser l'evenement se creer
+    // avec la mauvaise date sans avertir personne - une capture d'ecran
+    // est alors prise (voir le catch de envoyerDemandeVersSynec), ce qui
+    // permettra enfin de voir precisement ce que contient ce champ.
+    const valeurDebut = await champDebut.inputValue().catch(() => null);
+    const valeurFin = await champFin.inputValue().catch(() => null);
+    if (valeurDebut !== texteDebut || valeurFin !== texteFin) {
+      const diagnostic = await capturerDiagnostic(page);
+      throw new SynecEcritureError(
+        `La date/heure saisie n'a pas été correctement prise en compte (attendu "${texteDebut}" / "${texteFin}", trouvé "${valeurDebut}" / "${valeurFin}"). État final : ${diagnostic}`
+      );
+    }
   }
 
   const champNom = page.getByText(/^nom$/i).last().locator("xpath=following::input[1]").first();
