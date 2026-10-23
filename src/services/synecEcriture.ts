@@ -512,12 +512,27 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
     );
   }
 
-  const formulaireFerme = await page
-    .getByText(/création d'un nouvel événement/i)
-    .first()
-    .waitFor({ state: "hidden", timeout: 10000 })
-    .then(() => true)
-    .catch(() => false);
+  // Echec reel (test "TEST-CLAUDE2") : ce seul signal (le titre du dialogue
+  // devient "hidden") a depasse son delai de 10s, alors que la capture de
+  // diagnostic prise juste apres montrait deja l'ecran Planning propre
+  // (l'enregistrement avait donc bel et bien reussi, juste plus lentement
+  // que prevu) - delai elargi, et second signal en parallele (retour
+  // visible sur Planning, meme reperes que dejaSurPlanning dans
+  // allerAuPlanning) plutot qu'un seul.
+  const formulaireFerme = await Promise.all([
+    page
+      .getByText(/création d'un nouvel événement/i)
+      .first()
+      .waitFor({ state: "hidden", timeout: 25000 })
+      .then(() => true)
+      .catch(() => false),
+    page
+      .getByText(/calendrier visuel/i)
+      .first()
+      .waitFor({ state: "visible", timeout: 25000 })
+      .then(() => true)
+      .catch(() => false),
+  ]).then((resultats) => resultats.some(Boolean));
   if (!formulaireFerme) {
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`L'événement ne semble pas enregistré. État final : ${diagnostic}`);
