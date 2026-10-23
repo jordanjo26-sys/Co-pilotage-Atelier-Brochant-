@@ -112,33 +112,33 @@ async function remplirApresLibelle(page: import("playwright").Page, libelle: Reg
 
 /**
  * Variante de remplirApresLibelle pour les deux champs de date de
- * l'evenement ("Date de début/fin de l'événement", icone horloge) : un
- * .fill() classique n'y laisse jamais la valeur saisie (confirme par
- * capture d'ecran reelle, test "TEST-CLAUDE3" - le champ affichait
- * l'heure ACTUELLE apres saisie, jamais celle tapee), signe d'un widget
- * gere en JS qui ignore un simple changement de value() sans les
- * evenements qu'il ecoute reellement. Passe par le vrai setter natif de
- * <input> (contourne un setter intercepte par le framework de Synec, qui
- * ferait sinon perdre la valeur au prochain rendu) puis declenche
- * explicitement "input" ET "change" - exactement ce qu'une vraie saisie
- * clavier declenche, contrairement a une affectation .value directe.
+ * l'evenement ("Date de début/fin de l'événement", icone horloge).
+ *
+ * Deux echecs reels successifs, confirmes par capture d'ecran reelle a
+ * chaque fois (le champ affiche systematiquement l'heure ACTUELLE, jamais
+ * celle saisie) :
+ *   1. .fill() classique (change .value directement, sans evenements
+ *      clavier reels).
+ *   2. Setter natif + evenements "input"/"change" declenches
+ *      manuellement (contourne un setter intercepte par un framework).
+ * Les deux echouent IDENTIQUEMENT (meme symptome exact) : signe que ce
+ * champ n'ecoute ni l'un ni l'autre, et n'est mis a jour QUE par de
+ * vraies frappes clavier sequentielles (keydown/keyup reels, pas un
+ * "input"/"change" synthetique). Vide le champ (selection totale puis
+ * Backspace, le `.fill("")` ayant le meme risque d'echec que le premier
+ * essai) puis tape caractere par caractere (pressSequentially, comme un
+ * vrai clavier), et sort du champ par Tab pour declencher une eventuelle
+ * validation au blur.
  */
 async function forcerChampDateApresLibelle(page: import("playwright").Page, libelle: RegExp, valeur: string): Promise<void> {
   const label = page.getByText(libelle).first();
   await label.waitFor({ state: "visible", timeout: 5000 });
   const champ = label.locator("xpath=following::input[1]").first();
-  // Code evalue cote navigateur (pas dans ce process Node, pas de lib DOM
-  // dans tsconfig) : chaine plutot que fonction TypeScript, meme pattern
-  // que seConnecter dans synecSync.ts.
-  await champ.evaluate(
-    `(el, v) => {
-      const descripteur = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
-      descripteur && descripteur.set && descripteur.set.call(el, v);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    }`,
-    valeur
-  );
+  await champ.click();
+  await champ.press("Control+A");
+  await champ.press("Backspace");
+  await champ.pressSequentially(valeur, { delay: 20 });
+  await champ.press("Tab");
 }
 
 /**
