@@ -258,24 +258,36 @@ export async function ouvrirMenuFacturation(page: import("playwright").Page): Pr
 
     // Echec reel (synecEcriture.ts, creation de client puis d'evenement) :
     // un dialogue ("Création d'un client" OU "Création d'un nouvel
-    // événement") peut se rouvrir tout seul cote Synec quelques secondes
-    // apres avoir ete ferme (cause non identifiee - les deux dialogues sont
-    // concernes, pas un seul), et intercepte alors ce clic en boucle
-    // jusqu'au timeout. Sans effet pour la synchronisation en lecture (ces
-    // dialogues n'existent pas sur ce chemin) : fermeture defensive des
-    // deux, inoffensive si rien n'est ouvert.
-    for (const motif of [/création d'un client/i, /création d'un nouvel événement/i]) {
-      const dialogueResiduel = page.getByText(motif).first();
-      if (await dialogueResiduel.isVisible().catch(() => false)) {
-        await dialogueResiduel
-          .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
-          .click({ timeout: 5000 })
-          .catch(() => page.keyboard.press("Escape"));
-        await dialogueResiduel.waitFor({ state: "hidden", timeout: 10000 }).catch(() => {});
+    // événement") peut se rouvrir tout seul cote Synec plusieurs fois de
+    // suite (cause non identifiee), y compris pendant les tentatives de
+    // clic elles-memes - une fermeture unique juste avant le clic ne
+    // suffisait donc pas toujours (confirme par un echec reel persistant
+    // malgre elle). Boucle fermeture+clic jusqu'a 60s, plutot qu'un essai
+    // unique. Sans effet pour la synchronisation en lecture (ces dialogues
+    // n'existent pas sur ce chemin).
+    const fermerDialoguesResiduels = async (): Promise<void> => {
+      for (const motif of [/création d'un client/i, /création d'un nouvel événement/i]) {
+        const dialogueResiduel = page.getByText(motif).first();
+        if (await dialogueResiduel.isVisible().catch(() => false)) {
+          await dialogueResiduel
+            .locator("xpath=following::*[self::button or self::a or @role='button'][1]")
+            .click({ timeout: 5000 })
+            .catch(() => page.keyboard.press("Escape"));
+          await dialogueResiduel.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+        }
       }
-    }
+    };
 
-    await bouton.click();
+    const debutTentatives = Date.now();
+    let clique = false;
+    while (!clique && Date.now() - debutTentatives < 60000) {
+      await fermerDialoguesResiduels();
+      clique = await bouton
+        .click({ timeout: 3000 })
+        .then(() => true)
+        .catch(() => false);
+    }
+    if (!clique) await bouton.click();
     await page.waitForTimeout(500);
     return page
       .getByText(/^facturation$/i)
