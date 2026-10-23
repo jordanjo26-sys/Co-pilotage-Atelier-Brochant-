@@ -698,12 +698,21 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
     await page.waitForTimeout(800);
   }
 
+  // Echec reel (demandes "Marzin", "TEST-CLAUDE7") : ce point d'echec
+  // renvoyait simplement une chaine plutot que de lever une erreur, donc
+  // aucune capture d'ecran n'etait prise (le mecanisme de capture, au
+  // point d'appel, ne reagit qu'aux erreurs levees) - impossible de
+  // diagnostiquer avec une preuve reelle. Leve desormais une erreur ici
+  // comme partout ailleurs dans ce fichier.
   const ligneClient = page.getByText(demande.nom, { exact: false }).first();
   const trouve = await ligneClient
     .waitFor({ state: "visible", timeout: 5000 })
     .then(() => true)
     .catch(() => false);
-  if (!trouve) return "fiche client introuvable depuis l'écran Clients";
+  if (!trouve) {
+    const diagnostic = await capturerDiagnostic(page);
+    throw new SynecEcritureError(`Fiche client introuvable depuis l'écran Clients. État final : ${diagnostic}`);
+  }
   await ligneClient.click();
 
   const boutonModifier = page.getByText(/^modifier$/i).first();
@@ -711,7 +720,10 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
     .waitFor({ state: "visible", timeout: 5000 })
     .then(() => true)
     .catch(() => false);
-  if (!modifierVisible) return `bouton "Modifier" introuvable sur la fiche client`;
+  if (!modifierVisible) {
+    const diagnostic = await capturerDiagnostic(page);
+    throw new SynecEcritureError(`Bouton "Modifier" introuvable sur la fiche client. État final : ${diagnostic}`);
+  }
   await boutonModifier.click();
 
   let sourceOk = true;
