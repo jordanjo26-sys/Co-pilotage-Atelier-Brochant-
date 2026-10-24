@@ -39,25 +39,48 @@ interface EntreeJournalReseau {
 }
 const journalReseauParPage = new WeakMap<import("playwright").Page, EntreeJournalReseau[]>();
 
+// Reponse brute (HTML) de l'appel qui charge le contenu du dialogue
+// "Création d'un client" en mode "on_the_fly" - voir
+// resumerCorpsCreationClient. Stockee a part (pas dans le journal
+// general) car potentiellement volumineuse.
+const corpsCreationClientParPage = new WeakMap<import("playwright").Page, string>();
+
 function demarrerJournalReseau(page: import("playwright").Page): void {
   const journal: EntreeJournalReseau[] = [];
   journalReseauParPage.set(page, journal);
   page.on("requestfinished", (requete) => {
     requete
       .response()
-      .then((reponse) => {
+      .then(async (reponse) => {
         journal.push({
           url: requete.url(),
           method: requete.method(),
           status: reponse?.status() ?? null,
           resourceType: requete.resourceType(),
         });
+        // Capture le corps de LA requete precise qui charge le formulaire
+        // "Création d'un client" en mode rapide ("on_the_fly") depuis
+        // l'evenement - preuve directe (pas une deduction) que le serveur
+        // renvoie ou non "Source d'acquisition" dans son HTML a ce moment.
+        if (reponse && /\/billing_client\/.*\/create\?/.test(requete.url()) && /on_the_fly=true/.test(requete.url())) {
+          const corps = await reponse.text().catch(() => "");
+          corpsCreationClientParPage.set(page, corps);
+        }
       })
       .catch(() => {});
   });
   page.on("requestfailed", (requete) => {
     journal.push({ url: requete.url(), method: requete.method(), status: null, resourceType: requete.resourceType() });
   });
+}
+
+function resumerCorpsCreationClient(page: import("playwright").Page): string {
+  const corps = corpsCreationClientParPage.get(page);
+  if (corps === undefined) return "requête on_the_fly non capturée (pas encore survenue ou URL différente de celle attendue)";
+  const contientSource = /source d'acquisition/i.test(corps);
+  const contientCategorie = /catégorie|corps de métier/i.test(corps);
+  const contientOccupation = /occupation du logement/i.test(corps);
+  return `longueur du HTML = ${corps.length} caractères. Contient "Source d'acquisition" = ${contientSource}. Contient "Catégorie"/"corps de métier" = ${contientCategorie}. Contient "Occupation du logement" = ${contientOccupation}.`;
 }
 
 function resumerJournalReseau(page: import("playwright").Page): string {
@@ -939,9 +962,10 @@ async function remplirChampSourceAcquisition(
   const nombreCandidats = await page.getByText(/source d'acquisition/i).count().catch(() => -1);
   const diagnostic = await capturerDiagnostic(page).catch(() => "(diagnostic impossible)");
   const reseau = resumerJournalReseau(page);
+  const corpsHtml = resumerCorpsCreationClient(page);
   return {
     ok,
-    diagnosticPrecoce: `candidats trouvés (visibles ou non) = ${nombreCandidats}. ${diagnostic}. Réseau : ${reseau}`,
+    diagnosticPrecoce: `candidats trouvés (visibles ou non) = ${nombreCandidats}. ${diagnostic}. Réseau : ${reseau}. Corps HTML on_the_fly : ${corpsHtml}`,
   };
 }
 
