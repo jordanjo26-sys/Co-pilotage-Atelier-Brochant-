@@ -859,9 +859,44 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
   // page) : si un des quatre champs n'a pas pu etre confirme, on capture
   // une vraie capture d'ecran de l'etat du formulaire a cet instant precis
   // plutot que de deviner depuis le texte seul (meme discipline que pour
-  // le Statut et la ligne client plus haut dans ce fichier).
+  // le Statut et la ligne client plus haut dans ce fichier). On cherche
+  // aussi chaque libelle manquant dans TOUT le texte du document (pas les
+  // 400 premiers caracteres de capturerDiagnostic) : s'il existe ailleurs
+  // (section repliee, autre onglet, libelle legerement different), le
+  // contexte autour permet de comprendre sans nouvel aller-retour.
+  let diagnosticChamps = "";
   if (!sourceOk || !categorieOk || !occupationOk || !natureBienOk) {
     await page.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
+    const manquants: Array<[boolean, string]> = [
+      [!sourceOk, "source d'acquisition"],
+      [!categorieOk, "catégorie"],
+      [!occupationOk, "occupant du logement"],
+      [!natureBienOk, "nature du bien"],
+    ];
+    const recherches = await Promise.all(
+      manquants
+        .filter(([manquant]) => manquant)
+        .map(async ([, terme]) => {
+          // page.evaluate : pas de lib DOM dans tsconfig (document non
+          // type-checkable), et le piege deja rencontre (chaine passee a
+          // .evaluate() pas toujours invoquee) impose l'IIFE string avec
+          // la valeur injectee directement (termes fixes, pas de donnee
+          // utilisateur - JSON.stringify suffit a echapper proprement).
+          const contexte = await page
+            .evaluate(
+              `(() => {
+                var texte = document.body.innerText || "";
+                var t = ${JSON.stringify(terme)};
+                var indexTrouve = texte.toLowerCase().indexOf(t.toLowerCase());
+                if (indexTrouve === -1) return null;
+                return texte.slice(Math.max(0, indexTrouve - 20), indexTrouve + 80).split(/\\s+/).join(" ");
+              })()`
+            )
+            .catch(() => undefined);
+          return `${terme} : ${contexte === null ? "absent du texte du document" : contexte === undefined ? "(recherche impossible)" : `trouvé ailleurs → "${contexte}"`}`;
+        })
+    );
+    diagnosticChamps = ` Recherche dans le document : ${recherches.join(" | ")}.`;
   }
 
   await page
@@ -876,7 +911,7 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
   if (!categorieOk) details.push("catégorie non confirmée");
   if (!occupationOk) details.push("occupant du logement non confirmé");
   if (!natureBienOk) details.push("nature du bien non confirmée");
-  return details.join(", ");
+  return details.join(", ") + diagnosticChamps;
 }
 
 export interface ResultatEnvoiSynec {
