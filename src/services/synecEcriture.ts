@@ -809,12 +809,27 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
   }
   await ligneClient.click();
 
-  const boutonModifier = page.getByText(/^modifier$/i).first();
-  const modifierVisible = await boutonModifier
-    .waitFor({ state: "visible", timeout: 5000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!modifierVisible) {
+  // Echec reel (demande "TEST-CLAUDE10") : la capture d'ecran a montre la
+  // fiche client correctement ouverte avec le bouton "Modifier" bien
+  // visible, pourtant non trouve en 5s - meme famille de bug que la ligne
+  // client juste au-dessus (candidat fantome non visible + regex ancree
+  // fragile face a l'icone accolee au texte). Meme fix : on scrute tous
+  // les candidats visibles, en substring, avec un delai elargi pour
+  // laisser la fiche finir de se charger juste apres la navigation.
+  let boutonModifier: import("playwright").Locator | null = null;
+  const candidatsModifier = page.getByText(/modifier/i);
+  for (let essai = 0; essai < 10 && !boutonModifier; essai++) {
+    const nombre = await candidatsModifier.count().catch(() => 0);
+    for (let i = 0; i < nombre; i++) {
+      const candidat = candidatsModifier.nth(i);
+      if (await candidat.isVisible().catch(() => false)) {
+        boutonModifier = candidat;
+        break;
+      }
+    }
+    if (!boutonModifier) await page.waitForTimeout(1000);
+  }
+  if (!boutonModifier) {
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`Bouton "Modifier" introuvable sur la fiche client. État final : ${diagnostic}`);
   }
