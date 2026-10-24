@@ -1,6 +1,7 @@
 import { GoogleAdsApi, Customer, fromMicros } from "google-ads-api";
 import { PrismaClient } from "@prisma/client";
 import { dechiffrer } from "./cipher";
+import { buildOAuthClient, ADS_SCOPE } from "./googleAuth";
 
 /**
  * Acces en lecture seule aux campagnes Google Ads (demande explicite de
@@ -42,6 +43,39 @@ export function diagnosticConfigurationAds(): string {
   const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, "") ?? "(absent)";
   const tokenLongueur = process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.length ?? 0;
   return `customer_id="${customerId}", login_customer_id (brut)="${loginCustomerIdBrut}", login_customer_id (envoyé)="${loginCustomerId === customerId ? "(omis, identique au customer_id)" : loginCustomerId}", longueur du jeton développeur=${tokenLongueur}`;
+}
+
+/**
+ * Diagnostic complementaire : interroge DIRECTEMENT Google (endpoint
+ * tokeninfo), independamment de la librairie google-ads-api, pour voir les
+ * scopes REELLEMENT accordes sur le jeton d'acces genere a partir du
+ * refresh_token stocke. Objectif : confirmer sans deviner que le scope
+ * "adwords" est bien present sur le jeton utilise par le serveur deploye
+ * (toutes les autres pistes - comptes, acces Basic, acces utilisateur -
+ * etant deja verifiees correctes sans que l'erreur authorization_error:2
+ * ne disparaisse).
+ */
+export async function diagnosticScopesJeton(prisma: PrismaClient): Promise<string> {
+  const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
+  if (!connexion) return "aucune connexion Google active";
+
+  const client = buildOAuthClient();
+  client.setCredentials({ refresh_token: dechiffrer(connexion.refreshTokenChiffre) });
+
+  try {
+    const { token } = await client.getAccessToken();
+    if (!token) return "echec : getAccessToken() n'a retourne aucun jeton";
+
+    const reponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
+    const corps = (await reponse.json()) as { scope?: string; email?: string; azp?: string; expires_in?: number };
+    if (!reponse.ok) return `tokeninfo a echoue (${reponse.status}) : ${JSON.stringify(corps)}`;
+
+    const scopes = typeof corps.scope === "string" ? corps.scope.split(" ") : [];
+    const possedeAdwords = scopes.includes(ADS_SCOPE);
+    return `scope "adwords" present=${possedeAdwords}, compte=${corps.email ?? corps.azp ?? "?"}, expire_in=${corps.expires_in ?? "?"}s, tous les scopes="${scopes.join(", ")}"`;
+  } catch (err) {
+    return `echec de la verification tokeninfo : ${err instanceof Error ? err.message : String(err)}`;
+  }
 }
 
 /**
