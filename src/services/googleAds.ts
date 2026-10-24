@@ -79,6 +79,50 @@ export async function diagnosticScopesJeton(prisma: PrismaClient): Promise<strin
 }
 
 /**
+ * Diagnostic complementaire : interroge le compte GESTIONNAIRE sur SA
+ * PROPRE vue de ses comptes clients (customer_client), sans
+ * login_customer_id (on s'authentifie directement comme le gestionnaire
+ * lui-meme). Objectif : lire le statut REEL du lien gestionnaire-client
+ * (ACTIVE/PENDING/REFUSED/CANCELED), qui est une notion distincte des
+ * acces utilisateur individuels deja verifies - et confirmer au passage
+ * que le jeton a bien acces au compte gestionnaire lui-meme.
+ */
+export async function diagnosticLienGestionnaire(prisma: PrismaClient): Promise<string> {
+  const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, "");
+  if (!loginCustomerId) return "GOOGLE_ADS_LOGIN_CUSTOMER_ID absent";
+
+  const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
+  if (!connexion) return "aucune connexion Google active";
+
+  const client = new GoogleAdsApi({
+    client_id: process.env.GOOGLE_CLIENT_ID!,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+    developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+  });
+
+  const gestionnaire = client.Customer({
+    customer_id: loginCustomerId,
+    refresh_token: dechiffrer(connexion.refreshTokenChiffre),
+  });
+
+  try {
+    const lignes = await gestionnaire.query(`
+      SELECT customer_client.client_customer, customer_client.descriptive_name, customer_client.status, customer_client.manager, customer_client.level
+      FROM customer_client
+    `);
+    if (lignes.length === 0) return "requete reussie mais aucun compte client retourne (liste vide)";
+    return lignes
+      .map((l) => {
+        const cc = l.customer_client;
+        return `${cc?.client_customer ?? "?"} "${cc?.descriptive_name ?? "?"}" statut=${cc?.status ?? "?"} gestionnaire=${cc?.manager ?? "?"} niveau=${cc?.level ?? "?"}`;
+      })
+      .join(" | ");
+  } catch (err) {
+    return `echec de la requete sur le compte gestionnaire lui-meme : ${messageErreurGoogleAds(err)}`;
+  }
+}
+
+/**
  * Construit un client Google Ads authentifie a partir de la connexion
  * Google active (meme principe que getGmailClient). Retourne null si Ads
  * n'est pas configure ou si aucune boite Google n'est connectee - jamais

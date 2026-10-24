@@ -11,7 +11,7 @@ import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { enregistrerDecision, listerDecisions, TypeDecision } from "./decisions";
 import { logEvenement } from "./journalService";
 import { verifierMailsImportants } from "./mailsImportants";
-import { listerCampagnesAds, messageErreurGoogleAds, diagnosticConfigurationAds, diagnosticScopesJeton } from "./googleAds";
+import { listerCampagnesAds, messageErreurGoogleAds, diagnosticConfigurationAds, diagnosticScopesJeton, diagnosticLienGestionnaire } from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
 
 /**
@@ -332,10 +332,11 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         // une fois l'acces Google valide (vu avec l'utilisateur en
         // mettant en place l'acces Explorateur).
         const scopesJeton = await diagnosticScopesJeton(prisma).catch((e) => `diagnostic scopes en echec : ${e instanceof Error ? e.message : String(e)}`);
+        const lienGestionnaire = await diagnosticLienGestionnaire(prisma).catch((e) => `diagnostic lien en echec : ${e instanceof Error ? e.message : String(e)}`);
         await logEvenement(prisma, {
           evenement: "google_ads_api_erreur",
           action: "obtenir_campagnes_ads : appel API live",
-          resultat: `Repli sur import manuel : ${messageErreurGoogleAds(err)}. Configuration utilisée : ${diagnosticConfigurationAds()}. Scopes du jeton : ${scopesJeton}.`,
+          resultat: `Repli sur import manuel : ${messageErreurGoogleAds(err)}. Configuration utilisée : ${diagnosticConfigurationAds()}. Scopes du jeton : ${scopesJeton}. Lien gestionnaire→clients : ${lienGestionnaire}.`,
         }).catch(() => {});
       }
       const importe = await dernieresCampagnesImportees(prisma);
