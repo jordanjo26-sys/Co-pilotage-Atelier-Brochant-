@@ -30,6 +30,21 @@ export function googleAdsEstConfigure(): boolean {
 }
 
 /**
+ * Diagnostic (echec reel persistant, "authorization_error":2, identique
+ * avant et apres correction des numeros de compte + octroi d'acces +
+ * approbation de l'acces Basic du jeton developpeur) : expose les valeurs
+ * REELLEMENT utilisees par le serveur deploye, pour confirmer sans deviner
+ * qu'elles correspondent bien a ce qui a ete configure cote GitHub.
+ */
+export function diagnosticConfigurationAds(): string {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID?.replace(/-/g, "") ?? "(absent)";
+  const loginCustomerIdBrut = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? "(absent)";
+  const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, "") ?? "(absent)";
+  const tokenLongueur = process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.length ?? 0;
+  return `customer_id="${customerId}", login_customer_id (brut)="${loginCustomerIdBrut}", login_customer_id (envoyé)="${loginCustomerId === customerId ? "(omis, identique au customer_id)" : loginCustomerId}", longueur du jeton développeur=${tokenLongueur}`;
+}
+
+/**
  * Construit un client Google Ads authentifie a partir de la connexion
  * Google active (meme principe que getGmailClient). Retourne null si Ads
  * n'est pas configure ou si aucune boite Google n'est connectee - jamais
