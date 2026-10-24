@@ -553,6 +553,54 @@ async function creerClientDepuisFormulaireEvenement(page: import("playwright").P
   return remplirEtEnregistrerFicheClient(page, demande);
 }
 
+/**
+ * Cree le client via l'écran complet "Clients → Nouveau client" plutôt que
+ * le raccourci "+ Créer un nouveau client" intégré à l'événement (voir
+ * creerClientDepuisFormulaireEvenement ci-dessus).
+ *
+ * Preuve directe et définitive (TEST-CLAUDE22, capture du corps HTML brut
+ * renvoyé par le serveur Synec pour la requête du raccourci intégré,
+ * paramètre "on_the_fly=true") : ce raccourci charge un GABARIT SERVEUR
+ * RÉDUIT qui ne contient tout simplement jamais "Source d'acquisition" ni
+ * "Catégorie" dans son HTML (0 occurrence sur 45759 caractères), alors
+ * qu'il contient bien "Occupation du logement" - ce n'est donc ni un bug
+ * d'automatisation ni un problème de timing/JS, mais une différence de
+ * gabarit côté serveur Synec lui-même entre les deux chemins de création.
+ * Seul l'écran complet "Clients → Nouveau client" (confirmé par capture
+ * d'écran réelle de l'utilisateur) contient ces quatre champs.
+ *
+ * Utilisée UNIQUEMENT quand ces champs sont effectivement demandés (sinon
+ * le raccourci intégré, plus simple et déjà fiable, reste utilisé) - voir
+ * l'appelant dans envoyerDemandeVersSynec.
+ */
+async function creerClientDepuisEcranClients(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
+  await allerAuxClients(page);
+
+  // Meme famille de bug que les autres boutons de cette fiche : scrute
+  // tous les candidats visibles plutot qu'un .first() fragile.
+  let boutonNouveauClient: import("playwright").Locator | null = null;
+  const candidatsBouton = page.getByText(/nouveau client/i);
+  for (let essai = 0; essai < 10 && !boutonNouveauClient; essai++) {
+    const nombre = await candidatsBouton.count().catch(() => 0);
+    for (let i = 0; i < nombre; i++) {
+      const candidat = candidatsBouton.nth(i);
+      if (await candidat.isVisible().catch(() => false)) {
+        boutonNouveauClient = candidat;
+        break;
+      }
+    }
+    if (!boutonNouveauClient) await page.waitForTimeout(1000);
+  }
+  if (!boutonNouveauClient) {
+    const diagnostic = await capturerDiagnostic(page);
+    throw new SynecEcritureError(`Bouton "+ Nouveau client" introuvable sur l'écran Clients. État final : ${diagnostic}`);
+  }
+  await boutonNouveauClient.click();
+  await page.waitForLoadState("networkidle").catch(() => {});
+
+  return remplirEtEnregistrerFicheClient(page, demande);
+}
+
 function construireDescriptionEvenement(demande: DemandeIntervention): string {
   const lignes: string[] = [];
   if (demande.motif) lignes.push(demande.motif);
@@ -1184,23 +1232,6 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     await seConnecter(page, identifiant, motDePasse);
 
-    // Hypothese testee suite a l'echec persistant et systematique de
-    // "Source d'acquisition"/"Catégorie" (TEST-CLAUDE14 a 18, y compris
-    // apres avoir corrige le ciblage du bouton "+ Créer un nouveau client"
-    // et ajoute un diagnostic precoce confirmant 0 candidat dans le DOM) :
-    // a la difference d'"Occupation du logement"/"Nature du bien" (options
-    // generiques, fonctionnent de facon fiable), ces deux champs utilisent
-    // des listes PERSONNALISEES propres a ce compte (Google/Pages
-    // jaunes/Maps, Plomberie/Serrurerie/etc.) - probablement chargees
-    // paresseusement, seulement une fois l'ecran "Clients" visite au moins
-    // une fois dans la session. Notre parcours ne passait jamais par cet
-    // ecran avant d'ouvrir "Création d'un client" via le raccourci integre
-    // a l'evenement. Visite "Clients" une fois en debut de session pour
-    // "rechauffer" cette liste avant de creer le client.
-    if (demande.sourceAcquisition || demande.categorie) {
-      await allerAuxClients(page).catch(() => {});
-    }
-
     await allerAuPlanning(page);
     await ouvrirNouvelEvenement(page);
 
@@ -1208,16 +1239,20 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     let noteSourceCategorie = "";
 
     if (!clientReutilise) {
-      // Pas de correspondance exacte : cree le client directement depuis
-      // cette meme fenetre, via son raccourci integre "+ Créer un nouveau
-      // client" (voir creerClientDepuisFormulaireEvenement) - le chemin
-      // reellement emprunte par l'utilisateur. L'ancien chemin (fermer
-      // cette fenetre, detour par l'ecran "Clients", rouvrir un evenement)
-      // provoquait un dialogue fantome recidivant jamais rencontre par
-      // l'utilisateur en usage normal. Source d'acquisition / Catégorie /
-      // Occupation du logement / Nature du bien sont desormais renseignees
-      // directement dans ce meme formulaire (voir remplirEtEnregistrerFicheClient).
-      noteSourceCategorie = await creerClientDepuisFormulaireEvenement(page, demande);
+      // Preuve directe et definitive (TEST-CLAUDE22, corps HTML brut de la
+      // requete serveur capture) : le raccourci integre "+ Créer un
+      // nouveau client" (creerClientDepuisFormulaireEvenement) charge un
+      // gabarit SERVEUR reduit qui ne contient jamais "Source
+      // d'acquisition" ni "Catégorie" - uniquement "Occupation du
+      // logement"/"Nature du bien". Quand ces deux champs sont demandes,
+      // on passe donc par l'ecran complet "Clients → Nouveau client"
+      // (creerClientDepuisEcranClients), qui les contient reellement
+      // (confirme par capture d'ecran de l'utilisateur). Sinon, le
+      // raccourci integre reste utilise (plus simple, deja fiable).
+      const besoinSourceCategorie = demande.sourceAcquisition || demande.categorie;
+      noteSourceCategorie = besoinSourceCategorie
+        ? await creerClientDepuisEcranClients(page, demande)
+        : await creerClientDepuisFormulaireEvenement(page, demande);
 
       // Echec reel : une fois le client cree et enregistre, l'enchainement
       // ramene sur l'ecran general du Planning plutot que de rester dans
