@@ -62,14 +62,17 @@ function demarrerJournalReseau(page: import("playwright").Page): void {
 
 function resumerJournalReseau(page: import("playwright").Page): string {
   const journal = journalReseauParPage.get(page) ?? [];
-  const nonAssets = journal.filter((e) => !["image", "stylesheet", "font", "media"].includes(e.resourceType));
-  const motsClefs = /source|acquisition|categor|metier|m%C3%A9tier/i;
-  const pertinent = nonAssets.filter((e) => motsClefs.test(e.url));
-  const choisi = pertinent.length > 0 ? pertinent.slice(-20) : nonAssets.slice(-20);
-  const etiquette =
-    pertinent.length > 0
-      ? `${pertinent.length} requête(s) pertinente(s) (mot-clé source/catégorie)`
-      : `aucune requête avec mot-clé source/catégorie parmi ${nonAssets.length} requêtes non-asset - 20 dernières affichées`;
+  // Echec du premier essai (TEST-CLAUDE20) : le filtre par mot-cle
+  // accrochait par coincidence le DOSSIER DE SCRIPTS STATIQUES
+  // "js_sources_..." (fichiers .js ordinaires, tous en 200 - "sources" au
+  // sens code source, rien a voir avec "Source d'acquisition" metier),
+  // masquant tout signal utile. Se concentre desormais sur les requetes
+  // xhr/fetch (les vrais appels de donnees), le seul type de requete ou un
+  // appel API lie a une liste personnalisee au compte pourrait apparaitre.
+  const appelsDonnees = journal.filter((e) => e.resourceType === "xhr" || e.resourceType === "fetch");
+  const choisi = appelsDonnees.slice(-30);
+  const etiquette = `${appelsDonnees.length} requête(s) xhr/fetch au total, ${choisi.length} dernière(s) affichée(s)`;
+  if (choisi.length === 0) return `${etiquette} - aucune requête de données capturée`;
   return `${etiquette} : ${choisi.map((e) => `${e.method} ${e.url} → ${e.status ?? "ÉCHEC"}`).join(" | ")}`;
 }
 
