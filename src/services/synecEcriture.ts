@@ -23,6 +23,57 @@ import {
 } from "./synecSync";
 
 /**
+ * Journal des requetes reseau de la page, pour diagnostiquer "Source
+ * d'acquisition"/"Catégorie" (listes personnalisees au compte, echec
+ * systematique et inexplique malgre plusieurs correctifs deja tentes -
+ * timing, ordre de remplissage, ciblage de bouton, rechauffement de cache)
+ * : si un appel serveur lie au chargement de ces listes echoue (ou n'est
+ * jamais declenche) uniquement en automatisation sans jamais echouer dans
+ * le navigateur reel de l'utilisateur, ce journal doit le reveler.
+ */
+interface EntreeJournalReseau {
+  url: string;
+  method: string;
+  status: number | null;
+  resourceType: string;
+}
+const journalReseauParPage = new WeakMap<import("playwright").Page, EntreeJournalReseau[]>();
+
+function demarrerJournalReseau(page: import("playwright").Page): void {
+  const journal: EntreeJournalReseau[] = [];
+  journalReseauParPage.set(page, journal);
+  page.on("requestfinished", (requete) => {
+    requete
+      .response()
+      .then((reponse) => {
+        journal.push({
+          url: requete.url(),
+          method: requete.method(),
+          status: reponse?.status() ?? null,
+          resourceType: requete.resourceType(),
+        });
+      })
+      .catch(() => {});
+  });
+  page.on("requestfailed", (requete) => {
+    journal.push({ url: requete.url(), method: requete.method(), status: null, resourceType: requete.resourceType() });
+  });
+}
+
+function resumerJournalReseau(page: import("playwright").Page): string {
+  const journal = journalReseauParPage.get(page) ?? [];
+  const nonAssets = journal.filter((e) => !["image", "stylesheet", "font", "media"].includes(e.resourceType));
+  const motsClefs = /source|acquisition|categor|metier|m%C3%A9tier/i;
+  const pertinent = nonAssets.filter((e) => motsClefs.test(e.url));
+  const choisi = pertinent.length > 0 ? pertinent.slice(-20) : nonAssets.slice(-20);
+  const etiquette =
+    pertinent.length > 0
+      ? `${pertinent.length} requête(s) pertinente(s) (mot-clé source/catégorie)`
+      : `aucune requête avec mot-clé source/catégorie parmi ${nonAssets.length} requêtes non-asset - 20 dernières affichées`;
+  return `${etiquette} : ${choisi.map((e) => `${e.method} ${e.url} → ${e.status ?? "ÉCHEC"}`).join(" | ")}`;
+}
+
+/**
  * Écriture automatique dans Synec (client + planning), pendant Synec via
  * navigateur headless - PAS une API, Synec n'en propose aucune (voir
  * synecSync.ts pour le parallèle côté lecture). Construit à partir d'une
@@ -884,7 +935,11 @@ async function remplirChampSourceAcquisition(
   // page a cet instant precis.
   const nombreCandidats = await page.getByText(/source d'acquisition/i).count().catch(() => -1);
   const diagnostic = await capturerDiagnostic(page).catch(() => "(diagnostic impossible)");
-  return { ok, diagnosticPrecoce: `candidats trouvés (visibles ou non) = ${nombreCandidats}. ${diagnostic}` };
+  const reseau = resumerJournalReseau(page);
+  return {
+    ok,
+    diagnosticPrecoce: `candidats trouvés (visibles ou non) = ${nombreCandidats}. ${diagnostic}. Réseau : ${reseau}`,
+  };
 }
 
 /**
@@ -1098,6 +1153,7 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     // comporte pas de la meme facon a une largeur de bureau, confirme en
     // production sur la synchronisation en lecture.
     page = await navigateur.newPage({ viewport: { width: 390, height: 844 } });
+    demarrerJournalReseau(page);
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     await seConnecter(page, identifiant, motDePasse);
 
