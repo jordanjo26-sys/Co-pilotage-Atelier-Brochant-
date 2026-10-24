@@ -536,34 +536,40 @@ async function selectionnerOptionInsensibleCasse(select: import("playwright").Lo
 async function remplirEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<void> {
   // Echec reel signale par l'utilisateur ("il oublie de mettre le statut...
   // sur planifier") : ce .selectOption() "reussissait" sans jamais verifier
-  // que la selection restait bien en place - meme famille de bug que les
-  // dates et Source/Categorie (un succes apparent qui ne se retrouve pas
-  // reellement cote Synec). Verifie desormais la valeur reellement
-  // selectionnee et fait echouer l'envoi si elle ne correspond pas, plutot
-  // que de laisser l'evenement se creer sans statut sans avertir personne.
-  const statut = page.locator("select").filter({ has: page.getByText(/pas de statut/i) }).first();
+  // que la selection restait bien en place. Cause racine trouvee par
+  // diagnostic reel (liste de tous les <select> de la page, demande
+  // "TEST-CLAUDE9") : il existe DEUX <select> strictement identiques
+  // (memes options) sur la page au moment ou le formulaire d'evenement est
+  // ouvert - l'un d'eux, invisible/fantome (tres probablement un residu
+  // d'une autre ligne du planning affichee derriere ce formulaire, qui
+  // n'est pas une vraie fenetre modale - voir le commentaire plus bas sur
+  // l'URL qui ne change jamais), n'a AUCUNE option selectionnee
+  // (selectedIndex indefini), alors que le vrai select du formulaire a
+  // bien "Pas de statut" selectionne. L'ancien selecteur
+  // (`filter({has: getByText("pas de statut")})`) matchait les deux
+  // indifferemment et prenait le premier (`.first()`), tombant a tort sur
+  // le fantome a chaque fois. Cible desormais precisement le select dont
+  // l'option ACTUELLEMENT SELECTIONNEE est "Pas de statut" - le fantome,
+  // sans selection, ne peut jamais correspondre a ce critere.
+  const indexStatut = (await page
+    .evaluate(
+      `(() => Array.from(document.querySelectorAll('select')).findIndex((s) => {
+        const o = s.options[s.selectedIndex];
+        return o && o.text.trim().toLowerCase() === 'pas de statut';
+      }))()`
+    )
+    .catch(() => -1)) as number;
+
+  if (indexStatut === -1) {
+    const diagnostic = await capturerDiagnostic(page);
+    throw new SynecEcritureError(`Menu "Statut" introuvable (aucun <select> n'a "Pas de statut" actuellement sélectionné). État final : ${diagnostic}`);
+  }
+
+  const statut = page.locator("select").nth(indexStatut);
   const statutConfirme = await selectionnerOptionInsensibleCasse(statut, "PLANIFIER").catch(() => null);
   if (!statutConfirme || statutConfirme.trim().toLowerCase() !== "planifier") {
-    // Diagnostic decisif (deux echecs identiques malgre la comparaison
-    // insensible a la casse) : liste TOUS les <select> de la page avec
-    // leurs options reelles, pour arreter de deviner le bon selecteur ou
-    // le bon texte a l'aveugle.
-    // Fonction auto-invoquee (IIFE), pas une simple reference de fonction -
-    // meme pattern que listerCandidatsMenu dans synecSync.ts, le precedent
-    // qui fonctionne deja dans ce projet pour ce genre d'introspection.
-    const tousLesSelects = await page
-      .evaluate(
-        `(() => Array.from(document.querySelectorAll('select')).map((s, i) => ({
-          index: i,
-          selectionne: s.options[s.selectedIndex] ? s.options[s.selectedIndex].text : null,
-          options: Array.from(s.options).map((o) => o.text),
-        })))()`
-      )
-      .catch((err) => `(introspection impossible : ${(err as Error).message})`);
     const diagnostic = await capturerDiagnostic(page);
-    throw new SynecEcritureError(
-      `Le statut n'a pas pu être mis sur "PLANIFIER" (trouvé : "${statutConfirme}"). Tous les <select> de la page : ${JSON.stringify(tousLesSelects)}. État final : ${diagnostic}`
-    );
+    throw new SynecEcritureError(`Le statut n'a pas pu être mis sur "PLANIFIER" (trouvé : "${statutConfirme}"). État final : ${diagnostic}`);
   }
 
   // Date/heure souhaitee par le client (demande explicite : "pour que ca
