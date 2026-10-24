@@ -258,12 +258,28 @@ const LIBELLE_NATURE_BIEN_SYNEC: Record<string, string> = { maison: "Maison", ap
  * ouvre le menu, cherche l'option dont le texte CONTIENT la valeur visee).
  */
 async function remplirMenuApresLibelle(page: import("playwright").Page, libelle: RegExp, texteOption: string): Promise<boolean> {
-  const label = page.getByText(libelle).first();
-  const labelVisible = await label
-    .waitFor({ state: "visible", timeout: 4000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!labelVisible) return false;
+  // Meme famille de bug que la ligne client / bouton Modifier plus haut
+  // dans ce fichier : un .first() avec un seul delai fixe de 4s echoue par
+  // intermittence sur des demandes reelles (TEST-CLAUDE14 : "Source
+  // d'acquisition"/"Catégorie" rapportes absents du texte du document
+  // meme plusieurs secondes plus tard, alors qu'une capture d'ecran reelle
+  // de l'utilisateur montre ces champs bien presents sur ce formulaire) -
+  // probable retard de rendu, pas une absence reelle. On scrute tous les
+  // candidats visibles, en reessayant jusqu'a 12s au lieu d'un seul essai.
+  let label: import("playwright").Locator | null = null;
+  const candidatsLabel = page.getByText(libelle);
+  for (let essai = 0; essai < 12 && !label; essai++) {
+    const nombre = await candidatsLabel.count().catch(() => 0);
+    for (let i = 0; i < nombre; i++) {
+      const candidat = candidatsLabel.nth(i);
+      if (await candidat.isVisible().catch(() => false)) {
+        label = candidat;
+        break;
+      }
+    }
+    if (!label) await page.waitForTimeout(1000);
+  }
+  if (!label) return false;
 
   const selectNatif = label.locator("xpath=following::select[1]").first();
   if (await selectNatif.count().then((c) => c > 0).catch(() => false)) {
