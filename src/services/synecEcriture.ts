@@ -855,6 +855,15 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
     natureBienOk = await remplirMenuApresLibelle(page, /nature du bien/i, LIBELLE_NATURE_BIEN_SYNEC[demande.typeLogement]).catch(() => false);
   }
 
+  // Diagnostic (avant le clic "Enregistrer et fermer", qui change/ferme la
+  // page) : si un des quatre champs n'a pas pu etre confirme, on capture
+  // une vraie capture d'ecran de l'etat du formulaire a cet instant precis
+  // plutot que de deviner depuis le texte seul (meme discipline que pour
+  // le Statut et la ligne client plus haut dans ce fichier).
+  if (!sourceOk || !categorieOk || !occupationOk || !natureBienOk) {
+    await page.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
+  }
+
   await page
     .getByText(/enregistrer et fermer/i)
     .first()
