@@ -523,8 +523,16 @@ async function fermerSelecteurDateSiOuvert(page: import("playwright").Page): Pro
  * casse plutot que par egalite stricte.
  */
 async function selectionnerOptionInsensibleCasse(select: import("playwright").Locator, texteCible: string): Promise<string | null> {
+  // Echec reel decisif (demande "TEST-CLAUDE9") : le bon <select> etait
+  // pourtant correctement identifie (index confirme par un diagnostic
+  // separe), mais cette lecture de ses options renvoyait quand meme [] -
+  // meme piege deja rencontre et corrige ailleurs (page.evaluate avec une
+  // simple chaine de caracteres representant une fonction, pas toujours
+  // invoquee comme attendu) : passe ici une vraie fonction TypeScript
+  // (type "any" pour l'element, faute de lib DOM dans tsconfig) plutot
+  // qu'une chaine, pour eliminer toute ambiguite d'interpretation.
   const options = (await select
-    .evaluate(`(el) => Array.from(el.options).map((o) => ({ value: o.value, text: o.text }))`)
+    .evaluate((el: any) => Array.from(el.options as any[]).map((o: any) => ({ value: o.value as string, text: o.text as string })))
     .catch(() => [])) as Array<{ value: string; text: string }>;
   const trouve = options.find((o) => o.text.trim().toLowerCase() === texteCible.trim().toLowerCase());
   if (!trouve) return null;
