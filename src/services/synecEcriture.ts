@@ -551,25 +551,51 @@ async function remplirEvenement(page: import("playwright").Page, demande: Demand
   // le fantome a chaque fois. Cible desormais precisement le select dont
   // l'option ACTUELLEMENT SELECTIONNEE est "Pas de statut" - le fantome,
   // sans selection, ne peut jamais correspondre a ce critere.
-  const indexStatut = (await page
-    .evaluate(
-      `(() => Array.from(document.querySelectorAll('select')).findIndex((s) => {
-        const o = s.options[s.selectedIndex];
-        return o && o.text.trim().toLowerCase() === 'pas de statut';
-      }))()`
-    )
-    .catch(() => -1)) as number;
+  const trouverIndexStatut = async (): Promise<number> =>
+    (await page
+      .evaluate(
+        `(() => Array.from(document.querySelectorAll('select')).findIndex((s) => {
+          const o = s.options[s.selectedIndex];
+          return o && o.text.trim().toLowerCase() === 'pas de statut';
+        }))()`
+      )
+      .catch(() => -1)) as number;
 
-  if (indexStatut === -1) {
-    const diagnostic = await capturerDiagnostic(page);
-    throw new SynecEcritureError(`Menu "Statut" introuvable (aucun <select> n'a "Pas de statut" actuellement sélectionné). État final : ${diagnostic}`);
+  // Retente a plusieurs reprises (meme famille de probleme que "Nouvel
+  // événement" plus haut dans ce fichier : le rendu du formulaire peut ne
+  // pas etre totalement termine au moment du tout premier controle) avant
+  // d'abandonner.
+  let indexStatut = -1;
+  let statutConfirme: string | null = null;
+  for (let essai = 1; essai <= 5 && statutConfirme?.trim().toLowerCase() !== "planifier"; essai++) {
+    indexStatut = await trouverIndexStatut();
+    if (indexStatut === -1) {
+      await page.waitForTimeout(1000);
+      continue;
+    }
+    const statut = page.locator("select").nth(indexStatut);
+    statutConfirme = await selectionnerOptionInsensibleCasse(statut, "PLANIFIER").catch(() => null);
+    if (statutConfirme?.trim().toLowerCase() !== "planifier") await page.waitForTimeout(1000);
   }
 
-  const statut = page.locator("select").nth(indexStatut);
-  const statutConfirme = await selectionnerOptionInsensibleCasse(statut, "PLANIFIER").catch(() => null);
-  if (!statutConfirme || statutConfirme.trim().toLowerCase() !== "planifier") {
+  if (statutConfirme?.trim().toLowerCase() !== "planifier") {
+    // Diagnostic complet (deux echecs malgre un ciblage plus precis) :
+    // liste TOUS les <select> de la page, avec l'index trouve par le
+    // critere "option actuellement selectionnee = Pas de statut", pour
+    // voir precisement ce qui s'est passe plutot que de deviner encore.
+    const tousLesSelects = await page
+      .evaluate(
+        `(() => Array.from(document.querySelectorAll('select')).map((s, i) => ({
+          index: i,
+          selectionne: s.options[s.selectedIndex] ? s.options[s.selectedIndex].text : null,
+          options: Array.from(s.options).map((o) => o.text),
+        })))()`
+      )
+      .catch((err) => `(introspection impossible : ${(err as Error).message})`);
     const diagnostic = await capturerDiagnostic(page);
-    throw new SynecEcritureError(`Le statut n'a pas pu être mis sur "PLANIFIER" (trouvé : "${statutConfirme}"). État final : ${diagnostic}`);
+    throw new SynecEcritureError(
+      `Le statut n'a pas pu être mis sur "PLANIFIER" (index trouvé : ${indexStatut}, trouvé : "${statutConfirme}"). Tous les <select> de la page : ${JSON.stringify(tousLesSelects)}. État final : ${diagnostic}`
+    );
   }
 
   // Date/heure souhaitee par le client (demande explicite : "pour que ca
