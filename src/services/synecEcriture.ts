@@ -359,7 +359,9 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   // fait defiler la page pour atteindre les champs Facturation (voir
   // remplirChampSourceAcquisition).
   const demandeChampsClient = demande.sourceAcquisition || demande.categorie || demande.occupation || demande.typeLogement;
-  const sourceOk = demandeChampsClient ? await remplirChampSourceAcquisition(page, demande) : true;
+  const { ok: sourceOk, diagnosticPrecoce } = demandeChampsClient
+    ? await remplirChampSourceAcquisition(page, demande)
+    : { ok: true, diagnosticPrecoce: undefined };
 
   if (demande.telephone) await remplirApresLibelle(page, /téléphones pour envoi factures\/devis/i, demande.telephone);
   if (demande.email) await remplirApresLibelle(page, /mails pour envoi factures\/devis/i, demande.email);
@@ -375,7 +377,8 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
     ? await remplirChampsAttestationEtCategorie(page, demande)
     : { categorieOk: true, occupationOk: true, natureBienOk: true };
   const resultatSourceEtCategorie = demandeChampsClient
-    ? await finaliserDiagnosticChampsClient(page, { sourceOk, categorieOk, occupationOk, natureBienOk })
+    ? (await finaliserDiagnosticChampsClient(page, { sourceOk, categorieOk, occupationOk, natureBienOk })) +
+      (diagnosticPrecoce ? ` Diagnostic précoce (source, avant tout défilement) : ${diagnosticPrecoce}` : "")
     : "";
 
   // Echec reel decisif : un essai rate ("0 bouton trouve") montrait
@@ -833,9 +836,25 @@ interface DrapeauxChampsClient {
  * champ EN PREMIER, avant tout defilement, evite le probleme a la racine
  * plutot que d'allonger encore un delai qui ne resoudra rien.
  */
-async function remplirChampSourceAcquisition(page: import("playwright").Page, demande: DemandeIntervention): Promise<boolean> {
-  if (!(demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition])) return true;
-  return await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
+async function remplirChampSourceAcquisition(
+  page: import("playwright").Page,
+  demande: DemandeIntervention
+): Promise<{ ok: boolean; diagnosticPrecoce?: string }> {
+  if (!(demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition])) return { ok: true };
+  const ok = await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
+  if (ok) return { ok };
+
+  // Echec reel persistant (TEST-CLAUDE14/15/16) meme rempli en tout
+  // premier, avant tout defilement : contredit l'hypothese "demonte du DOM
+  // par le defilement vers Facturation" puisqu'on n'a pas encore defile a
+  // ce stade. Capture un diagnostic IMMEDIAT (pas a la toute fin, quand la
+  // page a de toute facon deja defile ailleurs pour Occupation/Categorie -
+  // inutile pour comprendre l'etat au moment precis de CET echec) : nombre
+  // de correspondances du libelle (meme invisibles) et etat visible de la
+  // page a cet instant precis.
+  const nombreCandidats = await page.getByText(/source d'acquisition/i).count().catch(() => -1);
+  const diagnostic = await capturerDiagnostic(page).catch(() => "(diagnostic impossible)");
+  return { ok, diagnosticPrecoce: `candidats trouvés (visibles ou non) = ${nombreCandidats}. ${diagnostic}` };
 }
 
 /**
@@ -926,7 +945,7 @@ async function finaliserDiagnosticChampsClient(page: import("playwright").Page, 
  * contenant structurellement pas ces champs de toute facon).
  */
 async function remplirChampsSourceEtCategorie(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
-  const sourceOk = await remplirChampSourceAcquisition(page, demande);
+  const { ok: sourceOk } = await remplirChampSourceAcquisition(page, demande);
   const { categorieOk, occupationOk, natureBienOk } = await remplirChampsAttestationEtCategorie(page, demande);
   return finaliserDiagnosticChampsClient(page, { sourceOk, categorieOk, occupationOk, natureBienOk });
 }
