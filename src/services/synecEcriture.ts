@@ -440,9 +440,39 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
  * au fonctionnement reel de Synec.
  */
 async function creerClientDepuisFormulaireEvenement(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
-  const boutonCreerClient = page.getByText(/créer un nouveau client/i).first();
-  await boutonCreerClient.waitFor({ state: "visible", timeout: 8000 });
+  // Meme famille de bug que la ligne client / bouton Modifier / libelles de
+  // menu plus haut dans ce fichier : un .first() sur un texte qui peut
+  // avoir des correspondances fantomes (confirme a plusieurs reprises sur
+  // cette fiche). Video reelle de l'utilisateur : "Source d'acquisition"
+  // est pourtant bien visible des l'ouverture du dialogue via CE raccourci
+  // - si l'automatisation rapporte 0 candidat pour ce libelle, c'est donc
+  // que le clic initial n'ouvre peut-etre pas le meme dialogue que celui
+  // vu par un humain. Meme fix : scrute tous les candidats visibles.
+  let boutonCreerClient: import("playwright").Locator | null = null;
+  const candidatsBouton = page.getByText(/créer un nouveau client/i);
+  for (let essai = 0; essai < 8 && !boutonCreerClient; essai++) {
+    const nombre = await candidatsBouton.count().catch(() => 0);
+    for (let i = 0; i < nombre; i++) {
+      const candidat = candidatsBouton.nth(i);
+      if (await candidat.isVisible().catch(() => false)) {
+        boutonCreerClient = candidat;
+        break;
+      }
+    }
+    if (!boutonCreerClient) await page.waitForTimeout(1000);
+  }
+  if (!boutonCreerClient) {
+    const diagnostic = await capturerDiagnostic(page);
+    throw new SynecEcritureError(`Bouton "+ Créer un nouveau client" introuvable. État final : ${diagnostic}`);
+  }
   await boutonCreerClient.click();
+
+  // Laisse le dialogue "Création d'un client" (rendu en superposition sur
+  // le dialogue d'evenement, visible sur la video) finir de s'ouvrir avant
+  // de chercher le moindre champ - evite de rater "Source d'acquisition"
+  // si son insertion dans le DOM suit celle des champs de base.
+  await page.waitForLoadState("networkidle").catch(() => {});
+
   return remplirEtEnregistrerFicheClient(page, demande);
 }
 
