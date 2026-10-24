@@ -443,8 +443,11 @@ ${AUTH_BASIC_CONF}
     # necessaires a la validation de marque Google Cloud (Google Ads API,
     # niveau d'acces "De base") : ses robots de verification ne peuvent pas
     # s'authentifier derriere le mot de passe nginx qui protege le reste du
-    # site.
-    location ~ ^/(a-propos\.html|confidentialite\.html|conditions\.html|logo\.png|logo-marque\.png)\$ {
+    # site. google[...].html (motif, pas un nom fixe) : fichier de preuve de
+    # propriete du domaine pour Google Search Console, lui aussi requis par
+    # ce meme processus de validation de marque - son robot ne peut pas non
+    # plus s'authentifier derriere le mot de passe.
+    location ~ ^/(a-propos\.html|confidentialite\.html|conditions\.html|logo\.png|logo-marque\.png|google[A-Za-z0-9]+\.html)\$ {
         auth_basic off;
         proxy_pass http://copilote_app;
         proxy_connect_timeout 2s;
