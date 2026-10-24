@@ -351,6 +351,16 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   // (Facturation) : reproduit exactement ce que l'utilisateur a fait dans
   // sa propre video de demonstration, plutot que de deviner un autre choix.
   await remplirApresLibelle(page, /nom principal du client/i, demande.nom);
+
+  // "Source d'acquisition" (section Général, juste apres "Nom principal du
+  // client") rempli ICI, avant tout defilement vers la section Facturation
+  // plus bas : echec reel decisif (TEST-CLAUDE14/15) sinon, probablement du
+  // a un rendu "virtualise" qui demonte ce champ du DOM une fois qu'on a
+  // fait defiler la page pour atteindre les champs Facturation (voir
+  // remplirChampSourceAcquisition).
+  const demandeChampsClient = demande.sourceAcquisition || demande.categorie || demande.occupation || demande.typeLogement;
+  const sourceOk = demandeChampsClient ? await remplirChampSourceAcquisition(page, demande) : true;
+
   if (demande.telephone) await remplirApresLibelle(page, /téléphones pour envoi factures\/devis/i, demande.telephone);
   if (demande.email) await remplirApresLibelle(page, /mails pour envoi factures\/devis/i, demande.email);
   await remplirApresLibelle(page, /^nom$/i, demande.nom);
@@ -358,17 +368,15 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
 
-  // Capture reelle fournie par l'utilisateur : Source d'acquisition /
-  // Occupation du logement / Nature du bien / Catégorie sont bien presentes
-  // sur CE formulaire de creation (voir remplirChampsSourceEtCategorie) -
-  // les renseigner ici evite le detour post-creation par l'ecran "Clients"
-  // (renseignerSourceEtCategorieSurFiche), qui ne s'applique plus qu'au cas
-  // "client existant reutilise". Appele seulement si au moins un champ est
-  // demande, pour ne pas polluer le journal d'un "ok" systematique.
-  const resultatSourceEtCategorie =
-    demande.sourceAcquisition || demande.categorie || demande.occupation || demande.typeLogement
-      ? await remplirChampsSourceEtCategorie(page, demande)
-      : "";
+  // Occupation du logement / Nature du bien ("Attestation TVA") et
+  // Catégorie ("Informations complémentaires") : plus bas dans la page que
+  // Facturation, donc remplis seulement maintenant qu'on y est arrive.
+  const { categorieOk, occupationOk, natureBienOk } = demandeChampsClient
+    ? await remplirChampsAttestationEtCategorie(page, demande)
+    : { categorieOk: true, occupationOk: true, natureBienOk: true };
+  const resultatSourceEtCategorie = demandeChampsClient
+    ? await finaliserDiagnosticChampsClient(page, { sourceOk, categorieOk, occupationOk, natureBienOk })
+    : "";
 
   // Echec reel decisif : un essai rate ("0 bouton trouve") montrait
   // pourtant, sur la capture de diagnostic prise au meme instant, le
@@ -802,32 +810,71 @@ async function allerAuxClients(page: import("playwright").Page): Promise<void> {
  * de libelle trouvee au passage : "Occupant du logement" (jamais le bon
  * texte) corrige en "Occupation du logement".
  */
-async function remplirChampsSourceEtCategorie(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
-  let sourceOk = true;
+interface DrapeauxChampsClient {
+  sourceOk: boolean;
+  categorieOk: boolean;
+  occupationOk: boolean;
+  natureBienOk: boolean;
+}
+
+/**
+ * Renseigne UNIQUEMENT "Source d'acquisition" - a appeler le plus tot
+ * possible, juste apres "Nom principal du client", PENDANT que ce champ
+ * (tout en haut de la section "Général") est encore a l'ecran.
+ *
+ * Echec reel decisif (TEST-CLAUDE14/15) : systematiquement rapporte
+ * "absent du texte du document" malgre un reessai de 12s, alors qu'une
+ * capture d'ecran reelle de l'utilisateur le montre bien present juste
+ * apres "Statut du client". Cause probable : la liste des champs restants
+ * (Téléphones/Mails/Nom/Adresse de la section Facturation, plus bas) etait
+ * deja remplie AVANT qu'on cherche ce champ - le defilement necessaire
+ * pour atteindre ces champs plus bas demonte probablement ce champ du DOM
+ * (rendu "virtualise", deja souvent deduit sur cette fiche). Remplir ce
+ * champ EN PREMIER, avant tout defilement, evite le probleme a la racine
+ * plutot que d'allonger encore un delai qui ne resoudra rien.
+ */
+async function remplirChampSourceAcquisition(page: import("playwright").Page, demande: DemandeIntervention): Promise<boolean> {
+  if (!(demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition])) return true;
+  return await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
+}
+
+/**
+ * Renseigne Occupation du logement / Nature du bien ("Attestation TVA") et
+ * Catégorie ("Informations complémentaires") - a appeler APRES les champs
+ * de la section "Facturation", puisque ces trois champs se trouvent plus
+ * bas dans la page (meme raisonnement que remplirChampSourceAcquisition).
+ */
+async function remplirChampsAttestationEtCategorie(
+  page: import("playwright").Page,
+  demande: DemandeIntervention
+): Promise<{ categorieOk: boolean; occupationOk: boolean; natureBienOk: boolean }> {
   let categorieOk = true;
   let occupationOk = true;
   let natureBienOk = true;
-  if (demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]) {
-    sourceOk = await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
-  }
-  if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
-    categorieOk = await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => false);
-  }
   if (demande.occupation && LIBELLE_OCCUPATION_SYNEC[demande.occupation]) {
     occupationOk = await remplirMenuApresLibelle(page, /occupation du logement/i, LIBELLE_OCCUPATION_SYNEC[demande.occupation]).catch(() => false);
   }
   if (demande.typeLogement && LIBELLE_NATURE_BIEN_SYNEC[demande.typeLogement]) {
     natureBienOk = await remplirMenuApresLibelle(page, /nature du bien/i, LIBELLE_NATURE_BIEN_SYNEC[demande.typeLogement]).catch(() => false);
   }
+  if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
+    categorieOk = await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => false);
+  }
+  return { categorieOk, occupationOk, natureBienOk };
+}
 
-  // Diagnostic (avant le clic "Enregistrer et fermer", qui change/ferme la
-  // page) : si un des quatre champs n'a pas pu etre confirme, on capture
-  // une vraie capture d'ecran de l'etat du formulaire a cet instant precis
-  // plutot que de deviner depuis le texte seul. On cherche aussi chaque
-  // libelle manquant dans TOUT le texte du document (pas les 400 premiers
-  // caracteres de capturerDiagnostic) : s'il existe ailleurs (section
-  // repliee, autre onglet, libelle legerement different), le contexte
-  // autour permet de comprendre sans nouvel aller-retour.
+/**
+ * Diagnostic final (avant le clic "Enregistrer et fermer", qui change/ferme
+ * la page) : si un des quatre champs n'a pas pu etre confirme, capture une
+ * vraie capture d'ecran de l'etat du formulaire a cet instant precis plutot
+ * que de deviner depuis le texte seul. Cherche aussi chaque libelle
+ * manquant dans TOUT le texte du document (pas les 400 premiers caracteres
+ * de capturerDiagnostic) : s'il existe ailleurs (section repliee/demontee,
+ * autre onglet, libelle legerement different), le contexte autour permet
+ * de comprendre sans nouvel aller-retour.
+ */
+async function finaliserDiagnosticChampsClient(page: import("playwright").Page, drapeaux: DrapeauxChampsClient): Promise<string> {
+  const { sourceOk, categorieOk, occupationOk, natureBienOk } = drapeaux;
   let diagnosticChamps = "";
   if (!sourceOk || !categorieOk || !occupationOk || !natureBienOk) {
     await page.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
@@ -870,6 +917,18 @@ async function remplirChampsSourceEtCategorie(page: import("playwright").Page, d
   if (!occupationOk) details.push("occupation du logement non confirmée");
   if (!natureBienOk) details.push("nature du bien non confirmée");
   return details.join(", ") + diagnosticChamps;
+}
+
+/**
+ * Version "tout en un" pour le cas ou l'ordre de defilement n'a pas
+ * d'importance connue (fiche d'EDITION d'un client existant - voir
+ * renseignerSourceEtCategorieSurFiche, deja documentee comme ne
+ * contenant structurellement pas ces champs de toute facon).
+ */
+async function remplirChampsSourceEtCategorie(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
+  const sourceOk = await remplirChampSourceAcquisition(page, demande);
+  const { categorieOk, occupationOk, natureBienOk } = await remplirChampsAttestationEtCategorie(page, demande);
+  return finaliserDiagnosticChampsClient(page, { sourceOk, categorieOk, occupationOk, natureBienOk });
 }
 
 /**
