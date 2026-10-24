@@ -780,20 +780,30 @@ async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Pa
     await page.waitForTimeout(800);
   }
 
-  // Echec reel (demandes "Marzin", "TEST-CLAUDE7", "TEST-CLAUDE8") : ce
-  // point d'echec renvoyait simplement une chaine plutot que de lever une
-  // erreur (corrige), puis une capture d'ecran reelle a montre que le
-  // client etait en fait bien present, tout en haut de la liste - juste
-  // pas encore rendu au moment du controle (delai de 5s trop court pour
-  // une liste paginee de plusieurs centaines de clients, meme famille de
-  // probleme que "Nouvel événement" plus tot dans ce fichier). Delai
-  // elargi.
-  const ligneClient = page.getByText(demande.nom, { exact: false }).first();
-  const trouve = await ligneClient
-    .waitFor({ state: "visible", timeout: 20000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!trouve) {
+  // Echec reel (demandes "Marzin", "TEST-CLAUDE7", "TEST-CLAUDE8",
+  // "TEST-CLAUDE9") persistant meme apres avoir elargi 5s -> 20s : le texte
+  // du client est bien present dans le corps de la page au moment du
+  // diagnostic, donc ce n'est pas un probleme de delai. Meme famille de bug
+  // que le "Statut" en double plus haut dans ce fichier : plusieurs
+  // elements correspondent au texte recherche (lignes fantomes/residuelles
+  // d'une autre ligne du tableau, ou noeud non visible), et `.first()`
+  // tombe sur celui qui ne devient jamais visible, pendant que la vraie
+  // ligne visible reste ignoree. Fix : on scrute TOUS les candidats et on
+  // retient le premier reellement visible, en reessayant pendant 20s.
+  let ligneClient: import("playwright").Locator | null = null;
+  const candidats = page.getByText(demande.nom, { exact: false });
+  for (let essai = 0; essai < 20 && !ligneClient; essai++) {
+    const nombre = await candidats.count().catch(() => 0);
+    for (let i = 0; i < nombre; i++) {
+      const candidat = candidats.nth(i);
+      if (await candidat.isVisible().catch(() => false)) {
+        ligneClient = candidat;
+        break;
+      }
+    }
+    if (!ligneClient) await page.waitForTimeout(1000);
+  }
+  if (!ligneClient) {
     const diagnostic = await capturerDiagnostic(page);
     throw new SynecEcritureError(`Fiche client introuvable depuis l'écran Clients. État final : ${diagnostic}`);
   }
