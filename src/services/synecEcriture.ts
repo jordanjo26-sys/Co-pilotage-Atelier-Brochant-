@@ -1,4 +1,4 @@
-import { chromium, devices } from "playwright";
+import { chromium } from "playwright";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { readFile } from "fs/promises";
 import dayjs from "dayjs";
@@ -21,83 +21,6 @@ import {
   ouvrirMenuFacturation,
   seConnecter,
 } from "./synecSync";
-
-/**
- * Journal des requetes reseau de la page, pour diagnostiquer "Source
- * d'acquisition"/"Catégorie" (listes personnalisees au compte, echec
- * systematique et inexplique malgre plusieurs correctifs deja tentes -
- * timing, ordre de remplissage, ciblage de bouton, rechauffement de cache)
- * : si un appel serveur lie au chargement de ces listes echoue (ou n'est
- * jamais declenche) uniquement en automatisation sans jamais echouer dans
- * le navigateur reel de l'utilisateur, ce journal doit le reveler.
- */
-interface EntreeJournalReseau {
-  url: string;
-  method: string;
-  status: number | null;
-  resourceType: string;
-}
-const journalReseauParPage = new WeakMap<import("playwright").Page, EntreeJournalReseau[]>();
-
-// Reponse brute (HTML) de l'appel qui charge le contenu du dialogue
-// "Création d'un client" en mode "on_the_fly" - voir
-// resumerCorpsCreationClient. Stockee a part (pas dans le journal
-// general) car potentiellement volumineuse.
-const corpsCreationClientParPage = new WeakMap<import("playwright").Page, string>();
-
-function demarrerJournalReseau(page: import("playwright").Page): void {
-  const journal: EntreeJournalReseau[] = [];
-  journalReseauParPage.set(page, journal);
-  page.on("requestfinished", (requete) => {
-    requete
-      .response()
-      .then(async (reponse) => {
-        journal.push({
-          url: requete.url(),
-          method: requete.method(),
-          status: reponse?.status() ?? null,
-          resourceType: requete.resourceType(),
-        });
-        // Capture le corps de LA requete precise qui charge le formulaire
-        // "Création d'un client" en mode rapide ("on_the_fly") depuis
-        // l'evenement - preuve directe (pas une deduction) que le serveur
-        // renvoie ou non "Source d'acquisition" dans son HTML a ce moment.
-        if (reponse && /\/billing_client\/.*\/create\?/.test(requete.url()) && /on_the_fly=true/.test(requete.url())) {
-          const corps = await reponse.text().catch(() => "");
-          corpsCreationClientParPage.set(page, corps);
-        }
-      })
-      .catch(() => {});
-  });
-  page.on("requestfailed", (requete) => {
-    journal.push({ url: requete.url(), method: requete.method(), status: null, resourceType: requete.resourceType() });
-  });
-}
-
-function resumerCorpsCreationClient(page: import("playwright").Page): string {
-  const corps = corpsCreationClientParPage.get(page);
-  if (corps === undefined) return "requête on_the_fly non capturée (pas encore survenue ou URL différente de celle attendue)";
-  const contientSource = /source d'acquisition/i.test(corps);
-  const contientCategorie = /catégorie|corps de métier/i.test(corps);
-  const contientOccupation = /occupation du logement/i.test(corps);
-  return `longueur du HTML = ${corps.length} caractères. Contient "Source d'acquisition" = ${contientSource}. Contient "Catégorie"/"corps de métier" = ${contientCategorie}. Contient "Occupation du logement" = ${contientOccupation}.`;
-}
-
-function resumerJournalReseau(page: import("playwright").Page): string {
-  const journal = journalReseauParPage.get(page) ?? [];
-  // Echec du premier essai (TEST-CLAUDE20) : le filtre par mot-cle
-  // accrochait par coincidence le DOSSIER DE SCRIPTS STATIQUES
-  // "js_sources_..." (fichiers .js ordinaires, tous en 200 - "sources" au
-  // sens code source, rien a voir avec "Source d'acquisition" metier),
-  // masquant tout signal utile. Se concentre desormais sur les requetes
-  // xhr/fetch (les vrais appels de donnees), le seul type de requete ou un
-  // appel API lie a une liste personnalisee au compte pourrait apparaitre.
-  const appelsDonnees = journal.filter((e) => e.resourceType === "xhr" || e.resourceType === "fetch");
-  const choisi = appelsDonnees.slice(-30);
-  const etiquette = `${appelsDonnees.length} requête(s) xhr/fetch au total, ${choisi.length} dernière(s) affichée(s)`;
-  if (choisi.length === 0) return `${etiquette} - aucune requête de données capturée`;
-  return `${etiquette} : ${choisi.map((e) => `${e.method} ${e.url} → ${e.status ?? "ÉCHEC"}`).join(" | ")}`;
-}
 
 /**
  * Écriture automatique dans Synec (client + planning), pendant Synec via
@@ -312,13 +235,6 @@ async function ouvrirNouvelEvenement(page: import("playwright").Page): Promise<v
   await page.getByText(/création d'un nouvel événement/i).first().waitFor({ state: "visible", timeout: 8000 });
 }
 
-const LIBELLE_SOURCE_SYNEC: Record<string, string> = { google: "Google", pages_jaunes: "Pages Jaunes", maps: "Maps" };
-const LIBELLE_CATEGORIE_SYNEC: Record<string, string> = {
-  plomberie: "Plomberie",
-  serrurerie: "Serrurerie",
-  electricite: "Électricité",
-  assainissement: "Assainissement",
-};
 // Pour l'attestation TVA (demande explicite de l'utilisateur) : "Occupant
 // du logement" (proprietaire/locataire) et "Nature du bien" - deduite du
 // champ "Logement" deja collecte (typeLogement), pas un nouveau champ.
@@ -429,17 +345,6 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   // sa propre video de demonstration, plutot que de deviner un autre choix.
   await remplirApresLibelle(page, /nom principal du client/i, demande.nom);
 
-  // "Source d'acquisition" (section Général, juste apres "Nom principal du
-  // client") rempli ICI, avant tout defilement vers la section Facturation
-  // plus bas : echec reel decisif (TEST-CLAUDE14/15) sinon, probablement du
-  // a un rendu "virtualise" qui demonte ce champ du DOM une fois qu'on a
-  // fait defiler la page pour atteindre les champs Facturation (voir
-  // remplirChampSourceAcquisition).
-  const demandeChampsClient = demande.sourceAcquisition || demande.categorie || demande.occupation || demande.typeLogement;
-  const { ok: sourceOk, diagnosticPrecoce } = demandeChampsClient
-    ? await remplirChampSourceAcquisition(page, demande)
-    : { ok: true, diagnosticPrecoce: undefined };
-
   if (demande.telephone) await remplirApresLibelle(page, /téléphones pour envoi factures\/devis/i, demande.telephone);
   if (demande.email) await remplirApresLibelle(page, /mails pour envoi factures\/devis/i, demande.email);
   await remplirApresLibelle(page, /^nom$/i, demande.nom);
@@ -447,16 +352,20 @@ async function remplirEtEnregistrerFicheClient(page: import("playwright").Page, 
   if (demande.codePostal) await remplirApresLibelle(page, /code postal/i, demande.codePostal);
   if (demande.ville) await remplirApresLibelle(page, /^ville$/i, demande.ville);
 
-  // Occupation du logement / Nature du bien ("Attestation TVA") et
-  // Catégorie ("Informations complémentaires") : plus bas dans la page que
-  // Facturation, donc remplis seulement maintenant qu'on y est arrive.
-  const { categorieOk, occupationOk, natureBienOk } = demandeChampsClient
-    ? await remplirChampsAttestationEtCategorie(page, demande)
-    : { categorieOk: true, occupationOk: true, natureBienOk: true };
-  const resultatSourceEtCategorie = demandeChampsClient
-    ? (await finaliserDiagnosticChampsClient(page, { sourceOk, categorieOk, occupationOk, natureBienOk })) +
-      (diagnosticPrecoce ? ` Diagnostic précoce (source, avant tout défilement) : ${diagnosticPrecoce}` : "")
-    : "";
+  // Occupation du logement / Nature du bien ("Attestation TVA") : seuls
+  // champs fiables de cette fiche (voir NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE
+  // pour Source d'acquisition/Catégorie, volontairement non tentés).
+  const demandeChampsClient = demande.occupation || demande.typeLogement;
+  const { occupationOk, natureBienOk } = demandeChampsClient
+    ? await remplirChampsAttestation(page, demande)
+    : { occupationOk: true, natureBienOk: true };
+  let resultatSourceEtCategorie = demandeChampsClient ? await finaliserDiagnosticAttestation(page, { occupationOk, natureBienOk }) : "";
+  if (demande.sourceAcquisition || demande.categorie) {
+    resultatSourceEtCategorie =
+      resultatSourceEtCategorie === "" || resultatSourceEtCategorie === "ok"
+        ? NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE
+        : `${resultatSourceEtCategorie}, ${NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE}`;
+  }
 
   // Echec reel decisif : un essai rate ("0 bouton trouve") montrait
   // pourtant, sur la capture de diagnostic prise au meme instant, le
@@ -548,54 +457,6 @@ async function creerClientDepuisFormulaireEvenement(page: import("playwright").P
   // le dialogue d'evenement, visible sur la video) finir de s'ouvrir avant
   // de chercher le moindre champ - evite de rater "Source d'acquisition"
   // si son insertion dans le DOM suit celle des champs de base.
-  await page.waitForLoadState("networkidle").catch(() => {});
-
-  return remplirEtEnregistrerFicheClient(page, demande);
-}
-
-/**
- * Cree le client via l'écran complet "Clients → Nouveau client" plutôt que
- * le raccourci "+ Créer un nouveau client" intégré à l'événement (voir
- * creerClientDepuisFormulaireEvenement ci-dessus).
- *
- * Preuve directe et définitive (TEST-CLAUDE22, capture du corps HTML brut
- * renvoyé par le serveur Synec pour la requête du raccourci intégré,
- * paramètre "on_the_fly=true") : ce raccourci charge un GABARIT SERVEUR
- * RÉDUIT qui ne contient tout simplement jamais "Source d'acquisition" ni
- * "Catégorie" dans son HTML (0 occurrence sur 45759 caractères), alors
- * qu'il contient bien "Occupation du logement" - ce n'est donc ni un bug
- * d'automatisation ni un problème de timing/JS, mais une différence de
- * gabarit côté serveur Synec lui-même entre les deux chemins de création.
- * Seul l'écran complet "Clients → Nouveau client" (confirmé par capture
- * d'écran réelle de l'utilisateur) contient ces quatre champs.
- *
- * Utilisée UNIQUEMENT quand ces champs sont effectivement demandés (sinon
- * le raccourci intégré, plus simple et déjà fiable, reste utilisé) - voir
- * l'appelant dans envoyerDemandeVersSynec.
- */
-async function creerClientDepuisEcranClients(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
-  await allerAuxClients(page);
-
-  // Meme famille de bug que les autres boutons de cette fiche : scrute
-  // tous les candidats visibles plutot qu'un .first() fragile.
-  let boutonNouveauClient: import("playwright").Locator | null = null;
-  const candidatsBouton = page.getByText(/nouveau client/i);
-  for (let essai = 0; essai < 10 && !boutonNouveauClient; essai++) {
-    const nombre = await candidatsBouton.count().catch(() => 0);
-    for (let i = 0; i < nombre; i++) {
-      const candidat = candidatsBouton.nth(i);
-      if (await candidat.isVisible().catch(() => false)) {
-        boutonNouveauClient = candidat;
-        break;
-      }
-    }
-    if (!boutonNouveauClient) await page.waitForTimeout(1000);
-  }
-  if (!boutonNouveauClient) {
-    const diagnostic = await capturerDiagnostic(page);
-    throw new SynecEcritureError(`Bouton "+ Nouveau client" introuvable sur l'écran Clients. État final : ${diagnostic}`);
-  }
-  await boutonNouveauClient.click();
   await page.waitForLoadState("networkidle").catch(() => {});
 
   return remplirEtEnregistrerFicheClient(page, demande);
@@ -954,80 +815,30 @@ async function allerAuxClients(page: import("playwright").Page): Promise<void> {
 }
 
 /**
- * Renseigne Source d'acquisition / Catégorie / Occupation du logement /
- * Nature du bien sur le formulaire client actuellement ouvert (création OU
- * édition - les deux utilisent la meme disposition de champs), juste avant
- * le clic "Enregistrer et fermer" fait par l'appelant.
- *
- * Capture reelle fournie par l'utilisateur (titre "Création d'un client",
- * section "Général" avec "Source d'acquisition" juste apres "Statut du
- * client", puis section "Attestation TVA" avec "Occupation du logement" et
- * "Nature du bien") : contredit la conclusion precedente ("absents du
- * formulaire rapide", basee sur une capture tronquee avant defilement
- * complet) - ces quatre champs sont bien presents des la creation. Erreur
- * de libelle trouvee au passage : "Occupant du logement" (jamais le bon
- * texte) corrige en "Occupation du logement".
+ * Limite confirmée et définitive (preuve directe : capture du corps HTML
+ * brut renvoyé par le serveur Synec pour la requête de création rapide de
+ * client, "on_the_fly=true" - 0 occurrence de "Source d'acquisition" ni
+ * "Catégorie" sur 45759 caractères, quel que soit le chemin emprunté dans
+ * l'UI pour y arriver, et quelle que soit l'empreinte du navigateur
+ * utilisé). Décision de l'utilisateur après épuisement de toutes les
+ * pistes raisonnables (délai, ordre de remplissage, ciblage de bouton,
+ * écran Clients vs raccourci événement, émulation iPhone) : ne plus
+ * tenter ces deux champs via l'automatisation, les signaler simplement
+ * comme non disponibles plutôt que de perdre du temps sur chaque envoi.
  */
-interface DrapeauxChampsClient {
-  sourceOk: boolean;
-  categorieOk: boolean;
-  occupationOk: boolean;
-  natureBienOk: boolean;
-}
+const NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE =
+  "source d'acquisition et catégorie non disponibles via l'automatisation (le gabarit serveur Synec pour la création rapide de client ne contient jamais ces deux champs - à saisir manuellement dans Synec si besoin)";
 
 /**
- * Renseigne UNIQUEMENT "Source d'acquisition" - a appeler le plus tot
- * possible, juste apres "Nom principal du client", PENDANT que ce champ
- * (tout en haut de la section "Général") est encore a l'ecran.
- *
- * Echec reel decisif (TEST-CLAUDE14/15) : systematiquement rapporte
- * "absent du texte du document" malgre un reessai de 12s, alors qu'une
- * capture d'ecran reelle de l'utilisateur le montre bien present juste
- * apres "Statut du client". Cause probable : la liste des champs restants
- * (Téléphones/Mails/Nom/Adresse de la section Facturation, plus bas) etait
- * deja remplie AVANT qu'on cherche ce champ - le defilement necessaire
- * pour atteindre ces champs plus bas demonte probablement ce champ du DOM
- * (rendu "virtualise", deja souvent deduit sur cette fiche). Remplir ce
- * champ EN PREMIER, avant tout defilement, evite le probleme a la racine
- * plutot que d'allonger encore un delai qui ne resoudra rien.
+ * Renseigne Occupation du logement / Nature du bien ("Attestation TVA") -
+ * seuls champs de cette fiche confirmés fiables via l'automatisation (voir
+ * NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE pour Source d'acquisition/Catégorie,
+ * volontairement non tentés).
  */
-async function remplirChampSourceAcquisition(
+async function remplirChampsAttestation(
   page: import("playwright").Page,
   demande: DemandeIntervention
-): Promise<{ ok: boolean; diagnosticPrecoce?: string }> {
-  if (!(demande.sourceAcquisition && LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition])) return { ok: true };
-  const ok = await remplirMenuApresLibelle(page, /source d'acquisition/i, LIBELLE_SOURCE_SYNEC[demande.sourceAcquisition]).catch(() => false);
-  if (ok) return { ok };
-
-  // Echec reel persistant (TEST-CLAUDE14/15/16) meme rempli en tout
-  // premier, avant tout defilement : contredit l'hypothese "demonte du DOM
-  // par le defilement vers Facturation" puisqu'on n'a pas encore defile a
-  // ce stade. Capture un diagnostic IMMEDIAT (pas a la toute fin, quand la
-  // page a de toute facon deja defile ailleurs pour Occupation/Categorie -
-  // inutile pour comprendre l'etat au moment precis de CET echec) : nombre
-  // de correspondances du libelle (meme invisibles) et etat visible de la
-  // page a cet instant precis.
-  const nombreCandidats = await page.getByText(/source d'acquisition/i).count().catch(() => -1);
-  const diagnostic = await capturerDiagnostic(page).catch(() => "(diagnostic impossible)");
-  const reseau = resumerJournalReseau(page);
-  const corpsHtml = resumerCorpsCreationClient(page);
-  return {
-    ok,
-    diagnosticPrecoce: `candidats trouvés (visibles ou non) = ${nombreCandidats}. ${diagnostic}. Réseau : ${reseau}. Corps HTML on_the_fly : ${corpsHtml}`,
-  };
-}
-
-/**
- * Renseigne Occupation du logement / Nature du bien ("Attestation TVA") et
- * Catégorie ("Informations complémentaires") - a appeler APRES les champs
- * de la section "Facturation", puisque ces trois champs se trouvent plus
- * bas dans la page (meme raisonnement que remplirChampSourceAcquisition).
- */
-async function remplirChampsAttestationEtCategorie(
-  page: import("playwright").Page,
-  demande: DemandeIntervention
-): Promise<{ categorieOk: boolean; occupationOk: boolean; natureBienOk: boolean }> {
-  let categorieOk = true;
+): Promise<{ occupationOk: boolean; natureBienOk: boolean }> {
   let occupationOk = true;
   let natureBienOk = true;
   if (demande.occupation && LIBELLE_OCCUPATION_SYNEC[demande.occupation]) {
@@ -1036,98 +847,56 @@ async function remplirChampsAttestationEtCategorie(
   if (demande.typeLogement && LIBELLE_NATURE_BIEN_SYNEC[demande.typeLogement]) {
     natureBienOk = await remplirMenuApresLibelle(page, /nature du bien/i, LIBELLE_NATURE_BIEN_SYNEC[demande.typeLogement]).catch(() => false);
   }
-  if (demande.categorie && LIBELLE_CATEGORIE_SYNEC[demande.categorie]) {
-    categorieOk = await remplirMenuApresLibelle(page, /(catégorie|corps de métier)/i, LIBELLE_CATEGORIE_SYNEC[demande.categorie]).catch(() => false);
-  }
-  return { categorieOk, occupationOk, natureBienOk };
+  return { occupationOk, natureBienOk };
 }
 
 /**
- * Diagnostic final (avant le clic "Enregistrer et fermer", qui change/ferme
- * la page) : si un des quatre champs n'a pas pu etre confirme, capture une
- * vraie capture d'ecran de l'etat du formulaire a cet instant precis plutot
- * que de deviner depuis le texte seul. Cherche aussi chaque libelle
- * manquant dans TOUT le texte du document (pas les 400 premiers caracteres
- * de capturerDiagnostic) : s'il existe ailleurs (section repliee/demontee,
- * autre onglet, libelle legerement different), le contexte autour permet
- * de comprendre sans nouvel aller-retour.
+ * Diagnostic (avant le clic "Enregistrer et fermer", qui change/ferme la
+ * page) : si Occupation/Nature n'ont pas pu être confirmés, capture une
+ * vraie capture d'écran de l'état du formulaire à cet instant précis
+ * plutôt que de deviner depuis le texte seul.
  */
-async function finaliserDiagnosticChampsClient(page: import("playwright").Page, drapeaux: DrapeauxChampsClient): Promise<string> {
-  const { sourceOk, categorieOk, occupationOk, natureBienOk } = drapeaux;
-  let diagnosticChamps = "";
-  if (!sourceOk || !categorieOk || !occupationOk || !natureBienOk) {
-    await page.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
-    const manquants: Array<[boolean, string]> = [
-      [!sourceOk, "source d'acquisition"],
-      [!categorieOk, "catégorie"],
-      [!occupationOk, "occupation du logement"],
-      [!natureBienOk, "nature du bien"],
-    ];
-    const recherches = await Promise.all(
-      manquants
-        .filter(([manquant]) => manquant)
-        .map(async ([, terme]) => {
-          // page.evaluate : pas de lib DOM dans tsconfig (document non
-          // type-checkable), et le piege deja rencontre (chaine passee a
-          // .evaluate() pas toujours invoquee) impose l'IIFE string avec
-          // la valeur injectee directement (termes fixes, pas de donnee
-          // utilisateur - JSON.stringify suffit a echapper proprement).
-          const contexte = await page
-            .evaluate(
-              `(() => {
-                var texte = document.body.innerText || "";
-                var t = ${JSON.stringify(terme)};
-                var indexTrouve = texte.toLowerCase().indexOf(t.toLowerCase());
-                if (indexTrouve === -1) return null;
-                return texte.slice(Math.max(0, indexTrouve - 20), indexTrouve + 80).split(/\\s+/).join(" ");
-              })()`
-            )
-            .catch(() => undefined);
-          return `${terme} : ${contexte === null ? "absent du texte du document" : contexte === undefined ? "(recherche impossible)" : `trouvé ailleurs → "${contexte}"`}`;
-        })
-    );
-    diagnosticChamps = ` Recherche dans le document : ${recherches.join(" | ")}.`;
-  }
-
-  if (sourceOk && categorieOk && occupationOk && natureBienOk) return "ok";
+async function finaliserDiagnosticAttestation(
+  page: import("playwright").Page,
+  drapeaux: { occupationOk: boolean; natureBienOk: boolean }
+): Promise<string> {
+  const { occupationOk, natureBienOk } = drapeaux;
+  if (occupationOk && natureBienOk) return "ok";
+  await page.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
   const details: string[] = [];
-  if (!sourceOk) details.push("source d'acquisition non confirmée");
-  if (!categorieOk) details.push("catégorie non confirmée");
   if (!occupationOk) details.push("occupation du logement non confirmée");
   if (!natureBienOk) details.push("nature du bien non confirmée");
-  return details.join(", ") + diagnosticChamps;
+  return details.join(", ");
 }
 
 /**
- * Version "tout en un" pour le cas ou l'ordre de defilement n'a pas
- * d'importance connue (fiche d'EDITION d'un client existant - voir
- * renseignerSourceEtCategorieSurFiche, deja documentee comme ne
- * contenant structurellement pas ces champs de toute facon).
+ * Renseigne Occupation du logement / Nature du bien sur le formulaire
+ * client actuellement ouvert, puis complète le message avec la note
+ * statique pour Source d'acquisition/Catégorie si demandées (volontairement
+ * non tentées - voir NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE).
  */
 async function remplirChampsSourceEtCategorie(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
-  const { ok: sourceOk } = await remplirChampSourceAcquisition(page, demande);
-  const { categorieOk, occupationOk, natureBienOk } = await remplirChampsAttestationEtCategorie(page, demande);
-  return finaliserDiagnosticChampsClient(page, { sourceOk, categorieOk, occupationOk, natureBienOk });
+  const { occupationOk, natureBienOk } = await remplirChampsAttestation(page, demande);
+  const resultatAttestation = await finaliserDiagnosticAttestation(page, { occupationOk, natureBienOk });
+  if (!(demande.sourceAcquisition || demande.categorie)) return resultatAttestation;
+  return resultatAttestation === "ok" ? NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE : `${resultatAttestation}, ${NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE}`;
 }
 
 /**
- * Renseigne Source d'acquisition / Catégorie / Occupation du logement /
- * Nature du bien sur la fiche COMPLÈTE d'un client EXISTANT (cas
- * "client réutilisé" seulement - un client nouvellement créé les reçoit
- * directement dans remplirEtEnregistrerFicheClient) : navigue vers l'écran
- * "Clients", rouvre sa fiche, clique "Modifier", renseigne les champs puis
- * enregistre.
+ * Renseigne Occupation du logement / Nature du bien sur la fiche COMPLÈTE
+ * d'un client EXISTANT (cas "client réutilisé" seulement - un client
+ * nouvellement créé les reçoit directement dans
+ * remplirEtEnregistrerFicheClient) : navigue vers l'écran "Clients",
+ * rouvre sa fiche, clique "Modifier", renseigne les champs puis enregistre.
+ * Source d'acquisition/Catégorie ne sont volontairement plus tentées (voir
+ * NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE).
  *
  * Étape séparée et NON bloquante (appelée après la création réussie de
  * l'événement, jamais avant) : un échec ici ne doit jamais remettre en
- * cause le client+événement déjà créés avec succès.
- *
- * Limite connue (diagnostic confirmé sur TEST-CLAUDE12/13) : à la
- * différence du formulaire de création, le formulaire "Edition d'un
- * client" (Général/Facturation) ne contient PAS ces champs - ils sont
- * structurellement absents de son texte, pas juste en retard à charger.
- * Conservé en best-effort au cas où Synec exposerait ces champs
- * différemment selon le contexte, mais l'échec y est attendu.
+ * cause le client+événement déjà créés avec succès. Best-effort : la
+ * fiabilité de ces deux champs sur CE formulaire d'édition précis n'a pas
+ * été reconfirmée depuis la correction du libellé "Occupation du logement"
+ * (voir remplirMenuApresLibelle), un échec ici n'est donc pas surprenant.
  */
 async function renseignerSourceEtCategorieSurFiche(page: import("playwright").Page, demande: DemandeIntervention): Promise<string> {
   await allerAuxClients(page);
@@ -1224,21 +993,10 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
   const navigateur = await chromium.launch({ headless: true });
   let page: import("playwright").Page | undefined;
   try {
-    // Echec reel decisif (TEST-CLAUDE23) : meme en passant par l'ecran
-    // complet "Clients → Nouveau client" (creerClientDepuisEcranClients),
-    // le serveur Synec renvoie EXACTEMENT la meme requete/gabarit reduit
-    // "on_the_fly=true" sans Source d'acquisition/Catégorie - preuve que
-    // ce n'est pas le bouton/chemin qui determine le gabarit. Seule
-    // difference restante avec les captures/video reelles de
-    // l'utilisateur (prises sur un vrai iPhone, barre de statut visible) :
-    // notre session n'envoyait qu'une largeur de viewport etroite, pas un
-    // vrai user-agent/empreinte mobile (toujours Chromium desktop headless
-    // sous le capot). Emulation iPhone complete (devices["iPhone 13"] :
-    // user-agent, isMobile, hasTouch, deviceScaleFactor) plutot qu'une
-    // simple largeur, pour voir si Synec decide du gabarit cote serveur
-    // selon l'empreinte reelle de l'appareil.
-    page = await navigateur.newPage({ ...devices["iPhone 13"] });
-    demarrerJournalReseau(page);
+    // Meme largeur que synecSync.ts (telephone, pas bureau) : le menu ne se
+    // comporte pas de la meme facon a une largeur de bureau, confirme en
+    // production sur la synchronisation en lecture.
+    page = await navigateur.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     await seConnecter(page, identifiant, motDePasse);
 
@@ -1249,20 +1007,19 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     let noteSourceCategorie = "";
 
     if (!clientReutilise) {
-      // Preuve directe et definitive (TEST-CLAUDE22, corps HTML brut de la
-      // requete serveur capture) : le raccourci integre "+ Créer un
-      // nouveau client" (creerClientDepuisFormulaireEvenement) charge un
-      // gabarit SERVEUR reduit qui ne contient jamais "Source
-      // d'acquisition" ni "Catégorie" - uniquement "Occupation du
-      // logement"/"Nature du bien". Quand ces deux champs sont demandes,
-      // on passe donc par l'ecran complet "Clients → Nouveau client"
-      // (creerClientDepuisEcranClients), qui les contient reellement
-      // (confirme par capture d'ecran de l'utilisateur). Sinon, le
-      // raccourci integre reste utilise (plus simple, deja fiable).
-      const besoinSourceCategorie = demande.sourceAcquisition || demande.categorie;
-      noteSourceCategorie = besoinSourceCategorie
-        ? await creerClientDepuisEcranClients(page, demande)
-        : await creerClientDepuisFormulaireEvenement(page, demande);
+      // Pas de correspondance exacte : cree le client directement depuis
+      // cette meme fenetre, via son raccourci integre "+ Créer un nouveau
+      // client" (voir creerClientDepuisFormulaireEvenement) - le chemin
+      // reellement emprunte par l'utilisateur. Occupation du logement /
+      // Nature du bien sont renseignees directement dans ce meme
+      // formulaire. Source d'acquisition / Catégorie ne sont volontairement
+      // plus tentees (voir NOTE_SOURCE_CATEGORIE_NON_DISPONIBLE) : preuve
+      // directe et definitive (corps HTML brut du serveur Synec capture
+      // lors du diagnostic) que ces deux champs sont absents du gabarit
+      // servi pour la creation rapide de client, quel que soit le chemin
+      // UI emprunte ou l'empreinte du navigateur - limitation confirmee du
+      // produit Synec, pas un bug d'automatisation.
+      noteSourceCategorie = await creerClientDepuisFormulaireEvenement(page, demande);
 
       // Echec reel : une fois le client cree et enregistre, l'enchainement
       // ramene sur l'ecran general du Planning plutot que de rester dans
