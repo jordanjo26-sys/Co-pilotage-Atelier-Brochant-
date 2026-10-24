@@ -1101,6 +1101,23 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     await seConnecter(page, identifiant, motDePasse);
 
+    // Hypothese testee suite a l'echec persistant et systematique de
+    // "Source d'acquisition"/"Catégorie" (TEST-CLAUDE14 a 18, y compris
+    // apres avoir corrige le ciblage du bouton "+ Créer un nouveau client"
+    // et ajoute un diagnostic precoce confirmant 0 candidat dans le DOM) :
+    // a la difference d'"Occupation du logement"/"Nature du bien" (options
+    // generiques, fonctionnent de facon fiable), ces deux champs utilisent
+    // des listes PERSONNALISEES propres a ce compte (Google/Pages
+    // jaunes/Maps, Plomberie/Serrurerie/etc.) - probablement chargees
+    // paresseusement, seulement une fois l'ecran "Clients" visite au moins
+    // une fois dans la session. Notre parcours ne passait jamais par cet
+    // ecran avant d'ouvrir "Création d'un client" via le raccourci integre
+    // a l'evenement. Visite "Clients" une fois en debut de session pour
+    // "rechauffer" cette liste avant de creer le client.
+    if (demande.sourceAcquisition || demande.categorie) {
+      await allerAuxClients(page).catch(() => {});
+    }
+
     await allerAuPlanning(page);
     await ouvrirNouvelEvenement(page);
 
