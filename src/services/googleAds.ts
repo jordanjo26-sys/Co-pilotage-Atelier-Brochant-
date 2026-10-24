@@ -48,9 +48,21 @@ async function obtenirClientAds(prisma: PrismaClient): Promise<Customer | null> 
     developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
   });
 
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, "");
+
   return client.Customer({
-    customer_id: process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, ""),
-    login_customer_id: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, "") || undefined,
+    customer_id: customerId,
+    // Echec reel ("authorization_error":2, "User doesn't have permission to
+    // access customer") : contrairement a l'hypothese de depart ("compte
+    // gestionnaire necessaire pour le Centre API"), confirme par
+    // l'utilisateur qu'il n'existe en realite QU'UN SEUL compte Google Ads
+    // (pas de structure gestionnaire+client separee - "Atelier Brochant" ne
+    // possede aucun compte propre). Envoyer un login_customer_id identique
+    // au customer_id cible n'a pas de sens pour l'API (l'en-tete sert a
+    // s'identifier comme un AUTRE compte gestionnaire) - ne l'envoie que
+    // s'il differe reellement.
+    login_customer_id: loginCustomerId && loginCustomerId !== customerId ? loginCustomerId : undefined,
     refresh_token: dechiffrer(connexion.refreshTokenChiffre),
   });
 }
