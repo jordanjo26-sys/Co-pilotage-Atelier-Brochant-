@@ -105,20 +105,24 @@ export async function diagnosticLienGestionnaire(prisma: PrismaClient): Promise<
     refresh_token: dechiffrer(connexion.refreshTokenChiffre),
   });
 
+  const prefixe = `compte Google connecte (gmailConnexion.compteEmail)="${connexion.compteEmail}" - `;
   try {
     const lignes = await gestionnaire.query(`
       SELECT customer_client.client_customer, customer_client.descriptive_name, customer_client.status, customer_client.manager, customer_client.level
       FROM customer_client
     `);
-    if (lignes.length === 0) return "requete reussie mais aucun compte client retourne (liste vide)";
-    return lignes
-      .map((l) => {
-        const cc = l.customer_client;
-        return `${cc?.client_customer ?? "?"} "${cc?.descriptive_name ?? "?"}" statut=${cc?.status ?? "?"} gestionnaire=${cc?.manager ?? "?"} niveau=${cc?.level ?? "?"}`;
-      })
-      .join(" | ");
+    if (lignes.length === 0) return `${prefixe}requete reussie mais aucun compte client retourne (liste vide)`;
+    return (
+      prefixe +
+      lignes
+        .map((l) => {
+          const cc = l.customer_client;
+          return `${cc?.client_customer ?? "?"} "${cc?.descriptive_name ?? "?"}" statut=${cc?.status ?? "?"} gestionnaire=${cc?.manager ?? "?"} niveau=${cc?.level ?? "?"}`;
+        })
+        .join(" | ")
+    );
   } catch (err) {
-    return `echec de la requete sur le compte gestionnaire lui-meme : ${messageErreurGoogleAds(err)}`;
+    return `${prefixe}echec de la requete sur le compte gestionnaire lui-meme : ${messageErreurGoogleAds(err)}`;
   }
 }
 
