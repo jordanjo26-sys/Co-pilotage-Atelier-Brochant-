@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, devices } from "playwright";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { readFile } from "fs/promises";
 import dayjs from "dayjs";
@@ -1224,10 +1224,20 @@ export async function envoyerDemandeVersSynec(prisma: PrismaClient, demandeId: s
   const navigateur = await chromium.launch({ headless: true });
   let page: import("playwright").Page | undefined;
   try {
-    // Meme largeur que synecSync.ts (telephone, pas bureau) : le menu ne se
-    // comporte pas de la meme facon a une largeur de bureau, confirme en
-    // production sur la synchronisation en lecture.
-    page = await navigateur.newPage({ viewport: { width: 390, height: 844 } });
+    // Echec reel decisif (TEST-CLAUDE23) : meme en passant par l'ecran
+    // complet "Clients → Nouveau client" (creerClientDepuisEcranClients),
+    // le serveur Synec renvoie EXACTEMENT la meme requete/gabarit reduit
+    // "on_the_fly=true" sans Source d'acquisition/Catégorie - preuve que
+    // ce n'est pas le bouton/chemin qui determine le gabarit. Seule
+    // difference restante avec les captures/video reelles de
+    // l'utilisateur (prises sur un vrai iPhone, barre de statut visible) :
+    // notre session n'envoyait qu'une largeur de viewport etroite, pas un
+    // vrai user-agent/empreinte mobile (toujours Chromium desktop headless
+    // sous le capot). Emulation iPhone complete (devices["iPhone 13"] :
+    // user-agent, isMobile, hasTouch, deviceScaleFactor) plutot qu'une
+    // simple largeur, pour voir si Synec decide du gabarit cote serveur
+    // selon l'empreinte reelle de l'appareil.
+    page = await navigateur.newPage({ ...devices["iPhone 13"] });
     demarrerJournalReseau(page);
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     await seConnecter(page, identifiant, motDePasse);
