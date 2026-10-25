@@ -58,6 +58,12 @@ TELEPHONE_NUMERO_SECOURS_ARG="${14:-}"
 GOOGLE_ADS_DEVELOPER_TOKEN_ARG="${15:-}"
 GOOGLE_ADS_CUSTOMER_ID_ARG="${16:-}"
 GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG="${17:-}"
+# Module Reseaux sociaux (Facebook/Instagram) : identifiant et cle secrete
+# de l'application Meta for Developers, depuis les secrets GitHub
+# META_APP_ID/META_APP_SECRET. Absents, l'onglet Reseaux sociaux reste
+# desactive (voir .env.example).
+META_APP_ID_ARG="${18:-}"
+META_APP_SECRET_ARG="${19:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -220,8 +226,19 @@ definir_variable TELEPHONE_MODE "$TELEPHONE_MODE"
 definir_variable GOOGLE_ADS_DEVELOPER_TOKEN "$GOOGLE_ADS_DEVELOPER_TOKEN_ARG"
 definir_variable GOOGLE_ADS_CUSTOMER_ID "$GOOGLE_ADS_CUSTOMER_ID_ARG"
 definir_variable GOOGLE_ADS_LOGIN_CUSTOMER_ID "$GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG"
+definir_variable META_APP_ID "$META_APP_ID_ARG"
+definir_variable META_APP_SECRET "$META_APP_SECRET_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
+fi
+# META_REDIRECT_URI/PUBLIC_BASE_URL dependent uniquement du domaine (pas des
+# secrets) : memes principe que GOOGLE_REDIRECT_URI/TELEPHONE_URL_PUBLIQUE
+# ci-dessus, renseignes automatiquement une fois le domaine connu.
+if ! grep -q '^META_REDIRECT_URI=' "$ENV_FILE" 2>/dev/null; then
+  echo "META_REDIRECT_URI=https://${DOMAIN}/auth/meta/callback" >> "$ENV_FILE"
+fi
+if ! grep -q '^PUBLIC_BASE_URL=' "$ENV_FILE" 2>/dev/null; then
+  echo "PUBLIC_BASE_URL=https://${DOMAIN}" >> "$ENV_FILE"
 fi
 
 echo "== Base de donnees PostgreSQL =="
