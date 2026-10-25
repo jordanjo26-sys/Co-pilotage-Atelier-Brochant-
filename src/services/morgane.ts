@@ -20,6 +20,7 @@ import {
   obtenirSnippetConversion,
   listerPerformanceAnnonces,
   verifierPolitiqueAnnonces,
+  rechercherAudiences,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
@@ -277,6 +278,18 @@ const OUTILS: Anthropic.Tool[] = [
       properties: {
         campagneId: { type: "string", description: "Limiter a une campagne precise (campaign.id, voir obtenir_campagnes_ads). Omis = toutes les campagnes." },
       },
+    },
+  },
+  {
+    name: "rechercher_audiences_ads",
+    description:
+      "Cherche, pour chaque terme donne, une categorie d'audience Google Ads existante (user_interest) dont le nom contient ce terme, et retourne son nom EXACT tel que Google le connait. Indispensable AVANT de proposer ajouter_audiences_campagne avec un nom invente ou traduit litteralement (ex. 'Securite domestique') : Google ne resout que son propre libelle exact, et un nom sans correspondance fait echouer tout l'ajout d'audiences (pas seulement celui-la). Essaie plusieurs termes courts et varies (francais et anglais, singulier/pluriel, synonymes) si le premier essai ne trouve rien - c'est une recherche par 'contient', pas une resolution intelligente. Lecture seule, aucune modification.",
+    input_schema: {
+      type: "object",
+      properties: {
+        termes: { type: "array", items: { type: "string" }, description: "Termes a chercher, ex. ['demenagement', 'moving', 'securite', 'alarm', 'bricolage', 'home improvement']." },
+      },
+      required: ["termes"],
     },
   },
   {
@@ -691,6 +704,18 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       const campagneId = typeof params.campagneId === "string" && params.campagneId ? params.campagneId : undefined;
       try {
         return { annonces: await verifierPolitiqueAnnonces(prisma, campagneId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
+    case "rechercher_audiences_ads": {
+      const termes = Array.isArray(params.termes) ? params.termes.filter((t): t is string => typeof t === "string" && t.length > 0) : [];
+      if (termes.length === 0) return { erreur: "termes manquant ou vide" };
+      try {
+        const trouvees = await rechercherAudiences(prisma, termes);
+        const manquantes = termes.filter((t) => !trouvees.some((a) => a.nomRecherche === t));
+        return { trouvees, manquantes };
       } catch (err) {
         return { erreur: messageErreurGoogleAds(err) };
       }
