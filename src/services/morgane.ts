@@ -218,7 +218,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "obtenir_extensions_appel_ads",
     description:
-      "Retourne les extensions d'appel (numero de telephone affiche dans l'annonce) liees a chaque campagne, avec le statut du suivi de conversion d'appel. Une campagne ABSENTE du resultat n'a PAS d'extension d'appel configuree. A utiliser pour verifier qu'une campagne dispose bien d'un moyen de suivre les appels telephoniques independamment du site. Precise campagneId pour te concentrer sur une seule campagne. Lecture seule.",
+      "Retourne les extensions d'appel (numero de telephone affiche dans l'annonce) liees a chaque campagne. suiviConversionAppel indique si le suivi est actif : \"DISABLED\" = pas de suivi, \"USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION\" = suit via l'action de conversion du compte (bon signe, ca marche), \"USE_RESOURCE_LEVEL_CALL_CONVERSION_ACTION\" = action dediee a cette extension. Une campagne ABSENTE du resultat n'a PAS d'extension d'appel configuree. Precise campagneId pour te concentrer sur une seule campagne. Lecture seule.",
     input_schema: {
       type: "object",
       properties: {

@@ -670,6 +670,21 @@ export interface ExtensionAppelAds {
   suiviConversionAppel: string; // "DISABLED" | "USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION" | "USE_RESOURCE_LEVEL_CALL_CONVERSION_ACTION"
 }
 
+// La librairie google-ads-api ne decode pas toujours en texte lisible les
+// enums imbriques dans un message commun (ex. asset.call_asset.*, par
+// opposition aux enums directement sur une ressource comme campaign.status) -
+// constate en pratique : Morgane a recu "3" au lieu de
+// "USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION", impossible a interpreter sans
+// connaitre l'ordre de l'enum CallConversionReportingState. Decode
+// explicitement plutot que de faire confiance a la conversion automatique.
+const LIBELLES_SUIVI_CONVERSION_APPEL: Record<string, string> = {
+  "0": "UNSPECIFIED",
+  "1": "UNKNOWN",
+  "2": "DISABLED",
+  "3": "USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION",
+  "4": "USE_RESOURCE_LEVEL_CALL_CONVERSION_ACTION",
+};
+
 /**
  * Liste les extensions d'appel (CallAsset) liees a chaque campagne, avec le
  * numero affiche et si le suivi de conversion d'appel y est active.
@@ -704,6 +719,9 @@ export async function listerExtensionsAppel(prisma: PrismaClient, campagneId?: s
     statutLien: String(ligne.campaign_asset?.status ?? ""),
     numero: ligne.asset?.call_asset?.phone_number ?? "",
     indicatifPays: ligne.asset?.call_asset?.country_code ?? "",
-    suiviConversionAppel: String(ligne.asset?.call_asset?.call_conversion_reporting_state ?? ""),
+    suiviConversionAppel: (() => {
+      const brut = String(ligne.asset?.call_asset?.call_conversion_reporting_state ?? "");
+      return LIBELLES_SUIVI_CONVERSION_APPEL[brut] ?? brut;
+    })(),
   }));
 }
