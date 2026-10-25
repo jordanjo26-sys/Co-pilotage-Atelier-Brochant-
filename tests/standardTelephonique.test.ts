@@ -321,5 +321,17 @@ test("standard telephonique : tours de conversation, message et compte rendu", a
     }
   });
 
+  await t.test("compte rendu non envoye : repris automatiquement plus tard", async () => {
+    const { renvoyerComptesRendusEnAttente } = await import("../src/services/messagerieSecours");
+    const appel = await demarrerAppel(prisma, "CA-6", "+33600000006");
+    // Appel termine il y a 10 minutes, compte rendu jamais parti.
+    await prisma.appel.update({ where: { id: appel.id }, data: { createdAt: new Date(Date.now() - 10 * 60 * 1000), statut: "termine" } });
+    const repris = await renvoyerComptesRendusEnAttente(prisma);
+    assert.ok(repris >= 1);
+    const apres = await prisma.appel.findUniqueOrThrow({ where: { callSid: "CA-6" } });
+    // Sans boite Gmail en test : journalise et marque traite (pas de boucle).
+    assert.notEqual(apres.notifieLe, null);
+  });
+
   await prisma.$disconnect();
 });

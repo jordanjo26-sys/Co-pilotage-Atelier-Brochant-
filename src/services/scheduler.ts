@@ -5,7 +5,7 @@ import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
 import { detecterReponses, executerEnvoisAutomatiques } from "./prospection/campagnes";
-import { recupererMessagesSecours } from "./messagerieSecours";
+import { recupererMessagesSecours, renvoyerComptesRendusEnAttente } from "./messagerieSecours";
 import { verifierMailsImportants } from "./mailsImportants";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -223,6 +223,9 @@ export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void 
   setInterval(() => {
     recupererMessagesSecours(prisma).catch((err) => {
       console.error("Recuperation des messages de secours en echec :", (err as Error).message);
+    });
+    renvoyerComptesRendusEnAttente(prisma).catch((err) => {
+      console.error("Renvoi des comptes rendus d'appel en echec :", (err as Error).message);
     });
   }, 5 * 60 * 1000);
 }

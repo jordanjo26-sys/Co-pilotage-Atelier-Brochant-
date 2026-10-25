@@ -27,6 +27,32 @@ async function alertesTwilio(): Promise<void> {
   }
 }
 
+/** Derniers appels vus par Twilio : duree, statut, et requetes des webhooks (Call Events). */
+async function appelsTwilio(): Promise<void> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !token) return;
+  const headers = { Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}` };
+  const api = `https://api.twilio.com/2010-04-01/Accounts/${sid}`;
+  const reponse = await fetch(`${api}/Calls.json?PageSize=4`, { headers });
+  if (!reponse.ok) return console.log(`Appels Twilio : HTTP ${reponse.status}`);
+  const { calls } = (await reponse.json()) as { calls: { sid: string; start_time: string; duration: string; status: string }[] };
+  for (const c of calls) {
+    console.log(`Twilio appel ${c.start_time} duree=${c.duration}s statut=${c.status}`);
+    const ev = await fetch(`${api}/Calls/${c.sid}/Events.json?PageSize=20`, { headers });
+    if (!ev.ok) continue;
+    const { events } = (await ev.json()) as { events: { request?: { url?: string; parameters?: Record<string, string> }; response?: { response_code?: number; response_body?: string } }[] };
+    for (const e of events) {
+      const p = e.request?.parameters ?? {};
+      const extrait = ["SessionStatus", "SessionDuration", "ErrorCode", "ErrorMessage", "HandoffData", "CallStatus"]
+        .filter((k) => p[k] !== undefined)
+        .map((k) => `${k}=${String(p[k]).slice(0, 120)}`)
+        .join(" ");
+      console.log(`   ${e.request?.url ?? "?"} -> ${e.response?.response_code ?? "?"} ${extrait} :: ${(e.response?.response_body ?? "").replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+  }
+}
+
 async function journalApplicatif(): Promise<void> {
   const prisma = new PrismaClient();
   try {
@@ -43,7 +69,7 @@ async function journalApplicatif(): Promise<void> {
     const evenements = await prisma.journalEvenement.findMany({
       where: { evenement: { startsWith: "appel" } },
       orderBy: { horodatage: "desc" },
-      take: 10,
+      take: 15,
     });
     for (const e of evenements) console.log(`Journal ${e.horodatage.toISOString()} ${e.evenement} :: ${(e.resultat ?? "").slice(0, 300)}`);
   } finally {
@@ -80,5 +106,6 @@ async function testLatenceIA(): Promise<void> {
 (async () => {
   await testLatenceIA().catch((err) => console.log(`Test IA en echec : ${(err as Error).message}`));
   await alertesTwilio().catch((err) => console.log(`Alertes Twilio en echec : ${(err as Error).message}`));
+  await appelsTwilio().catch((err) => console.log(`Appels Twilio en echec : ${(err as Error).message}`));
   await journalApplicatif().catch((err) => console.log(`Journal applicatif en echec : ${(err as Error).message}`));
 })();
