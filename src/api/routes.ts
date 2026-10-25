@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
-import { getDashboardSummary } from "../services/dashboardService";
+import { getDashboardSummary, getCaSerieTemporelle, GranulariteCa } from "../services/dashboardService";
 import {
   synchroniserGmail,
   resumerErreurs,
@@ -25,6 +25,16 @@ import { getGmailClient } from "../services/googleAuth";
 import { typeMimePourAffichage } from "../services/fileType";
 import { genererPdfFacturesImpayees } from "../services/facturesPdf";
 import { genererPdfPaiements } from "../services/paiementsPdf";
+import {
+  creerDemandeIntervention,
+  listerDemandesIntervention,
+  marquerDemandeInterventionSaisie,
+  modifierDemandeIntervention,
+  DemandeInterventionValidationError,
+} from "../services/demandesIntervention";
+import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
+import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
+import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds } from "../services/googleAdsActions";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -221,6 +231,18 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   router.get("/dashboard/summary", async (_req, res) => {
     res.json(await getDashboardSummary(prisma));
+  });
+
+  // Serie temporelle du CA pour le graphique du tableau de bord (demande
+  // explicite : "pouvoir regarder mon chiffre d'affaires par jour ou par
+  // mois ou par annee").
+  const GRANULARITES_CA_VALIDES: GranulariteCa[] = ["jour", "mois", "annee"];
+  router.get("/dashboard/ca-serie", async (req, res) => {
+    const granularite = req.query.granularite;
+    if (typeof granularite !== "string" || !GRANULARITES_CA_VALIDES.includes(granularite as GranulariteCa)) {
+      return res.status(400).json({ erreur: `granularite invalide, attendu l'un de : ${GRANULARITES_CA_VALIDES.join(", ")}` });
+    }
+    res.json(await getCaSerieTemporelle(prisma, granularite as GranulariteCa));
   });
 
   // --- Gmail -> Dext (section 7) ------------------------------------------
@@ -523,6 +545,111 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.json(await terminerDecision(prisma, req.params.id));
     } catch {
       res.status(404).json({ erreur: "Decision introuvable." });
+    }
+  });
+
+  // --- Demandes d'intervention (saisie rapide apres un appel client) ------
+  //
+  // Demande utilisateur : remplace la prise de note papier puis la double
+  // saisie dans Synec (qui n'a pas d'API) par une fiche structuree depuis
+  // le telephone. File d'attente "a saisir" tant que Synec lui-meme n'est
+  // pas automatise cote ecriture - voir docs/prospection.md pour le
+  // parallele avec Synec cote lecture (export factures).
+
+  router.post("/demandes-intervention", async (req, res) => {
+    try {
+      const demande = await creerDemandeIntervention(prisma, req.body || {});
+      res.status(201).json(demande);
+    } catch (err) {
+      if (err instanceof DemandeInterventionValidationError) return res.status(400).json({ erreur: err.message });
+      throw err;
+    }
+  });
+
+  router.get("/demandes-intervention", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : "a_saisir";
+    res.json(await listerDemandesIntervention(prisma, statut));
+  });
+
+  router.patch("/demandes-intervention/:id", async (req, res) => {
+    try {
+      res.json(await modifierDemandeIntervention(prisma, req.params.id, req.body || {}));
+    } catch (err) {
+      if (err instanceof DemandeInterventionValidationError) return res.status(400).json({ erreur: err.message });
+      res.status(404).json({ erreur: "Demande introuvable." });
+    }
+  });
+
+  router.patch("/demandes-intervention/:id/marquer-saisie", async (req, res) => {
+    try {
+      res.json(await marquerDemandeInterventionSaisie(prisma, req.params.id));
+    } catch {
+      res.status(404).json({ erreur: "Demande introuvable." });
+    }
+  });
+
+  // Ecriture automatique dans Synec (client + planning), voir
+  // src/services/synecEcriture.ts - declenchee uniquement par ce clic
+  // explicite sur UNE demande precise, jamais automatique.
+  router.post("/demandes-intervention/:id/envoyer-synec", async (req, res) => {
+    try {
+      res.json(await envoyerDemandeVersSynec(prisma, req.params.id));
+    } catch (err) {
+      if (err instanceof SynecEcritureError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // --- Google Ads : import manuel (palliatif en attendant l'acces API) ----
+  //
+  // Demande utilisateur : analyser les campagnes avec Morgane des
+  // maintenant, sans attendre que Google valide l'acces API ("Acces
+  // Explorer" en attente, voir src/services/googleAds.ts). Chaque depot
+  // remplace la photographie precedente - voir src/services/googleAdsImport.ts.
+
+  router.post("/google-ads/import", upload.single("fichier"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ erreur: "Aucun fichier recu (champ attendu : 'fichier')." });
+    }
+    try {
+      const resultat = await importerCampagnesAds(prisma, req.file.originalname, req.file.buffer);
+      res.status(200).json(resultat);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.get("/google-ads/dernier-import", async (_req, res) => {
+    const resultat = await dernieresCampagnesImportees(prisma);
+    res.json(resultat);
+  });
+
+  // --- Google Ads : propositions d'action de Morgane (ecran de validation) -
+  //
+  // Demande explicite de l'utilisateur : Morgane ne modifie jamais une
+  // campagne directement depuis la conversation - elle depose une
+  // proposition (voir /morgane/message, outil proposer_action_ads), que
+  // l'utilisateur accepte ou refuse ici, hors conversation. Voir
+  // src/services/googleAdsActions.ts.
+
+  router.get("/google-ads/propositions", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
+    res.json(await listerPropositionsAds(prisma, statut));
+  });
+
+  router.post("/google-ads/propositions/:id/accepter", async (req, res) => {
+    try {
+      res.json(await accepterPropositionAds(prisma, req.params.id));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.post("/google-ads/propositions/:id/refuser", async (req, res) => {
+    try {
+      res.json(await refuserPropositionAds(prisma, req.params.id));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
     }
   });
 

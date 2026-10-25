@@ -100,7 +100,7 @@ export function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | und
   return pieces;
 }
 
-function extraireEntete(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, nom: string): string {
+export function extraireEntete(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, nom: string): string {
   return headers?.find((h) => h.name?.toLowerCase() === nom.toLowerCase())?.value || "";
 }
 

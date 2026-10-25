@@ -20,6 +20,11 @@
   --critical: #C43B54;
   --critical-soft: #F7DEE3;
   --shadow: 0 1px 2px rgba(22,33,62,0.06), 0 8px 24px -12px rgba(22,33,62,0.18);
+  /* Teinte dediee au trait du graphique de CA : --brand-teal seul passe
+     sous 3:1 de contraste sur fond clair (valide via le script du skill
+     dataviz, scripts/validate_palette.js) - version plus foncee/saturee
+     pour un trait fin qui reste lisible sans dependre d'une etiquette. */
+  --graphique-ligne: #1F8A6E;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +47,9 @@
     --critical: #E5677E;
     --critical-soft: #3B1620;
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.55);
+    /* --brand-teal (dejaplus clair en mode sombre) passe deja >=3:1 sur
+       --surface ici, pas besoin d'une teinte separee comme en mode clair. */
+    --graphique-ligne: #4FCBA8;
   }
 }
 :root[data-theme="dark"] {
@@ -63,6 +71,7 @@
   --critical: #E5677E;
   --critical-soft: #3B1620;
   --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.55);
+  --graphique-ligne: #4FCBA8;
 }
 
 * { box-sizing: border-box; }
@@ -268,8 +277,8 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-bottom-right-radius: 4px;
 }
 .morgane-bulle-attente { opacity: 0.6; font-style: italic; }
-.morgane-formulaire { display: flex; gap: 8px; }
-.morgane-formulaire input {
+.morgane-formulaire { display: flex; gap: 8px; align-items: flex-end; }
+.morgane-formulaire input, .morgane-formulaire textarea {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
@@ -280,7 +289,18 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 13.5px;
   font-family: inherit;
 }
-.morgane-formulaire input:focus { outline: 2px solid var(--brand-violet); outline-offset: 1px; }
+.morgane-formulaire input:focus, .morgane-formulaire textarea:focus { outline: 2px solid var(--brand-violet); outline-offset: 1px; }
+/* Grandit avec le texte tape (hauteur geree en JS via scrollHeight) au lieu
+   d'un champ sur une seule ligne qui defile horizontalement - demande
+   explicite de l'utilisateur, qui ne pouvait pas se relire en dictant un
+   message un peu long. Plafonnee a 6 lignes environ puis defilement
+   vertical, pour ne jamais pousser le reste du panneau hors de vue. */
+.morgane-formulaire textarea {
+  resize: none;
+  line-height: 1.4;
+  max-height: 132px;
+  overflow-y: auto;
+}
 
 /* ---------- KPI grid ---------- */
 .grille-cockpit {
@@ -291,25 +311,91 @@ button:disabled { opacity: 0.4; cursor: default; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
+/* Chaque tuile porte sa propre couleur de signification via --tuile-couleur
+   (ex. .tuile-ca = teal, .tuile-impayes = ambre/critique...) plutot qu'un
+   gris uniforme : demande explicite de l'utilisateur ("couleurs vives...
+   qui donne envie"), voir public/app.js (chargerCockpit) pour les classes
+   posees sur chaque tuile. Teinte en fond (::before a faible opacite)
+   plutot qu'un fond plein : reste lisible, fonctionne pareil en mode
+   sombre (la couleur elle-meme change via les tokens --brand-*/--warning/
+   --critical, l'opacite reste la meme). */
 .tuile {
+  --tuile-couleur: var(--brand-blue);
+  position: relative;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px 14px;
+  overflow: hidden;
 }
+.tuile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--tuile-couleur);
+  opacity: 0.1;
+  pointer-events: none;
+}
+.tuile-ca { --tuile-couleur: var(--graphique-ligne); }
+.tuile-impayes { --tuile-couleur: var(--warning); }
+.tuile-imports { --tuile-couleur: var(--brand-blue); }
+.tuile-anomalies { --tuile-couleur: var(--brand-violet); }
+.tuile.alerte { --tuile-couleur: var(--critical); }
 .tuile-icone {
-  width: 30px; height: 30px;
+  position: relative;
+  width: 32px; height: 32px;
   border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 8px;
-  background: color-mix(in srgb, var(--brand-blue) 16%, transparent);
-  color: var(--brand-blue);
+  background: var(--tuile-couleur);
+  color: #fff;
 }
-.tuile-icone svg { width: 16px; height: 16px; }
-.tuile.alerte .tuile-icone { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
-.tuile .valeur { font-size: 21px; font-weight: 800; color: var(--ink); font-family: "Manrope", sans-serif; line-height: 1.1; }
-.tuile .label { font-size: 11px; color: var(--ink-muted); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-.tuile.alerte .valeur { color: var(--critical); }
+.tuile-icone svg { width: 17px; height: 17px; }
+.tuile .valeur { position: relative; font-size: 22px; font-weight: 800; color: var(--tuile-couleur); font-family: "Manrope", sans-serif; line-height: 1.1; }
+.tuile .label { position: relative; font-size: 11px; color: var(--ink-muted); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* ---------- Graphique du chiffre d'affaires ---------- */
+.graphique-entete { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.graphique-entete h2 { margin-bottom: 0; }
+.filtre-periode { display: flex; gap: 3px; background: var(--surface-2); border-radius: 10px; padding: 3px; }
+.filtre-periode-bouton {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.filtre-periode-bouton.actif { background: var(--graphique-ligne); color: #fff; }
+.graphique-ca { position: relative; }
+.graphique-ca-svg { width: 100%; aspect-ratio: 600 / 220; display: block; overflow: visible; }
+.graphique-grille { stroke: var(--line); stroke-width: 1; }
+.graphique-label-y, .graphique-label-x { font-size: 9.5px; fill: var(--ink-muted); font-weight: 600; font-family: "IBM Plex Sans", sans-serif; }
+.graphique-aire { fill: var(--graphique-ligne); opacity: 0.12; }
+.graphique-ligne { stroke: var(--graphique-ligne); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.graphique-marqueur-anneau { fill: var(--surface); }
+.graphique-marqueur-point { fill: var(--graphique-ligne); }
+.graphique-etiquette-fin { font-size: 12.5px; font-weight: 800; fill: var(--ink); font-family: "Manrope", sans-serif; }
+.graphique-curseur { stroke: var(--ink-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.graphique-point-survole { fill: var(--graphique-ligne); stroke: var(--surface); stroke-width: 2; }
+.graphique-zone-survol { cursor: crosshair; }
+.graphique-infobulle {
+  position: absolute;
+  transform: translate(-50%, -115%);
+  pointer-events: none;
+  background: var(--ink);
+  color: var(--surface);
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  z-index: 5;
+}
+.graphique-infobulle.a-droite { transform: translate(-92%, -115%); }
+.graphique-infobulle-valeur { font-weight: 800; font-size: 13px; }
+.graphique-infobulle-date { opacity: 0.7; font-size: 10.5px; margin-top: 1px; }
 
 /* ---------- Anomalies : liste de cartes plutot qu'un tableau (mobile) ---------- */
 .barre-actions-masse[hidden] { display: none; }
@@ -437,6 +523,170 @@ tbody tr:hover { background: var(--surface-2); }
   .grille-cockpit { grid-template-columns: repeat(4, 1fr); }
   form#form-import { flex-wrap: nowrap; }
 }
+
+/* ---------- Prospection ---------- */
+.nav-liens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
+}
+/* flex-wrap seul ne suffit pas : sans largeur minimale, l'overflow-wrap:anywhere
+   global (regle body, pour les longues URL sans espace) continue de couper un
+   lien court au milieu du mot avant de laisser la ligne passer au suivant
+   ("Accueil" -> "Accu/eil" repere a l'ecran, premier lien a ne contenir aucun
+   espace ou s'accrocher). */
+.nav-liens a { flex-shrink: 0; }
+.nav-liens a { font-size: 12.5px; font-weight: 700; color: var(--brand-blue); text-decoration: none; }
+.nav-liens a:hover { text-decoration: underline; }
+
+.form-grille {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+@media (min-width: 640px) {
+  .form-grille { grid-template-columns: repeat(2, 1fr); }
+  .form-grille.colonnes-3 { grid-template-columns: repeat(3, 1fr); }
+}
+.form-grille label { font-size: 11.5px; font-weight: 600; color: var(--ink-muted); display: flex; flex-direction: column; gap: 3px; }
+.form-grille input, .form-grille select, .form-grille textarea, .barre-filtres select, .barre-filtres input {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.form-grille textarea { min-height: 90px; resize: vertical; font-family: inherit; }
+.form-grille.pleine-largeur, .champ-pleine-largeur { grid-column: 1 / -1; }
+
+/* ---------- Autocomplétion d'adresse (API Adresse gouv.fr) ---------- */
+.champ-autocomplete { position: relative; }
+.liste-suggestions {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.liste-suggestions li {
+  padding: 8px 9px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.liste-suggestions li:hover, .liste-suggestions li:active { background: var(--surface-2); color: var(--ink); }
+
+/* ---------- Morgane flottante (injectee par morgane.js sur chaque page) ---------- */
+.morgane-bulle-ouvrir {
+  position: fixed;
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  right: max(20px, env(safe-area-inset-right, 0px));
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--brand-violet);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 30;
+}
+.morgane-bulle-ouvrir:hover { opacity: 0.9; }
+.morgane-bulle-ouvrir svg { width: 24px; height: 24px; }
+
+.morgane-panneau-flottant {
+  position: fixed;
+  z-index: 29;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: max(84px, calc(env(safe-area-inset-bottom, 0px) + 84px));
+  max-width: 420px;
+  margin-left: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  max-height: min(70vh, 560px);
+}
+.morgane-panneau-flottant[hidden] { display: none; }
+.morgane-entete-flottant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.morgane-entete-flottant strong { font-family: "Manrope", sans-serif; font-size: 14.5px; color: var(--ink); }
+.morgane-entete-flottant button {
+  background: none;
+  border: none;
+  color: var(--ink-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  min-height: auto;
+}
+.morgane-panneau-flottant .morgane-fil { flex: 1; margin: 0; padding: 10px 12px; }
+.morgane-panneau-flottant .morgane-formulaire { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); }
+
+.barre-filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.barre-filtres select, .barre-filtres input { flex: 1 1 140px; min-width: 0; }
+
+.pastille-statut {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pastille-a_contacter { background: var(--surface-2); color: var(--ink-muted); }
+.pastille-contacte { background: color-mix(in srgb, var(--brand-blue) 16%, transparent); color: var(--brand-blue); }
+.pastille-relance { background: var(--warning-soft); color: var(--warning); }
+.pastille-rdv { background: color-mix(in srgb, var(--brand-violet) 18%, transparent); color: var(--brand-violet); }
+.pastille-client { background: var(--good-soft); color: var(--good); }
+.pastille-sans_suite { background: var(--critical-soft); color: var(--critical); }
+.pastille-faible { background: var(--surface-2); color: var(--ink-muted); }
+.pastille-normale { background: var(--warning-soft); color: var(--warning); }
+.pastille-urgente { background: var(--critical-soft); color: var(--critical); }
+
+.ligne-prospect { cursor: pointer; }
+.fiche-prospect {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.fiche-prospect h3 { font-size: 14px; margin: 0 0 8px; }
+.fiche-section { margin-top: 12px; }
+.fiche-section h4 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-muted); margin: 0 0 6px; }
+.historique-ligne { font-size: 12px; color: var(--ink-2); padding: 4px 0; border-top: 1px solid var(--line); }
+.historique-ligne:first-child { border-top: none; }
+.tuile-statuts { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.tuile-statut { flex: 1 1 100px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.tuile-statut .valeur { font-size: 19px; font-weight: 800; color: var(--ink); }
+.tuile-statut .label { font-size: 10.5px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
+
 @media (min-width: 900px) {
   main { max-width: 900px; }
 }
@@ -561,4 +811,60 @@ tbody tr:hover { background: var(--surface-2); }
   color: var(--critical);
 }
 .action-requise .libelle { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+
+/* ---------- Accueil (hub des poles) ----------
+   Un pole par metier plutot qu'un bandeau d'onglets qui s'allonge a chaque
+   nouvelle fonction (demande explicite de l'utilisateur, voir carte de
+   structuration discutee avec lui). Chaque pole garde sa couleur deja
+   utilisee ailleurs dans l'appli (tuiles, accent-* des cartes) pour rester
+   coherent visuellement avec le reste de l'outil plutot que d'inventer une
+   nouvelle palette. */
+.accueil-note {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+.accueil-note strong { color: var(--ink-2); }
+
+.liste-poles { display: flex; flex-direction: column; gap: 10px; }
+.carte-pole-accueil {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 13px 14px;
+  box-shadow: var(--shadow);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .12s ease, border-color .12s ease;
+}
+.carte-pole-accueil:hover { transform: translateY(-1px); border-color: var(--pole-couleur); }
+.carte-pole-accueil:active { transform: translateY(0); opacity: 0.85; }
+.pole-icone {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: var(--pole-couleur, var(--brand-blue));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pole-icone svg { width: 20px; height: 20px; }
+.pole-icone span { font-family: "Manrope", sans-serif; font-weight: 800; font-size: 16px; }
+.pole-corps { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pole-corps h3 { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+.pole-corps .pole-desc { font-size: 12px; color: var(--ink-muted); }
+.pole-corps .pole-meta { font-size: 12.5px; font-weight: 600; color: var(--pole-couleur, var(--brand-blue)); margin-top: 2px; min-height: 1em; }
+.pole-chevron { flex: none; color: var(--ink-muted); font-size: 16px; }
+
 .action-requise .fleche { color: var(--ink-muted); flex: none; }

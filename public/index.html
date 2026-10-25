@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=21" />
+  <link rel="stylesheet" href="/styles.css?v=27" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -14,6 +14,7 @@
       <div>
         <h1>Copilote Atelier Brochant</h1>
         <p class="sous-titre">Gestion commerciale, facturation et trésorerie</p>
+        <nav class="nav-liens"><a href="/accueil.html">Accueil</a> <a href="/prospection.html">Prospection commerciale →</a> <a href="/nouvelle-demande.html">Nouvelle demande client →</a></nav>
       </div>
     </div>
   </div>
@@ -58,23 +59,24 @@
         <div id="cockpit" class="grille-cockpit"></div>
       </section>
 
+      <section class="carte accent-teal carte-graphique-ca">
+        <div class="graphique-entete">
+          <h2>Chiffre d'affaires</h2>
+          <div class="filtre-periode" role="group" aria-label="Période du graphique">
+            <button type="button" class="filtre-periode-bouton actif" data-granularite="jour">Jour</button>
+            <button type="button" class="filtre-periode-bouton" data-granularite="mois">Mois</button>
+            <button type="button" class="filtre-periode-bouton" data-granularite="annee">Année</button>
+          </div>
+        </div>
+        <div id="graphique-ca" class="graphique-ca"></div>
+      </section>
+
       <section class="carte accent-ambre">
         <h2>Actions requises</h2>
         <p class="aide">Tout ce qui attend une décision de ta part, réuni au même endroit.</p>
         <div id="actions-requises"></div>
       </section>
 
-      <section class="carte accent-violet">
-        <h2>Morgane</h2>
-        <p class="aide">Assistante IA du copilote : pose une question sur l'activité ou délègue-lui une tâche (synchroniser Gmail, envoyer le bilan, ignorer une anomalie...).</p>
-        <div id="morgane-fil" class="morgane-fil">
-          <div class="morgane-message morgane-bulle-assistant">Bonjour, je suis Morgane. Comment puis-je t'aider ?</div>
-        </div>
-        <form id="form-morgane" class="morgane-formulaire">
-          <input type="text" id="morgane-saisie" placeholder="Écris à Morgane…" autocomplete="off" />
-          <button type="submit">Envoyer</button>
-        </form>
-      </section>
     </div>
 
     <!-- ===== Factures ===== -->
@@ -185,6 +187,23 @@
         <div id="gmail-statut"></div>
       </section>
 
+      <section class="carte accent-ambre">
+        <h2>Google Ads (import manuel)</h2>
+        <p class="aide">Repli si l'accès API live est indisponible : déposez ici un export CSV « Campagnes » téléchargé depuis Google Ads, Morgane l'utilisera pour analyser vos campagnes.</p>
+        <div id="google-ads-statut"></div>
+        <form id="form-import-ads" class="form-grille" style="margin-top:10px">
+          <input type="file" id="fichier-import-ads" accept=".csv" required />
+          <button type="submit">Importer le CSV</button>
+        </form>
+        <div id="resultat-import-ads"></div>
+      </section>
+
+      <section class="carte accent-bleu">
+        <h2>Google Ads — propositions de Morgane</h2>
+        <p class="aide">Mises en pause/réactivations et nouvelles campagnes proposées par Morgane après discussion avec vous. Rien n'est appliqué sur Google Ads tant que vous n'acceptez pas ici — une nouvelle campagne est toujours créée en pause.</p>
+        <div id="liste-propositions-ads"></div>
+      </section>
+
       <section class="carte accent-violet">
         <h2>Mémoire de Morgane</h2>
         <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>
@@ -201,6 +220,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=27"></script>
+  <script src="/app.js?v=31"></script>
+  <script src="/morgane.js?v=2"></script>
 </body>
 </html>

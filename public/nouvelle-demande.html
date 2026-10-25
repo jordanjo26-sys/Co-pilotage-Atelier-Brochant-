@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nouvelle demande client — Atelier Brochant</title>
+  <link rel="icon" href="/logo.png" />
+  <link rel="stylesheet" href="/styles.css?v=27" />
+</head>
+<body>
+  <div class="entete" role="banner">
+    <div class="brand">
+      <img src="/logo.png" alt="Atelier Brochant" />
+      <div>
+        <h1>Nouvelle demande client</h1>
+        <p class="sous-titre">Saisie rapide après un appel, à reporter ensuite dans Synec (client + planning)</p>
+        <nav class="nav-liens"><a href="/accueil.html">Accueil</a> <a href="/">← Retour au cockpit de gestion</a></nav>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <section class="carte accent-teal">
+      <h2>Nouvel appel</h2>
+      <p class="aide">À remplir juste après avoir raccroché, à la place du papier. Seul le nom est obligatoire.</p>
+      <form id="form-demande" class="form-grille">
+        <label>Nom du client *<input name="nom" required /></label>
+        <label>Téléphone<input name="telephone" type="tel" /></label>
+        <label>E-mail<input name="email" type="email" /></label>
+        <label class="champ-autocomplete">Adresse (numéro et rue)
+          <input name="adresse" id="champ-adresse" autocomplete="off" />
+          <ul id="suggestions-adresse" class="liste-suggestions" hidden></ul>
+        </label>
+        <label>Code postal<input name="codePostal" /></label>
+        <label>Ville<input name="ville" /></label>
+        <label>Logement
+          <select name="typeLogement"><option value="">—</option><option value="maison">Maison</option><option value="appartement">Appartement</option></select>
+        </label>
+        <label>Locataire ou propriétaire
+          <select name="occupation">
+            <option value="">—</option>
+            <option value="proprietaire">Propriétaire</option>
+            <option value="locataire">Locataire</option>
+          </select>
+        </label>
+        <label>Étage (si appartement)<input name="etage" /></label>
+        <label>Code d'accès / interphone<input name="codeAcces" /></label>
+        <label>Urgence
+          <select name="urgence">
+            <option value="normale" selected>Normale</option>
+            <option value="urgente">Urgente</option>
+            <option value="faible">Faible (devis/info)</option>
+          </select>
+        </label>
+        <label>Début souhaité<input name="dateSouhaitee" type="datetime-local" /></label>
+        <label>Fin souhaitée<input name="dateSouhaiteeFin" type="datetime-local" /></label>
+        <label>Source d'acquisition
+          <select name="sourceAcquisition">
+            <option value="">—</option>
+            <option value="google">Google</option>
+            <option value="pages_jaunes">Pages Jaunes</option>
+            <option value="maps">Maps</option>
+          </select>
+        </label>
+        <label>Catégorie
+          <select name="categorie">
+            <option value="">—</option>
+            <option value="plomberie">Plomberie</option>
+            <option value="serrurerie">Serrurerie</option>
+            <option value="electricite">Électricité</option>
+            <option value="assainissement">Assainissement</option>
+          </select>
+        </label>
+        <label class="champ-pleine-largeur">Motif / renseignements<textarea name="motif" placeholder="Pièce concernée, depuis quand…"></textarea></label>
+        <div class="champ-pleine-largeur ligne-boutons">
+          <button type="submit" id="bouton-soumettre-demande">Enregistrer</button>
+          <button type="button" class="ghost" id="bouton-annuler-modification" hidden>Annuler la modification</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="carte accent-ambre">
+      <h2>À saisir dans Synec</h2>
+      <p class="aide">Demandes enregistrées mais pas encore reportées manuellement dans Synec (client + planning). Une fois fait, marque-les comme saisies pour les sortir de cette liste.</p>
+      <div id="liste-demandes"></div>
+    </section>
+  </main>
+
+  <script src="/nouvelle-demande.js?v=4"></script>
+  <script src="/morgane.js?v=2"></script>
+</body>
+</html>

@@ -68,7 +68,7 @@ export async function verifierConnexionSynec(prisma: PrismaClient): Promise<{ ok
   return { ok: true };
 }
 
-function obtenirIdentifiants(): { url: string; identifiant: string; motDePasse: string } {
+export function obtenirIdentifiants(): { url: string; identifiant: string; motDePasse: string } {
   const url = process.env.SYNEC_URL;
   const identifiant = process.env.SYNEC_IDENTIFIANT;
   const motDePasse = process.env.SYNEC_MOT_DE_PASSE;
@@ -87,7 +87,7 @@ function obtenirIdentifiants(): { url: string; identifiant: string; motDePasse: 
  * qu'il se déverrouille plutôt que de cliquer immédiatement après avoir
  * rempli les champs.
  */
-async function seConnecter(page: import("playwright").Page, identifiant: string, motDePasse: string): Promise<void> {
+export async function seConnecter(page: import("playwright").Page, identifiant: string, motDePasse: string): Promise<void> {
   await page.fill('input[name="login"]', identifiant);
   await page.fill('input[name="password"]', motDePasse);
 
@@ -127,7 +127,7 @@ async function seConnecter(page: import("playwright").Page, identifiant: string,
  * ligne repetes compresses pour rester lisible dans la carte Synec de
  * l'interface.
  */
-async function capturerDiagnostic(page: import("playwright").Page): Promise<string> {
+export async function capturerDiagnostic(page: import("playwright").Page): Promise<string> {
   const url = page.url();
   const titre = await page.title().catch(() => "?");
   const texte = await page
@@ -202,39 +202,89 @@ async function listerCandidatsMenu(page: import("playwright").Page): Promise<str
  * tentée : 404 dans une session fraîche, abandonnée (route accessible
  * seulement via la navigation interne de l'application).
  */
-async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
-  // Recherche par TEXTE visible plutot que par role d'accessibilite
-  // ("button"/"link") : constate en production que ce repere echouait en
-  // permanence meme en etant sur la bonne page, "Export CSV" n'etant
-  // vraisemblablement pas un <button> au sens strict (lien stylise ou
-  // composant personnalise, invisible pour getByRole). Attend jusqu'a 5s
-  // que le texte apparaisse plutot qu'un controle instantane : un rendu
-  // cote client peut encore finir de s'afficher juste apres le networkidle.
-  const dejaSurFactures = async () =>
-    page
-      .getByText(/export csv/i)
-      .first()
-      .waitFor({ state: "visible", timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
+/**
+ * Clique un element repere par son TEXTE visible plutot que par role
+ * d'accessibilite ("button"/"link") : constate en production que ce repere
+ * echouait en permanence meme en etant sur la bonne page (lien stylise ou
+ * composant personnalise, invisible pour getByRole).
+ */
+/**
+ * Ferme toute fenetre "Création d'un client" ou "Création d'un nouvel
+ * événement" encore ouverte (residuelle d'une etape precedente) - un
+ * dialogue de ce type peut rester present dans le DOM et intercepter les
+ * clics suivants meme apres son enregistrement (echec reel constate a la
+ * fois sur le bouton ☰ - voir ouvrirMenuFacturation - et sur le bouton
+ * "Nouvel événement" lors de la reouverture d'un formulaire d'evenement
+ * juste apres la creation d'un client, demande "Jouot"). Extrait en
+ * fonction partagee plutot que duplique a chaque nouveau point d'echec.
+ *
+ * Echec reel (test "TEST-CLAUDE") : le clic de fermeture visait "le premier
+ * bouton/lien qui suit le titre du dialogue" - sur le formulaire "Création
+ * d'un client" (plus de champs que celui de l'événement), ce premier
+ * element suivant n'etait PAS un bouton de fermeture mais le menu deroulant
+ * "Consultable par" du formulaire, ouvrant un <select> errant qui bloquait
+ * encore plus les clics suivants. Echap d'abord (sans risque de mal cibler
+ * quoi que ce soit), le clic sur un bouton de fermeture explicite seulement
+ * en repli, et uniquement sur un element qui ressemble vraiment a une
+ * fermeture (classe "close", aria-label, ou "×") plutot que le premier
+ * bouton/lien quelconque.
+ */
+export async function fermerDialoguesResiduels(page: import("playwright").Page): Promise<void> {
+  for (const motif of [/création d'un client/i, /création d'un nouvel événement/i]) {
+    const dialogueResiduel = page.getByText(motif).first();
+    if (await dialogueResiduel.isVisible().catch(() => false)) {
+      await page.keyboard.press("Escape").catch(() => {});
+      const fermeParEchap = await dialogueResiduel
+        .waitFor({ state: "hidden", timeout: 2000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!fermeParEchap) {
+        await dialogueResiduel
+          .locator("xpath=following::*[contains(@class,'close') or @aria-label='Close' or @aria-label='Fermer' or normalize-space(text())='×'][1]")
+          .click({ timeout: 3000 })
+          .catch(() => {});
+      }
+      await dialogueResiduel.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+    }
+  }
+}
 
-  if (await dejaSurFactures()) return;
+export async function cliquerSiVisible(page: import("playwright").Page, motif: RegExp): Promise<boolean> {
+  const locator = page.getByText(motif).first();
+  const visible = await locator
+    .waitFor({ state: "visible", timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!visible) return false;
+  await locator.click();
+  await page.waitForTimeout(800); // laisse l'animation (tiroir/accordeon) se terminer
+  return true;
+}
 
+export interface ResultatOuvertureMenu {
+  ouvert: boolean;
+  etapes: string[];
+  diagnosticApresMenu: string | null;
+  candidats: string | null;
+}
+
+/**
+ * Ouvre le menu ☰ et deplie l'accordeon "Facturation" (Clients, Planning,
+ * Abonnements, Devis, Factures, Produits, Documents, Marques) - partage par
+ * toutes les navigations Synec de ce fichier, seul le clic sur le sous-menu
+ * final (ex. "Factures" vs "Planning") differe d'un appelant a l'autre.
+ *
+ * Chemin confirme en examinant image par image une video fournie par
+ * l'utilisateur : menu ☰ clique DIRECTEMENT sur l'ecran "Interface de
+ * gestion" juste apres connexion, SANS jamais cliquer sur une organisation
+ * au prealable (le tiroir contient deja "Atelier Brochant" preselectionne).
+ * Le clic sur l'organisation n'est tente qu'en dernier recours, si le menu
+ * direct echoue (voir allerAuxFactures pour l'erreur reelle qui a motive ce
+ * repli).
+ */
+export async function ouvrirMenuFacturation(page: import("playwright").Page): Promise<ResultatOuvertureMenu> {
   const etapes: string[] = [];
-  const essayerClic = async (motif: RegExp): Promise<boolean> => {
-    const locator = page.getByText(motif).first();
-    const visible = await locator
-      .waitFor({ state: "visible", timeout: 3000 })
-      .then(() => true)
-      .catch(() => false);
-    if (!visible) return false;
-    await locator.click();
-    await page.waitForTimeout(800); // laisse l'animation (tiroir/accordeon) se terminer
-    return true;
-  };
 
-  // Ouvre le menu ☰ DIRECTEMENT sur la page actuelle (pas besoin de
-  // selectionner une organisation au prealable - confirme par la video).
   // getByRole (pas getByText) pour ce bouton : "Toggle navigation" est tres
   // probablement un texte visuellement cache (accessibilite seule, pattern
   // Bootstrap classique, confirme sur la page de connexion publique de
@@ -246,7 +296,26 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
       .then(() => true)
       .catch(() => false);
     if (!visible) return false;
-    await bouton.click();
+
+    // Echec reel (synecEcriture.ts, creation de client puis d'evenement) :
+    // un dialogue ("Création d'un client" OU "Création d'un nouvel
+    // événement") peut se rouvrir tout seul cote Synec plusieurs fois de
+    // suite (cause non identifiee), y compris pendant les tentatives de
+    // clic elles-memes - une fermeture unique juste avant le clic ne
+    // suffisait donc pas toujours (confirme par un echec reel persistant
+    // malgre elle). Boucle fermeture+clic jusqu'a 60s, plutot qu'un essai
+    // unique. Sans effet pour la synchronisation en lecture (ces dialogues
+    // n'existent pas sur ce chemin).
+    const debutTentatives = Date.now();
+    let clique = false;
+    while (!clique && Date.now() - debutTentatives < 60000) {
+      await fermerDialoguesResiduels(page);
+      clique = await bouton
+        .click({ timeout: 3000 })
+        .then(() => true)
+        .catch(() => false);
+    }
+    if (!clique) await bouton.click();
     await page.waitForTimeout(500);
     return page
       .getByText(/^facturation$/i)
@@ -276,8 +345,31 @@ async function allerAuxFactures(page: import("playwright").Page): Promise<void> 
   const diagnosticApresMenu = menuOuvert ? await capturerDiagnostic(page) : null;
   const candidats = menuOuvert ? null : await listerCandidatsMenu(page);
 
-  etapes.push(`facturation:${await essayerClic(/^facturation$/i)}`);
-  etapes.push(`factures:${await essayerClic(/^factures$/i)}`);
+  etapes.push(`facturation:${await cliquerSiVisible(page, /^facturation$/i)}`);
+
+  return { ouvert: menuOuvert, etapes, diagnosticApresMenu, candidats };
+}
+
+async function allerAuxFactures(page: import("playwright").Page): Promise<void> {
+  // Recherche par TEXTE visible plutot que par role d'accessibilite
+  // ("button"/"link") : constate en production que ce repere echouait en
+  // permanence meme en etant sur la bonne page, "Export CSV" n'etant
+  // vraisemblablement pas un <button> au sens strict (lien stylise ou
+  // composant personnalise, invisible pour getByRole). Attend jusqu'a 5s
+  // que le texte apparaisse plutot qu'un controle instantane : un rendu
+  // cote client peut encore finir de s'afficher juste apres le networkidle.
+  const dejaSurFactures = async () =>
+    page
+      .getByText(/export csv/i)
+      .first()
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+
+  if (await dejaSurFactures()) return;
+
+  const { etapes, diagnosticApresMenu, candidats } = await ouvrirMenuFacturation(page);
+  etapes.push(`factures:${await cliquerSiVisible(page, /^factures$/i)}`);
 
   await page.waitForLoadState("networkidle");
   if (await dejaSurFactures()) return;

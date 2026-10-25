@@ -30,7 +30,7 @@ import { TypeDocument } from "./gmailClassify";
  *   panne de ce filet ne bloque ou ne fausse la synchronisation.
  */
 
-const MODELE = "claude-sonnet-5";
+const MODELE = "claude-sonnet-5-5";
 
 // Categories reelles seulement : le modele ne doit jamais halluciner un
 // type inexistant. "ambigu" reste une reponse valide et attendue.

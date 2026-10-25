@@ -119,9 +119,17 @@ document.querySelectorAll(".onglet").forEach((b) => {
   b.addEventListener("click", () => basculerOnglet(b.dataset.onglet));
 });
 
+// L'accueil (accueil.html) pointe vers des onglets precis via l'URL
+// (ex. /index.html#systeme) : la cible explicite dans le hash prime sur le
+// dernier onglet consulte, elle-meme utilisee a defaut.
+const ongletDepuisHash = location.hash.replace("#", "");
 try {
-  const dernierOnglet = localStorage.getItem(CLE_ONGLET_ACTIF);
-  if (dernierOnglet) basculerOnglet(dernierOnglet);
+  if (ongletDepuisHash && document.querySelector(`.onglet-panneau[data-panneau="${ongletDepuisHash}"]`)) {
+    basculerOnglet(ongletDepuisHash);
+  } else {
+    const dernierOnglet = localStorage.getItem(CLE_ONGLET_ACTIF);
+    if (dernierOnglet) basculerOnglet(dernierOnglet);
+  }
 } catch {
   // ignore
 }
@@ -131,14 +139,218 @@ async function chargerCockpit() {
   const data = await res.json();
   const cockpit = document.getElementById("cockpit");
   cockpit.innerHTML = `
-    <div class="tuile"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${fmtMontant(data.caVeille)}</div><div class="label">CA veille (${data.dateVeille})</div></div>
-    <div class="tuile${data.impayes.nombre > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.impayes}</div><div class="valeur">${data.impayes.nombre}</div><div class="label">Impayés (${fmtMontant(data.impayes.montantTotal)})</div></div>
-    <div class="tuile"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${data.aValiderImports}</div><div class="label">Imports à vérifier</div></div>
-    <div class="tuile${data.anomaliesOuvertes > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${data.anomaliesOuvertes}</div><div class="label">Anomalies ouvertes</div></div>
+    <div class="tuile tuile-ca"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${fmtMontant(data.caVeille)}</div><div class="label">CA veille (${data.dateVeille})</div></div>
+    <div class="tuile tuile-impayes${data.impayes.nombre > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.impayes}</div><div class="valeur">${data.impayes.nombre}</div><div class="label">Impayés (${fmtMontant(data.impayes.montantTotal)})</div></div>
+    <div class="tuile tuile-imports"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${data.aValiderImports}</div><div class="label">Imports à vérifier</div></div>
+    <div class="tuile tuile-anomalies${data.anomaliesOuvertes > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${data.anomaliesOuvertes}</div><div class="label">Anomalies ouvertes</div></div>
   `;
   etatIndicateurs.aValiderImports = data.aValiderImports;
   mettreAJourBadges();
 }
+
+// --- Graphique du chiffre d'affaires (jour/mois/annee) ----------------------
+//
+// Demande explicite de l'utilisateur : pouvoir regarder le CA par jour, par
+// mois ou par annee, pas seulement le chiffre brut de la veille. Construit
+// a la main en SVG (pas de librairie de graphiques dans ce projet) en
+// suivant les memes principes que le reste de l'interface : sobre, lisible,
+// une seule serie (pas de legende necessaire, le titre de la carte suffit),
+// etiquette de valeur a l'extremite de la courbe, survol avec infobulle.
+
+const VB_GRAPHIQUE_L = 600;
+const VB_GRAPHIQUE_H = 220;
+const MARGE_GRAPHIQUE = { haut: 14, droite: 16, bas: 28, gauche: 46 };
+
+function fmtCompact(n) {
+  const v = Number(n) || 0;
+  if (Math.abs(v) >= 1000) return `${(v / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} k€`;
+  return `${Math.round(v)} €`;
+}
+
+const MOIS_COURTS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const MOIS_LONGS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+function fmtPeriodeAxe(periode, granularite) {
+  if (granularite === "jour") {
+    const [, m, j] = periode.split("-");
+    return `${parseInt(j, 10)} ${MOIS_COURTS[parseInt(m, 10) - 1]}`;
+  }
+  if (granularite === "mois") {
+    const [a, m] = periode.split("-");
+    return `${MOIS_COURTS[parseInt(m, 10) - 1]} ${a.slice(2)}`;
+  }
+  return periode;
+}
+
+function fmtPeriodeComplet(periode, granularite) {
+  if (granularite === "jour") {
+    const [a, m, j] = periode.split("-");
+    return `${parseInt(j, 10)} ${MOIS_LONGS[parseInt(m, 10) - 1]} ${a}`;
+  }
+  if (granularite === "mois") {
+    const [a, m] = periode.split("-");
+    return `${MOIS_LONGS[parseInt(m, 10) - 1]} ${a}`;
+  }
+  return periode;
+}
+
+function creerElementSvg(tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  return el;
+}
+
+let granulariteCaActuelle = "jour";
+
+function dessinerGraphiqueCa(conteneur, points, granularite) {
+  conteneur.innerHTML = "";
+  if (!points || points.length === 0 || points.every((p) => p.montant === 0)) {
+    conteneur.innerHTML = '<p class="aide">Pas encore de chiffre d\'affaires sur cette période.</p>';
+    return;
+  }
+
+  const n = points.length;
+  const maxBrut = Math.max(...points.map((p) => p.montant), 0);
+  const maxY = maxBrut > 0 ? maxBrut * 1.15 : 100;
+  const plotW = VB_GRAPHIQUE_L - MARGE_GRAPHIQUE.gauche - MARGE_GRAPHIQUE.droite;
+  const plotH = VB_GRAPHIQUE_H - MARGE_GRAPHIQUE.haut - MARGE_GRAPHIQUE.bas;
+  const x = (i) => MARGE_GRAPHIQUE.gauche + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const y = (v) => MARGE_GRAPHIQUE.haut + plotH - (v / maxY) * plotH;
+
+  const svg = creerElementSvg("svg", {
+    viewBox: `0 0 ${VB_GRAPHIQUE_L} ${VB_GRAPHIQUE_H}`,
+    class: "graphique-ca-svg",
+    role: "img",
+    "aria-label": `Évolution du chiffre d'affaires sur ${n} périodes, dernière valeur ${fmtMontant(points[n - 1].montant)}`,
+  });
+
+  // Quadrillage + etiquettes Y (0 / 1/3 / 2/3 / max), compact (0 / 1k€...).
+  const axes = creerElementSvg("g", { class: "graphique-axes" });
+  for (let f = 0; f <= 1.0001; f += 1 / 3) {
+    const valeur = maxY * f;
+    const posY = y(valeur);
+    axes.appendChild(
+      creerElementSvg("line", { x1: MARGE_GRAPHIQUE.gauche, x2: VB_GRAPHIQUE_L - MARGE_GRAPHIQUE.droite, y1: posY, y2: posY, class: "graphique-grille" })
+    );
+    const label = creerElementSvg("text", { x: MARGE_GRAPHIQUE.gauche - 6, y: posY, class: "graphique-label-y", "text-anchor": "end", "dominant-baseline": "middle" });
+    label.textContent = fmtCompact(valeur);
+    axes.appendChild(label);
+  }
+
+  // Etiquettes X : un sous-ensemble seulement (jamais un libelle par point
+  // sur 30 jours, illisible) - voir skill dataviz, "label selectively".
+  const pasX = granularite === "jour" ? Math.ceil(n / 6) : 1;
+  points.forEach((p, i) => {
+    if (i % pasX !== 0 && i !== n - 1) return;
+    const label = creerElementSvg("text", { x: x(i), y: VB_GRAPHIQUE_H - 8, class: "graphique-label-x", "text-anchor": "middle" });
+    label.textContent = fmtPeriodeAxe(p.periode, granularite);
+    axes.appendChild(label);
+  });
+  svg.appendChild(axes);
+
+  // Aire (fondu, jamais un aplat sature) puis ligne (2px, jonctions rondes).
+  const chemin = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.montant).toFixed(1)}`).join(" ");
+  const cheminAire = `${chemin} L ${x(n - 1).toFixed(1)} ${y(0).toFixed(1)} L ${x(0).toFixed(1)} ${y(0).toFixed(1)} Z`;
+  svg.appendChild(creerElementSvg("path", { d: cheminAire, class: "graphique-aire" }));
+  svg.appendChild(creerElementSvg("path", { d: chemin, class: "graphique-ligne", fill: "none" }));
+
+  // Point + etiquette de fin (la valeur se lit a l'extremite de la courbe,
+  // pas un chiffre colle sur chaque point).
+  const dernier = points[n - 1];
+  const finX = x(n - 1);
+  const finY = y(dernier.montant);
+  svg.appendChild(creerElementSvg("circle", { cx: finX, cy: finY, r: 7, class: "graphique-marqueur-anneau" }));
+  svg.appendChild(creerElementSvg("circle", { cx: finX, cy: finY, r: 4, class: "graphique-marqueur-point" }));
+  const presDuBord = finX > VB_GRAPHIQUE_L - 70;
+  const etiquetteFin = creerElementSvg("text", {
+    x: presDuBord ? finX : finX,
+    y: Math.max(finY - 12, MARGE_GRAPHIQUE.haut + 8),
+    class: "graphique-etiquette-fin",
+    "text-anchor": presDuBord ? "end" : "middle",
+  });
+  etiquetteFin.textContent = fmtMontant(dernier.montant);
+  svg.appendChild(etiquetteFin);
+
+  // Curseur de survol (crosshair) + infobulle HTML (plus simple a styler
+  // qu'un <foreignObject> SVG) - cf. skill dataviz, "the hover layer is
+  // part of the deliverable".
+  const ligneCurseur = creerElementSvg("line", { y1: MARGE_GRAPHIQUE.haut, y2: VB_GRAPHIQUE_H - MARGE_GRAPHIQUE.bas, class: "graphique-curseur", visibility: "hidden" });
+  const pointSurvole = creerElementSvg("circle", { r: 5, class: "graphique-point-survole", visibility: "hidden" });
+  svg.appendChild(ligneCurseur);
+  svg.appendChild(pointSurvole);
+
+  conteneur.appendChild(svg);
+
+  const infobulle = document.createElement("div");
+  infobulle.className = "graphique-infobulle";
+  infobulle.hidden = true;
+  const infobulleValeur = document.createElement("div");
+  infobulleValeur.className = "graphique-infobulle-valeur";
+  const infobulleDate = document.createElement("div");
+  infobulleDate.className = "graphique-infobulle-date";
+  infobulle.appendChild(infobulleValeur);
+  infobulle.appendChild(infobulleDate);
+  conteneur.appendChild(infobulle);
+
+  const zoneSurvol = creerElementSvg("rect", {
+    x: MARGE_GRAPHIQUE.gauche,
+    y: MARGE_GRAPHIQUE.haut,
+    width: plotW,
+    height: plotH,
+    fill: "transparent",
+    class: "graphique-zone-survol",
+  });
+  svg.appendChild(zoneSurvol);
+
+  const majSurvol = (clientX) => {
+    const rectSvg = svg.getBoundingClientRect();
+    if (rectSvg.width === 0) return;
+    const posViewBoxX = ((clientX - rectSvg.left) / rectSvg.width) * VB_GRAPHIQUE_L;
+    const posRelative = (posViewBoxX - MARGE_GRAPHIQUE.gauche) / plotW;
+    const i = Math.max(0, Math.min(n - 1, Math.round(posRelative * (n - 1))));
+    const p = points[i];
+    const px = x(i);
+    const py = y(p.montant);
+
+    ligneCurseur.setAttribute("x1", px);
+    ligneCurseur.setAttribute("x2", px);
+    ligneCurseur.setAttribute("visibility", "visible");
+    pointSurvole.setAttribute("cx", px);
+    pointSurvole.setAttribute("cy", py);
+    pointSurvole.setAttribute("visibility", "visible");
+
+    infobulle.hidden = false;
+    infobulleValeur.textContent = fmtMontant(p.montant);
+    infobulleDate.textContent = fmtPeriodeComplet(p.periode, granularite);
+    const pctX = (px / VB_GRAPHIQUE_L) * 100;
+    const pctY = (py / VB_GRAPHIQUE_H) * 100;
+    infobulle.style.left = `${pctX}%`;
+    infobulle.style.top = `${pctY}%`;
+    infobulle.classList.toggle("a-droite", pctX > 60);
+  };
+
+  zoneSurvol.addEventListener("pointermove", (e) => majSurvol(e.clientX));
+  zoneSurvol.addEventListener("pointerleave", () => {
+    ligneCurseur.setAttribute("visibility", "hidden");
+    pointSurvole.setAttribute("visibility", "hidden");
+    infobulle.hidden = true;
+  });
+}
+
+async function chargerGraphiqueCa(granularite = granulariteCaActuelle) {
+  granulariteCaActuelle = granularite;
+  const res = await fetch(`/api/dashboard/ca-serie?granularite=${granularite}`);
+  const points = await res.json();
+  dessinerGraphiqueCa(document.getElementById("graphique-ca"), points, granularite);
+}
+
+document.querySelectorAll(".filtre-periode-bouton").forEach((bouton) => {
+  bouton.addEventListener("click", () => {
+    document.querySelectorAll(".filtre-periode-bouton").forEach((b) => b.classList.remove("actif"));
+    bouton.classList.add("actif");
+    chargerGraphiqueCa(bouton.dataset.granularite);
+  });
+});
 
 async function chargerImports() {
   const res = await fetch("/api/imports");
@@ -335,6 +547,161 @@ async function chargerStatutSynec() {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }
   });
+}
+
+// --- Google Ads (import manuel, en attendant l'acces API) ------------------
+
+async function chargerStatutGoogleAds() {
+  const res = await fetch("/api/google-ads/dernier-import");
+  const data = await res.json();
+  const div = document.getElementById("google-ads-statut");
+
+  div.innerHTML = data
+    ? `<p class="gmail-connecte"><span class="statut-dot">Dernier import</span> — ${echapper(data.fichierNom)}<br/>Déposé le ${fmtDate(data.importeLe)} · ${data.campagnes.length} campagne(s)</p>`
+    : `<p class="statut-dot off">Aucun import pour l'instant.</p>`;
+}
+
+document.getElementById("form-import-ads").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fichier = document.getElementById("fichier-import-ads").files[0];
+  const resultatDiv = document.getElementById("resultat-import-ads");
+  if (!fichier) return;
+
+  const donnees = new FormData();
+  donnees.append("fichier", fichier);
+  resultatDiv.textContent = "Import en cours…";
+  try {
+    const r = await fetch("/api/google-ads/import", { method: "POST", body: donnees });
+    const d = await r.json();
+    if (!r.ok) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+      return;
+    }
+    resultatDiv.innerHTML = `${d.nbCampagnes} campagne(s) importée(s).`;
+    e.target.reset();
+    await chargerStatutGoogleAds();
+  } catch (err) {
+    resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+  }
+});
+
+// Propositions d'action Ads de Morgane (pause/reactivation de campagne) :
+// ecran de validation dedie, distinct de la conversation (demande explicite
+// de l'utilisateur - voir src/services/googleAdsActions.ts). Morgane ne
+// modifie jamais une campagne directement ; elle depose une proposition ici,
+// que l'utilisateur accepte ou refuse.
+const LIBELLE_TYPE_PROPOSITION_ADS = {
+  pause_campagne: "Mettre en pause",
+  reactiver_campagne: "Réactiver",
+  creer_campagne: "Nouvelle campagne",
+  ajouter_mots_cles_exclus: "Mots-clés exclus",
+  pause_mot_cle: "Pause mot-clé",
+  reactiver_mot_cle: "Réactiver mot-clé",
+  exclure_action_conversion: "Exclure du comptage",
+  creer_action_conversion_site: "Nouvelle conversion web",
+};
+const BADGE_STATUT_PROPOSITION_ADS = {
+  en_attente: "badge-partiel",
+  acceptee: "badge-partiel",
+  appliquee: "badge-ok",
+  refusee: "badge-doublon_fichier",
+  echec: "badge-echec",
+};
+const LIBELLE_STATUT_PROPOSITION_ADS = {
+  en_attente: "En attente",
+  acceptee: "Acceptée…",
+  appliquee: "Appliquée",
+  refusee: "Refusée",
+  echec: "Échec",
+};
+
+async function accepterPropositionAds(id, bouton) {
+  bouton.disabled = true;
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/google-ads/propositions/${id}/accepter`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec de l'acceptation.");
+    await chargerPropositionsAds();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.accepterPropositionAds = accepterPropositionAds;
+
+async function refuserPropositionAds(id, bouton) {
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/google-ads/propositions/${id}/refuser`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec du refus.");
+    await chargerPropositionsAds();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.refuserPropositionAds = refuserPropositionAds;
+
+async function chargerPropositionsAds() {
+  const liste = document.getElementById("liste-propositions-ads");
+  if (!liste) return;
+  const res = await fetch("/api/google-ads/propositions");
+  const propositions = await res.json();
+
+  if (propositions.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune proposition pour le moment.</p>`;
+    return;
+  }
+
+  liste.innerHTML = propositions
+    .map((p) => {
+      const badge = BADGE_STATUT_PROPOSITION_ADS[p.statut] || "badge-doublon_fichier";
+      const libelleStatut = LIBELLE_STATUT_PROPOSITION_ADS[p.statut] || p.statut;
+      const actions =
+        p.statut === "en_attente"
+          ? `<div class="relance-actions">
+               <button type="button" onclick="accepterPropositionAds('${p.id}', this)">Accepter</button>
+               <button type="button" class="ghost" onclick="refuserPropositionAds('${p.id}', this)">Refuser</button>
+             </div>`
+          : "";
+      const detailsCreation =
+        p.type === "creer_campagne"
+          ? `<div class="anomalie-meta">Budget : ${p.budgetQuotidien != null ? p.budgetQuotidien.toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " €/jour" : "—"} · URL : ${echapper(p.urlFinale || "—")}</div>
+             <div class="anomalie-meta"><strong>Titres</strong> : ${(p.titres || []).map(echapper).join(" · ")}</div>
+             <div class="anomalie-meta"><strong>Descriptions</strong> : ${(p.descriptions || []).map(echapper).join(" · ")}</div>
+             <div class="anomalie-meta"><strong>Mots-clés</strong> : ${(p.motsCles || []).map(echapper).join(", ") || "—"}</div>
+             ${(p.motsClesExclus || []).length > 0 ? `<div class="anomalie-meta"><strong>Mots-clés exclus</strong> : ${p.motsClesExclus.map(echapper).join(", ")}</div>` : ""}
+             <div class="anomalie-meta">Sera créée <strong>en pause</strong> : aucune dépense tant que tu ne l'actives pas toi-même dans Google Ads.</div>`
+          : p.type === "ajouter_mots_cles_exclus"
+            ? `<div class="anomalie-meta"><strong>Mots-clés exclus à ajouter</strong> : ${(p.motsClesExclus || []).map(echapper).join(", ") || "—"}</div>`
+            : p.type === "pause_mot_cle" || p.type === "reactiver_mot_cle"
+              ? `<div class="anomalie-meta"><strong>Mot-clé</strong> : ${echapper(p.motCleTexte || "—")}</div>`
+              : p.type === "exclure_action_conversion"
+                ? `<div class="anomalie-meta">Cette action de conversion ne comptera plus dans les conversions (elle n'est pas supprimée).</div>`
+                : p.type === "creer_action_conversion_site"
+                  ? `<div class="anomalie-meta">Type : ${p.typeConversionSite === "CLICK_TO_CALL" ? "Clic sur le numéro de téléphone" : "Envoi de formulaire"}. Une fois acceptée, demande le code à coller sur le site directement à Morgane.</div>`
+                  : "";
+      return `
+    <div class="decision-carte">
+      <div class="relance-entete">
+        <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_PROPOSITION_ADS[p.type] || p.type)}</span>
+        <span class="relance-retard">${echapper(p.campagneNom)}</span>
+        <span class="badge ${badge}">${echapper(libelleStatut)}</span>
+      </div>
+      <div class="anomalie-meta">${echapper(p.justification)}</div>
+      ${detailsCreation}
+      <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}</div>
+      ${p.erreur ? `<div class="anomalie-meta" style="color:var(--critical)">${echapper(p.erreur)}</div>` : ""}
+      ${actions}
+    </div>`;
+    })
+    .join("");
 }
 
 // Liste individuelle des paiements Stripe deja captes : jusqu'ici seuls des
@@ -564,85 +931,10 @@ async function chargerDecisions() {
     .join("");
 }
 
-// --- Morgane (assistante IA) -------------------------------------------------
-
-const MORGANE_CLE_SESSION = "copilote_morgane_historique";
-
-function morganeChargerHistorique() {
-  try {
-    const brut = sessionStorage.getItem(MORGANE_CLE_SESSION);
-    return brut ? JSON.parse(brut) : [];
-  } catch {
-    return [];
-  }
-}
-
-function morganeSauverHistorique(historique) {
-  try {
-    sessionStorage.setItem(MORGANE_CLE_SESSION, JSON.stringify(historique.slice(-20)));
-  } catch {
-    // stockage indisponible (navigation privee...) : la conversation reste en memoire pour la session en cours
-  }
-}
-
-let morganeHistorique = morganeChargerHistorique();
-
-function morganeAjouterBulle(role, texte) {
-  const fil = document.getElementById("morgane-fil");
-  const bulle = document.createElement("div");
-  bulle.className = `morgane-message ${role === "user" ? "morgane-bulle-utilisateur" : "morgane-bulle-assistant"}`;
-  bulle.textContent = texte;
-  fil.appendChild(bulle);
-  fil.scrollTop = fil.scrollHeight;
-  return bulle;
-}
-
-// Rejoue la conversation deja en cours (sessionStorage) au chargement de la page.
-for (const m of morganeHistorique) {
-  morganeAjouterBulle(m.role, m.content);
-}
-
-document.getElementById("form-morgane").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const saisie = document.getElementById("morgane-saisie");
-  const texte = saisie.value.trim();
-  if (!texte) return;
-
-  saisie.value = "";
-  saisie.disabled = true;
-  morganeAjouterBulle("user", texte);
-  morganeHistorique.push({ role: "user", content: texte });
-  morganeSauverHistorique(morganeHistorique);
-
-  const bulleAttente = morganeAjouterBulle("assistant", "…");
-  bulleAttente.classList.add("morgane-bulle-attente");
-
-  try {
-    const res = await fetch("/api/morgane/message", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ historique: morganeHistorique }),
-    });
-    const data = await res.json();
-    bulleAttente.classList.remove("morgane-bulle-attente");
-    if (!res.ok) {
-      bulleAttente.textContent = `Erreur : ${data.erreur}`;
-      return;
-    }
-    bulleAttente.textContent = data.reponse;
-    morganeHistorique.push({ role: "assistant", content: data.reponse });
-    morganeSauverHistorique(morganeHistorique);
-    // Une action deleguee (ignorer une anomalie, lancer une synchro...) a pu
-    // changer les donnees affichees ailleurs sur la page.
-    await rafraichirTout();
-  } catch (err) {
-    bulleAttente.classList.remove("morgane-bulle-attente");
-    bulleAttente.textContent = `Erreur : ${err.message}`;
-  } finally {
-    saisie.disabled = false;
-    saisie.focus();
-  }
-});
+// Morgane (assistante IA) : deplacee dans morgane.js (bulle flottante
+// injectee sur chaque page, plus seulement sur ce tableau de bord) -
+// rafraichirTout() reste exposee plus bas pour que ce script la detecte
+// (window.rafraichirTout) apres une action deleguee a Morgane.
 
 // --- Factures fournisseurs recues, pas encore envoyees a Dext -------------
 //
@@ -984,7 +1276,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

@@ -51,6 +51,13 @@ TELEPHONE_SMS_DESTINATAIRE_ARG="${13:-}"
 # secours Twilio transfere les appels si le serveur est indisponible.
 # Facultatif : sans lui, l'appelant laisse directement un message vocal.
 TELEPHONE_NUMERO_SECOURS_ARG="${14:-}"
+# Google Ads (analyse des campagnes par Morgane, lecture seule) : jeton
+# developpeur genere depuis un compte gestionnaire (MCC), numero du compte
+# Ads a analyser et numero de ce compte gestionnaire. Absents, la section
+# Google Ads de Morgane reste desactivee (voir .env.example).
+GOOGLE_ADS_DEVELOPER_TOKEN_ARG="${15:-}"
+GOOGLE_ADS_CUSTOMER_ID_ARG="${16:-}"
+GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG="${17:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -210,6 +217,9 @@ definir_variable TWILIO_SMS_EXPEDITEUR "$TWILIO_SMS_EXPEDITEUR_ARG"
 definir_variable TELEPHONE_SMS_DESTINATAIRE "$TELEPHONE_SMS_DESTINATAIRE_ARG"
 definir_variable TELEPHONE_NUMERO_SECOURS "$TELEPHONE_NUMERO_SECOURS_ARG"
 definir_variable TELEPHONE_MODE "$TELEPHONE_MODE"
+definir_variable GOOGLE_ADS_DEVELOPER_TOKEN "$GOOGLE_ADS_DEVELOPER_TOKEN_ARG"
+definir_variable GOOGLE_ADS_CUSTOMER_ID "$GOOGLE_ADS_CUSTOMER_ID_ARG"
+definir_variable GOOGLE_ADS_LOGIN_CUSTOMER_ID "$GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
@@ -446,6 +456,25 @@ ${AUTH_BASIC_CONF}
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Pages publiques de presentation/confidentialite/conditions + logo,
+    # necessaires a la validation de marque Google Cloud (Google Ads API,
+    # niveau d'acces "De base") : ses robots de verification ne peuvent pas
+    # s'authentifier derriere le mot de passe nginx qui protege le reste du
+    # site. google[...].html (motif, pas un nom fixe) : fichier de preuve de
+    # propriete du domaine pour Google Search Console, lui aussi requis par
+    # ce meme processus de validation de marque - son robot ne peut pas non
+    # plus s'authentifier derriere le mot de passe.
+    location ~ ^/(a-propos\.html|confidentialite\.html|conditions\.html|logo\.png|logo-marque\.png|google[A-Za-z0-9]+\.html)\$ {
+        auth_basic off;
+        proxy_pass http://copilote_app;
+        proxy_connect_timeout 2s;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     location / {
         proxy_pass http://copilote_app;
         # Bascule sur l'instance de secours si la principale ne repond pas
@@ -455,6 +484,20 @@ ${AUTH_BASIC_CONF}
         # principale (erreur de connexion uniquement).
         proxy_next_upstream error non_idempotent;
         proxy_connect_timeout 2s;
+        # L'envoi automatique vers Synec (src/services/synecEcriture.ts)
+        # pilote un vrai navigateur et peut legitimement prendre plus d'une
+        # minute (plusieurs ecrans, chacun avec sa propre marge d'attente) -
+        # le defaut nginx de 60s sur proxy_read_timeout coupait la requete
+        # en plein milieu (erreur HTTP 504 cote client, alors que
+        # l'automatisation pouvait tres bien reussir juste apres, orpheline
+        # cote serveur). Porte une premiere fois a 180s puis a 300s (la
+        # boucle de fermeture de dialogues residuels dans
+        # ouvrirMenuFacturation peut a elle seule prendre jusqu'a 60s, et
+        # est appelee plusieurs fois dans un seul envoi), sans toucher
+        # proxy_connect_timeout (la bascule rapide sur l'instance de
+        # secours reste instantanee).
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
