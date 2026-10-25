@@ -317,6 +317,57 @@ export async function changerStatutMotCle(prisma: PrismaClient, groupeId: string
   ]);
 }
 
+export interface CibleGeographiqueAds {
+  nomRecherche: string; // le nom tel que fourni en entree (ex. "Seine-et-Marne")
+  resourceName: string; // geoTargetConstants/<id>, a utiliser tel quel dans campaign_criterion.location
+  nomTrouve: string;
+  nomCanonique: string;
+  typeCible: string; // ex. "Country", "State", "Department", "City"...
+}
+
+/**
+ * Resout des noms de lieux (ex. "Île-de-France", "Seine-et-Marne") en
+ * identifiants geographiques Google Ads (GeoTargetConstant), via le service
+ * dedie plutot que des identifiants numeriques devines a la main (risque
+ * reel de cibler le mauvais lieu). Prend le premier resultat retourne par
+ * Google pour chaque nom - en pratique le plus pertinent, Google trie par
+ * portee ("reach") decroissante. Un nom sans aucune correspondance est
+ * absent du resultat plutot que de lever une erreur : a l'appelant de
+ * decider si c'est bloquant.
+ */
+export async function rechercherCiblesGeographiques(prisma: PrismaClient, noms: string[]): Promise<CibleGeographiqueAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (noms.length === 0) return [];
+
+  // Le type attendu par la librairie est la classe protobuf generee (avec
+  // toJSON()), pas un objet simple comme pour les .create()/.update() qui
+  // acceptent eux une interface "I*" en plus - ce service n'en expose pas.
+  // Un objet simple au bon format fonctionne en pratique (protobuf.js
+  // l'accepte a l'execution), d'ou le contournement de typage ci-dessous.
+  const requete = { location_names: { names: noms }, locale: "fr", country_code: "FR" } as unknown as Parameters<
+    Customer["geoTargetConstants"]["suggestGeoTargetConstants"]
+  >[0];
+  const reponse = await customer.geoTargetConstants.suggestGeoTargetConstants(requete);
+
+  const parNom = new Map<string, CibleGeographiqueAds>();
+  for (const suggestion of reponse.geo_target_constant_suggestions ?? []) {
+    const cible = suggestion.geo_target_constant;
+    const nomRecherche = suggestion.search_term ?? cible?.name ?? "";
+    if (!cible?.resource_name || parNom.has(nomRecherche)) continue;
+    parNom.set(nomRecherche, {
+      nomRecherche,
+      resourceName: cible.resource_name,
+      nomTrouve: cible.name ?? "",
+      nomCanonique: cible.canonical_name ?? "",
+      typeCible: String(cible.target_type ?? ""),
+    });
+  }
+  return [...parNom.values()];
+}
+
 export interface ParametresCreationCampagne {
   nom: string;
   budgetQuotidien: number; // euros/jour
@@ -325,6 +376,9 @@ export interface ParametresCreationCampagne {
   descriptions: string[]; // 2 a 4 descriptions d'annonce
   motsCles: string[];
   motsClesExclus: string[];
+  typeCorrespondance?: "EXACT" | "PHRASE" | "BROAD"; // defaut PHRASE - BROAD expose a trop de trafic non pertinent sans surveillance active
+  ciblesGeographiques?: string[]; // noms de lieux a resoudre puis cibler (ex. "Île-de-France") - aucun = pas de restriction geographique
+  numeroTelephone?: string; // si fourni, cree une extension d'appel liee des la creation (suivi d'appel compte-cible par defaut)
 }
 
 /**
@@ -385,12 +439,13 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
   const groupeResourceName = groupeResultat.results?.[0]?.resource_name;
   if (!groupeResourceName) throw new Error("Echec de la creation du groupe d'annonces (aucun resource_name retourne).");
 
+  const typeCorrespondance = enums.KeywordMatchType[params.typeCorrespondance ?? "PHRASE"];
   if (params.motsCles.length > 0) {
     await customer.adGroupCriteria.create(
       params.motsCles.map((texte) => ({
         ad_group: groupeResourceName,
         status: enums.AdGroupCriterionStatus.ENABLED,
-        keyword: { text: texte, match_type: enums.KeywordMatchType.BROAD },
+        keyword: { text: texte, match_type: typeCorrespondance },
       }))
     );
   }
@@ -412,6 +467,48 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
       },
     },
   ]);
+
+  if (params.ciblesGeographiques && params.ciblesGeographiques.length > 0) {
+    const cibles = await rechercherCiblesGeographiques(prisma, params.ciblesGeographiques);
+    const manquants = params.ciblesGeographiques.filter((nom) => !cibles.some((c) => c.nomRecherche === nom));
+    if (manquants.length > 0) {
+      throw new Error(
+        `Campagne creee (id ${campagneId}) mais ciblage geographique incomplet : aucune correspondance Google pour "${manquants.join('", "')}". Les autres lieux n'ont pas ete appliques non plus - corrige les noms et reessaie via une modification de ciblage.`
+      );
+    }
+    await customer.campaignCriteria.create(
+      cibles.map((cible) => ({
+        campaign: campagneResourceName,
+        status: enums.CampaignCriterionStatus.ENABLED,
+        location: { geo_target_constant: cible.resourceName },
+      }))
+    );
+  }
+
+  if (params.numeroTelephone) {
+    const assetResultat = await customer.assets.create([
+      {
+        type: enums.AssetType.CALL,
+        call_asset: {
+          country_code: "FR",
+          phone_number: params.numeroTelephone,
+          call_conversion_reporting_state: enums.CallConversionReportingState.USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION,
+        },
+      },
+    ]);
+    const assetResourceName = assetResultat.results?.[0]?.resource_name;
+    if (!assetResourceName) {
+      throw new Error(`Campagne creee (id ${campagneId}) mais echec de la creation de l'extension d'appel (aucun resource_name retourne).`);
+    }
+    await customer.campaignAssets.create([
+      {
+        campaign: campagneResourceName,
+        asset: assetResourceName,
+        field_type: enums.AssetFieldType.CALL,
+        status: enums.AssetLinkStatus.ENABLED,
+      },
+    ]);
+  }
 
   return { campagneId };
 }
@@ -442,6 +539,65 @@ export async function ajouterMotsClesExclus(prisma: PrismaClient, campagneId: st
   }
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
   await ajouterMotsClesExclusCampagne(customer, ResourceNames.campaign(customerId, campagneId), motsClesExclus);
+}
+
+/**
+ * Change le budget quotidien d'une campagne EXISTANTE (par opposition au
+ * budget initial fixe a la creation dans creerCampagne). JAMAIS appelee
+ * directement par Morgane : uniquement par googleAdsActions.ts, lors de
+ * l'application d'une PropositionAds deja validee par l'utilisateur sur
+ * l'ecran dedie.
+ */
+export async function changerBudgetCampagne(prisma: PrismaClient, campagneId: string, nouveauBudgetQuotidien: number): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+
+  const lignes = await customer.query(`
+    SELECT campaign_budget.resource_name
+    FROM campaign
+    WHERE campaign.id = ${campagneId}
+  `);
+  const budgetResourceName = lignes[0]?.campaign_budget?.resource_name;
+  if (!budgetResourceName) throw new Error(`Aucun budget trouve pour la campagne ${campagneId}.`);
+
+  await customer.campaignBudgets.update([
+    {
+      resource_name: budgetResourceName,
+      amount_micros: toMicros(nouveauBudgetQuotidien),
+    },
+  ]);
+}
+
+/**
+ * Ajoute des mots-cles POSITIFS a un groupe d'annonces EXISTANT (par
+ * opposition aux mots-cles exclus de ajouterMotsClesExclus). groupeId
+ * identifie le groupe d'annonces cible (voir listerMotsCles pour le
+ * retrouver sur une campagne donnee). JAMAIS appelee directement par
+ * Morgane : uniquement par googleAdsActions.ts, lors de l'application
+ * d'une PropositionAds deja validee par l'utilisateur sur l'ecran dedie.
+ */
+export async function ajouterMotsClesPositifs(
+  prisma: PrismaClient,
+  groupeId: string,
+  motsCles: string[],
+  typeCorrespondance: "EXACT" | "PHRASE" | "BROAD" = "PHRASE"
+): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (motsCles.length === 0) return;
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.adGroupCriteria.create(
+    motsCles.map((texte) => ({
+      ad_group: ResourceNames.adGroup(customerId, groupeId),
+      status: enums.AdGroupCriterionStatus.ENABLED,
+      keyword: { text: texte, match_type: enums.KeywordMatchType[typeCorrespondance] },
+    }))
+  );
 }
 
 function clauseCampagne(campagneId?: string): string {

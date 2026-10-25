@@ -76,3 +76,34 @@ test("listerCampagnesAds : non configure -> erreur explicite", async (t) => {
 
   await prisma.$disconnect();
 });
+
+// Les trois fonctions suivantes (ciblage geographique, modification de
+// budget, ajout de mots-cles positifs) sont les nouveaux modules demandes
+// pour rendre Morgane autonome en creation ET en modification de campagne.
+// Meme principe que ci-dessus : verifie seulement l'echec propre sans
+// configuration, jamais un vrai appel API dans un test automatique.
+test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPositifs : non configure -> erreur explicite", async (t) => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPositifs } = await import("../src/services/googleAds");
+  const prisma = new PrismaClient();
+
+  const sauvegarde = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  delete process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  try {
+    await t.test("rechercherCiblesGeographiques rejette avec un message explicite", async () => {
+      await assert.rejects(rechercherCiblesGeographiques(prisma, ["Île-de-France"]), /Google Ads non configure/);
+    });
+
+    await t.test("changerBudgetCampagne rejette avec un message explicite", async () => {
+      await assert.rejects(changerBudgetCampagne(prisma, "123456", 40), /Google Ads non configure/);
+    });
+
+    await t.test("ajouterMotsClesPositifs rejette avec un message explicite", async () => {
+      await assert.rejects(ajouterMotsClesPositifs(prisma, "456", ["serrurier fichet essonne"]), /Google Ads non configure/);
+    });
+  } finally {
+    if (sauvegarde !== undefined) process.env.GOOGLE_ADS_DEVELOPER_TOKEN = sauvegarde;
+  }
+
+  await prisma.$disconnect();
+});

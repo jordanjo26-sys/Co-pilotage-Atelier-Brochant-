@@ -242,7 +242,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
     input_schema: {
       type: "object",
       properties: {
@@ -257,6 +257,8 @@ const OUTILS: Anthropic.Tool[] = [
             "reactiver_mot_cle",
             "exclure_action_conversion",
             "creer_action_conversion_site",
+            "modifier_budget_campagne",
+            "ajouter_mots_cles_positifs",
           ],
           description: "Action proposee.",
         },
@@ -269,7 +271,7 @@ const OUTILS: Anthropic.Tool[] = [
         campagneId: {
           type: "string",
           description:
-            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus/modifier_budget_campagne/ajouter_mots_cles_positifs. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
         },
         conversionActionId: {
           type: "string",
@@ -277,7 +279,7 @@ const OUTILS: Anthropic.Tool[] = [
         },
         groupeId: {
           type: "string",
-          description: "Identifiant du groupe d'annonces (ad_group.id, voir obtenir_mots_cles_ads). REQUIS pour pause_mot_cle/reactiver_mot_cle.",
+          description: "Identifiant du groupe d'annonces (ad_group.id, voir obtenir_mots_cles_ads). REQUIS pour pause_mot_cle/reactiver_mot_cle/ajouter_mots_cles_positifs.",
         },
         criterionId: {
           type: "string",
@@ -296,7 +298,11 @@ const OUTILS: Anthropic.Tool[] = [
           type: "string",
           description: "Resume en langage clair de pourquoi cette action est proposee, affiche a l'utilisateur sur l'ecran de validation.",
         },
-        budgetQuotidien: { type: "number", description: "Budget quotidien en euros, decide avec l'utilisateur dans la conversation. Uniquement pour creer_campagne." },
+        budgetQuotidien: {
+          type: "number",
+          description:
+            "Budget quotidien en euros, decide avec l'utilisateur dans la conversation. REQUIS pour creer_campagne (budget initial) et modifier_budget_campagne (nouveau budget).",
+        },
         urlFinale: { type: "string", description: "Page de destination des annonces (URL complete). Uniquement pour creer_campagne." },
         titres: {
           type: "array",
@@ -308,12 +314,33 @@ const OUTILS: Anthropic.Tool[] = [
           items: { type: "string" },
           description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Uniquement pour creer_campagne.",
         },
-        motsCles: { type: "array", items: { type: "string" }, description: "Mots-cles pertinents a cibler (au moins un). Uniquement pour creer_campagne." },
+        motsCles: {
+          type: "array",
+          items: { type: "string" },
+          description: "Mots-cles pertinents a cibler (au moins un). REQUIS pour creer_campagne et ajouter_mots_cles_positifs.",
+        },
         motsClesExclus: {
           type: "array",
           items: { type: "string" },
           description:
             "Mots-cles exclus (negatifs) a ajouter. Optionnel pour creer_campagne. REQUIS pour ajouter_mots_cles_exclus (au moins un) - identifie-les via obtenir_termes_recherche_ads.",
+        },
+        ciblesGeographiques: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Noms de lieux a cibler (ex. \"Île-de-France\", \"Seine-et-Marne\", \"Lyon\"), resolus automatiquement en identifiants Google au moment de la creation - jamais d'identifiant numerique a deviner toi-meme. Optionnel pour creer_campagne : omis, la campagne n'a aucune restriction geographique (cible par defaut selon les parametres du compte).",
+        },
+        numeroTelephone: {
+          type: "string",
+          description:
+            "Numero de telephone (ex. \"0972574450\") pour lequel creer une extension d'appel liee des la creation de la campagne, avec suivi de conversion d'appel au niveau du compte active par defaut. Optionnel pour creer_campagne - sans lui, la campagne n'a aucun moyen de suivre les appels independamment du site tant que l'utilisateur ne l'ajoute pas lui-meme.",
+        },
+        typeCorrespondance: {
+          type: "string",
+          enum: ["EXACT", "PHRASE", "BROAD"],
+          description:
+            "Type de correspondance applique a TOUS les mots-cles de motsCles (pas de reglage par mot-cle individuel aujourd'hui). Optionnel pour creer_campagne et ajouter_mots_cles_positifs - PHRASE par defaut si omis (plus sur pour le budget que BROAD, moins restrictif que EXACT).",
         },
       },
       required: ["type", "campagneNom", "justification"],
@@ -558,6 +585,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         motCleTexte,
         conversionActionId,
         typeConversionSite,
+        ciblesGeographiques,
+        numeroTelephone,
+        typeCorrespondance,
       } = params as Record<string, unknown>;
       const typesValides: TypePropositionAds[] = [
         "pause_campagne",
@@ -568,6 +598,8 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         "reactiver_mot_cle",
         "exclure_action_conversion",
         "creer_action_conversion_site",
+        "modifier_budget_campagne",
+        "ajouter_mots_cles_positifs",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
@@ -599,6 +631,10 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           motCleTexte: typeof motCleTexte === "string" ? motCleTexte : undefined,
           conversionActionId: typeof conversionActionId === "string" ? conversionActionId : undefined,
           typeConversionSite: typeConversionSite === "CLICK_TO_CALL" || typeConversionSite === "WEBPAGE" ? typeConversionSite : undefined,
+          ciblesGeographiques: toTableauString(ciblesGeographiques),
+          numeroTelephone: typeof numeroTelephone === "string" ? numeroTelephone : undefined,
+          typeCorrespondance:
+            typeCorrespondance === "EXACT" || typeCorrespondance === "PHRASE" || typeCorrespondance === "BROAD" ? typeCorrespondance : undefined,
         });
         return {
           ok: true,
@@ -608,6 +644,10 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
               : type === "creer_action_conversion_site"
                 ? "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : une fois acceptee la-bas, utilise obtenir_actions_conversion_ads pour recuperer son id, puis obtenir_snippet_conversion_ads pour obtenir le code a donner a l'utilisateur."
                 : "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
+          avertissement:
+            ciblesGeographiques && Array.isArray(ciblesGeographiques) && ciblesGeographiques.length > 0
+              ? "Les noms de lieux donnes seront resolus par Google au moment de l'acceptation. Si l'un d'eux ne correspond a aucun lieu connu, toute la creation echouera avec un message clair (statut 'echec') - rien ne sera cree a moitie."
+              : undefined,
           propositionId: proposition.id,
         };
       } catch (err) {
@@ -764,6 +804,24 @@ pertinent. Rappelle-lui systematiquement que la campagne sera creee EN \
 PAUSE : aucune depense ne commence avant qu'il ne l'active lui-meme dans \
 Google Ads apres verification - c'est une securite volontaire, pas une \
 limitation a contourner.
+  Options supplementaires de creer_campagne, a proposer quand elles sont \
+pertinentes (jamais obligatoires) :
+  - ciblesGeographiques : noms de lieux (ex. "Île-de-France", \
+"Seine-et-Marne") - tu donnes des noms, Google les resout lui-meme en \
+identifiants au moment de la creation, tu n'as jamais a deviner un \
+identifiant numerique. Si un nom ne correspond a rien chez Google, TOUTE \
+la creation echoue proprement (rien de cree a moitie) avec un message \
+clair - previens l'utilisateur de ce risque si un nom de lieu est \
+inhabituel ou ambigu. Sans ciblesGeographiques, la campagne n'a aucune \
+restriction geographique.
+  - numeroTelephone : cree une extension d'appel liee des la creation, \
+avec suivi de conversion d'appel actif par defaut (niveau compte). \
+Fortement recommande des que l'activite repose sur l'appel telephonique - \
+sans lui, la nouvelle campagne n'aura AUCUN moyen de suivre les appels \
+independamment du site tant que l'utilisateur ne l'ajoute pas lui-meme.
+  - typeCorrespondance : EXACT/PHRASE/BROAD, applique a tous les \
+mots-cles de la campagne (pas de reglage individuel aujourd'hui). PHRASE \
+par defaut si tu ne precises rien - plus sur pour le budget que BROAD.
   Mots-cles exclus sur une campagne existante (ajouter_mots_cles_exclus) : \
 identifie-les via obtenir_termes_recherche_ads (jamais invente), discute \
 chaque terme avec l'utilisateur avant de le proposer.
@@ -798,9 +856,17 @@ l'utilisateur sur l'ecran dedie, recupere l'id de la nouvelle action \
 (obtenir_snippet_conversion_ads) et donne ce code A L'UTILISATEUR \
 TEXTUELLEMENT ET INTEGRALEMENT (jamais reformule, resume ou traduit) - \
 c'est du code exact qu'il doit faire ajouter sur son site.
-  Les actions de gestion encore plus fine (ajustement d'enchere individuel, \
-modification de budget d'une campagne existante, ajout de mots-cles \
-POSITIFS a une campagne existante) n'existent pas encore : dis-le \
+  Modification du budget d'une campagne existante \
+(modifier_budget_campagne) : precise budgetQuotidien avec le NOUVEAU \
+montant quotidien souhaite (pas la difference). Discute toujours avec \
+l'utilisateur du budget cible et de pourquoi, comme pour une creation.
+  Ajout de mots-cles POSITIFS a une campagne existante \
+(ajouter_mots_cles_positifs) : precise campagneId, groupeId (voir \
+obtenir_mots_cles_ads pour le retrouver) et motsCles. typeCorrespondance \
+optionnel (PHRASE par defaut).
+  Ce qui n'existe PAS encore : l'ajustement d'enchere individuel par \
+mot-cle, et le reglage du type de correspondance mot-cle par mot-cle \
+(aujourd'hui un seul type pour toute la campagne/le lot ajoute). Dis-le \
 clairement si l'utilisateur les demande plutot que de pretendre les avoir \
 faites.`;
 

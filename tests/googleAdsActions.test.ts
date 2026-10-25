@@ -247,6 +247,103 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (modifier_budget_campagne) : rejette une entree incomplete", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "modifier_budget_campagne",
+        campagneId: "",
+        campagneNom: "Dépannage",
+        justification: "CPA eleve au budget actuel, reduire pour collecter des donnees a moindre cout.",
+        budgetQuotidien: 25,
+      }),
+      /campagneId/
+    );
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "modifier_budget_campagne",
+        campagneId: "123456",
+        campagneNom: "Dépannage",
+        justification: "CPA eleve au budget actuel, reduire pour collecter des donnees a moindre cout.",
+        budgetQuotidien: 0,
+      }),
+      /budgetQuotidien/
+    );
+  });
+
+  await t.test("creerPropositionAds (modifier_budget_campagne) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "modifier_budget_campagne",
+      campagneId: "123456",
+      campagneNom: "Dépannage",
+      justification: "CPA eleve au budget actuel, reduire pour collecter des donnees a moindre cout.",
+      budgetQuotidien: 25,
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.campagneId, "123456");
+    assert.equal(proposition.budgetQuotidien, 25);
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
+  await t.test("creerPropositionAds (ajouter_mots_cles_positifs) : rejette une entree incomplete", async () => {
+    const base = {
+      type: "ajouter_mots_cles_positifs" as const,
+      campagneId: "123456",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Mots-cles supplementaires identifies via les termes de recherche reels.",
+      groupeId: "456",
+      motsCles: ["serrurier fichet essonne"],
+    };
+    await assert.rejects(creerPropositionAds(prisma, { ...base, campagneId: "" }), /campagneId/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, groupeId: undefined }), /groupeId/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, motsCles: [] }), /motsCles/);
+  });
+
+  await t.test("creerPropositionAds (ajouter_mots_cles_positifs) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "ajouter_mots_cles_positifs",
+      campagneId: "123456",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Mots-cles supplementaires identifies via les termes de recherche reels.",
+      groupeId: "456",
+      motsCles: ["serrurier fichet essonne", "serrurier fichet yvelines"],
+      typeCorrespondance: "PHRASE",
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.groupeId, "456");
+    assert.deepEqual(proposition.motsCles, ["serrurier fichet essonne", "serrurier fichet yvelines"]);
+    assert.equal(proposition.typeCorrespondance, "PHRASE");
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
+  await t.test("creerPropositionAds (creer_campagne) : accepte ciblesGeographiques et numeroTelephone optionnels", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "creer_campagne",
+      campagneId: "",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Accord de l'utilisateur, campagne independante de Depannage.",
+      budgetQuotidien: 40,
+      urlFinale: "https://fichet-depannage.fr",
+      titres: ["Serrurier Fichet", "Dépannage Serrure Fichet", "Appelez-nous"],
+      descriptions: ["Intervention rapide en Île-de-France.", "Devis établi avant toute intervention."],
+      motsCles: ["serrurier fichet île-de-france"],
+      motsClesExclus: ["fischer"],
+      ciblesGeographiques: ["Île-de-France", "Seine-et-Marne"],
+      numeroTelephone: "0972574450",
+      typeCorrespondance: "PHRASE",
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.deepEqual(proposition.ciblesGeographiques, ["Île-de-France", "Seine-et-Marne"]);
+    assert.equal(proposition.numeroTelephone, "0972574450");
+    assert.equal(proposition.typeCorrespondance, "PHRASE");
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -338,6 +435,31 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultatSite = await accepterPropositionAds(prisma, propositionSite.id);
       assert.equal(resultatSite.statut, "echec");
       assert.match(resultatSite.erreur || "", /non configure/);
+
+      // Meme verification pour modifier_budget_campagne.
+      const propositionBudget = await creerPropositionAds(prisma, {
+        type: "modifier_budget_campagne",
+        campagneId: "123456",
+        campagneNom: "Dépannage",
+        justification: "CPA eleve, reduire le budget.",
+        budgetQuotidien: 25,
+      });
+      const resultatBudget = await accepterPropositionAds(prisma, propositionBudget.id);
+      assert.equal(resultatBudget.statut, "echec");
+      assert.match(resultatBudget.erreur || "", /non configure/);
+
+      // Meme verification pour ajouter_mots_cles_positifs.
+      const propositionPositifs = await creerPropositionAds(prisma, {
+        type: "ajouter_mots_cles_positifs",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Mots-cles supplementaires identifies.",
+        groupeId: "456",
+        motsCles: ["serrurier fichet essonne"],
+      });
+      const resultatPositifs = await accepterPropositionAds(prisma, propositionPositifs.id);
+      assert.equal(resultatPositifs.statut, "echec");
+      assert.match(resultatPositifs.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

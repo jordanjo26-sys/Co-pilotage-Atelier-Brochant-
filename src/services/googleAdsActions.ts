@@ -7,6 +7,8 @@ import {
   changerComptageActionConversion,
   creerActionConversionSite,
   TypeActionConversionSite,
+  changerBudgetCampagne,
+  ajouterMotsClesPositifs,
   messageErreurGoogleAds,
 } from "./googleAds";
 import { logEvenement } from "./journalService";
@@ -28,7 +30,9 @@ export type TypePropositionAds =
   | "pause_mot_cle"
   | "reactiver_mot_cle"
   | "exclure_action_conversion"
-  | "creer_action_conversion_site";
+  | "creer_action_conversion_site"
+  | "modifier_budget_campagne"
+  | "ajouter_mots_cles_positifs";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -41,11 +45,14 @@ export interface PropositionAdsEntree {
   descriptions?: string[];
   motsCles?: string[];
   motsClesExclus?: string[];
-  groupeId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
+  groupeId?: string; // requis pour pause_mot_cle/reactiver_mot_cle/ajouter_mots_cles_positifs
   criterionId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
   motCleTexte?: string; // requis pour pause_mot_cle/reactiver_mot_cle (affichage)
   conversionActionId?: string; // requis pour exclure_action_conversion ; rempli apres creation pour creer_action_conversion_site
   typeConversionSite?: TypeActionConversionSite; // requis pour creer_action_conversion_site
+  ciblesGeographiques?: string[]; // noms de lieux a cibler, optionnel pour creer_campagne
+  numeroTelephone?: string; // pour l'extension d'appel a la creation, optionnel pour creer_campagne
+  typeCorrespondance?: "EXACT" | "PHRASE" | "BROAD"; // optionnel pour creer_campagne/ajouter_mots_cles_positifs (defaut PHRASE)
 }
 
 /**
@@ -82,6 +89,15 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
     if (entree.typeConversionSite !== "CLICK_TO_CALL" && entree.typeConversionSite !== "WEBPAGE") {
       throw new Error("typeConversionSite manquant ou invalide (requis : CLICK_TO_CALL ou WEBPAGE).");
     }
+  }
+  if (entree.type === "modifier_budget_campagne") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour modifier_budget_campagne).");
+    if (!entree.budgetQuotidien || entree.budgetQuotidien <= 0) throw new Error("budgetQuotidien doit etre un nombre positif (nouveau budget quotidien).");
+  }
+  if (entree.type === "ajouter_mots_cles_positifs") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_mots_cles_positifs).");
+    if (!entree.groupeId) throw new Error("groupeId manquant (requis pour ajouter_mots_cles_positifs).");
+    if (!entree.motsCles || entree.motsCles.length === 0) throw new Error("motsCles : au moins un mot-cle est requis.");
   }
 
   const proposition = await prisma.propositionAds.create({ data: entree });
@@ -133,6 +149,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
           descriptions: proposition.descriptions,
           motsCles: proposition.motsCles,
           motsClesExclus: proposition.motsClesExclus,
+          typeCorrespondance: (proposition.typeCorrespondance as "EXACT" | "PHRASE" | "BROAD" | null) ?? undefined,
+          ciblesGeographiques: proposition.ciblesGeographiques.length > 0 ? proposition.ciblesGeographiques : undefined,
+          numeroTelephone: proposition.numeroTelephone ?? undefined,
         });
         campagneIdCreee = resultat.campagneId;
         break;
@@ -154,6 +173,17 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
         conversionActionIdCreee = resultat.id;
         break;
       }
+      case "modifier_budget_campagne":
+        await changerBudgetCampagne(prisma, proposition.campagneId, proposition.budgetQuotidien ?? 0);
+        break;
+      case "ajouter_mots_cles_positifs":
+        await ajouterMotsClesPositifs(
+          prisma,
+          proposition.groupeId ?? "",
+          proposition.motsCles,
+          (proposition.typeCorrespondance as "EXACT" | "PHRASE" | "BROAD" | null) ?? "PHRASE"
+        );
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -180,7 +210,11 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
                 ? `Action de conversion "${proposition.campagneNom}" retiree du comptage des conversions.`
                 : proposition.type === "creer_action_conversion_site"
                   ? `Action de conversion "${proposition.campagneNom}" creee (id ${conversionActionIdCreee}) - utilise obtenir_snippet_conversion_ads avec cet id pour recuperer le code a coller sur le site.`
-                  : "Applique avec succes sur Google Ads.",
+                  : proposition.type === "modifier_budget_campagne"
+                    ? `Budget quotidien de "${proposition.campagneNom}" change a ${proposition.budgetQuotidien} EUR/jour.`
+                    : proposition.type === "ajouter_mots_cles_positifs"
+                      ? `${proposition.motsCles.length} mot(s)-cle(s) positif(s) ajoute(s) : ${proposition.motsCles.join(", ")}.`
+                      : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {
