@@ -795,6 +795,14 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
       status: enums.CampaignStatus.PAUSED,
       advertising_channel_type: enums.AdvertisingChannelType.SEARCH,
       campaign_budget: budgetResourceName,
+      // Champ devenu obligatoire cote API (declaration UE sur la publicite
+      // politique, reglementation europeenne) - echec reel observe sans lui
+      // ("The required field was not present", champ
+      // contains_eu_political_advertising). Les campagnes creees ici sont
+      // toujours des campagnes commerciales locales (serrurerie...), jamais
+      // de la publicite politique : valeur fixe, pas un choix a faire au cas
+      // par cas.
+      contains_eu_political_advertising: enums.EuPoliticalAdvertisingStatus.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING,
       ...construireStrategieEncheres(params.strategieEncheres, params.cpaCibleEuros),
       network_settings: {
         target_google_search: true,
