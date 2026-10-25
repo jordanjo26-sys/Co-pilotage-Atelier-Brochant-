@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import dotenv from "dotenv";
-import { clauseFenetreDate, googleAdsEstConfigure, extraireExemptionsPolitique } from "../src/services/googleAds";
+import { clauseFenetreDate, googleAdsEstConfigure, extraireExemptionsPolitique, decoderEnum } from "../src/services/googleAds";
 
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
@@ -210,5 +210,34 @@ test("extraireExemptionsPolitique", async (t) => {
     assert.equal(extraireExemptionsPolitique({}, 5), null);
     assert.equal(extraireExemptionsPolitique({ errors: [] }, 5), null);
     assert.equal(extraireExemptionsPolitique(new Error("autre chose"), 5), null);
+  });
+});
+
+test("decoderEnum", async (t) => {
+  // Reproduit le mapping inverse d'un vrai enum TS numerique compile (ENUM[2] === "SEARCH"
+  // EN PLUS de ENUM["SEARCH"] === 2) - un objet litteral simple ne le fait pas, ce qui aurait
+  // masque le bug regresse par ce test.
+  const ENUM = { UNSPECIFIED: 0, SEARCH: 2, DISPLAY: 3, 0: "UNSPECIFIED", 2: "SEARCH", 3: "DISPLAY" } as unknown as Record<string, string | number>;
+
+  await t.test("decode un code numerique brut (tel que renvoye par l'API) vers son nom", () => {
+    assert.equal(decoderEnum(ENUM, 2), "SEARCH");
+    assert.equal(decoderEnum(ENUM, 3), "DISPLAY");
+  });
+
+  await t.test("decode une chaine numerique brute vers son nom (pas de passage par la cle inverse)", () => {
+    // Regression : un enum TS numerique cree un mapping inverse (ENUM["2"] === "SEARCH" en PLUS
+    // de ENUM["SEARCH"] === 2), donc une chaine numerique est une propriete valide de l'objet -
+    // un ancien bug retournait "2" tel quel au lieu de le decoder en "SEARCH".
+    assert.equal(decoderEnum(ENUM, "2"), "SEARCH");
+  });
+
+  await t.test("laisse un nom deja decode inchange", () => {
+    assert.equal(decoderEnum(ENUM, "SEARCH"), "SEARCH");
+  });
+
+  await t.test("renvoie la valeur brute pour un code inconnu ou absent", () => {
+    assert.equal(decoderEnum(ENUM, 999), "999");
+    assert.equal(decoderEnum(ENUM, undefined), "");
+    assert.equal(decoderEnum(ENUM, null), "");
   });
 });

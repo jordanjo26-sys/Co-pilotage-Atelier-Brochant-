@@ -673,13 +673,24 @@ export interface AudienceAds {
  * verifier qu'il existe.
  */
 function centreInteretEligiblePourSearch(ui: {
+  taxonomy_type?: unknown;
   launched_to_all?: unknown;
   availabilities?: Array<{ channel?: { availability_mode?: unknown; advertising_channel_type?: unknown } | null }> | null;
 }): boolean {
+  // Decouvert par diagnostic (diagnostiquer_audience_ads) : une recherche
+  // par nom peut retourner un user_interest de type VERTICAL_GEO (variante
+  // geographique technique de la categorie, meme nom affiche) au lieu de la
+  // vraie categorie AFFINITY/IN_MARKET - ce noeud a souvent launched_to_all
+  // = true mais Google le rejette quand meme comme critere avec
+  // INVALID_USER_INTEREST. Seules AFFINITY et IN_MARKET sont de vraies
+  // audiences utilisables pour du ciblage/observation.
+  const taxonomie = decoderEnum(enums.UserInterestTaxonomyType as unknown as Record<string, string | number>, ui.taxonomy_type);
+  if (taxonomie !== "AFFINITY" && taxonomie !== "IN_MARKET") return false;
+
   if (ui.launched_to_all === true) return true;
   return (ui.availabilities ?? []).some((a) => {
-    const mode = decoderEnum(enums.CriterionCategoryChannelAvailabilityMode as unknown as Record<string, string | number>, a.channel?.availability_mode);
-    const canal = decoderEnum(enums.AdvertisingChannelType as unknown as Record<string, string | number>, a.channel?.advertising_channel_type);
+    const mode = decoderEnum(enums.CriterionCategoryChannelAvailabilityMode as unknown as Record<string, string | number>, a?.channel?.availability_mode);
+    const canal = decoderEnum(enums.AdvertisingChannelType as unknown as Record<string, string | number>, a?.channel?.advertising_channel_type);
     return mode === "ALL_CHANNELS" || canal === "SEARCH";
   });
 }
@@ -743,7 +754,7 @@ export async function rechercherAudiences(prisma: PrismaClient, termes: string[]
   for (const terme of termes) {
     const termeEchappe = terme.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const lignes = await customer.query(`
-      SELECT user_interest.resource_name, user_interest.name, user_interest.launched_to_all, user_interest.availabilities
+      SELECT user_interest.resource_name, user_interest.name, user_interest.taxonomy_type, user_interest.launched_to_all, user_interest.availabilities
       FROM user_interest
       WHERE user_interest.name LIKE '%${termeEchappe}%'
       LIMIT 20
@@ -1485,9 +1496,24 @@ export async function listerTermesRecherche(prisma: PrismaClient, jours = 30, ca
 // le libellé ("ENABLED"), parfois le code numerique brut ("2"). Decode dans
 // les deux cas via l'objet enum lui-meme (mapping inverse numero->libelle
 // fourni par google-ads-api) plutot que de maintenir une table a la main.
-function decoderEnum(enumObjet: Record<string, string | number>, valeur: unknown): string {
+/**
+ * Decode une valeur d'enum Google Ads (code numerique brut renvoye par
+ * l'API) vers son nom textuel (ex. 2 -> "SEARCH"). BUG CORRIGE : l'ancienne
+ * version testait `enumObjet.hasOwnProperty(brut)` AVANT la conversion
+ * numerique - or un enum TS numerique cree un mapping inverse (clef "2" ->
+ * valeur "SEARCH", EN PLUS de "SEARCH" -> 2), donc hasOwnProperty("2") est
+ * vrai et l'ancien code retournait la chaine brute "2" au lieu de la
+ * decoder en "SEARCH". Resultat concret : tout code s'appuyant sur cette
+ * fonction pour comparer un nom d'enum (ex. centreInteretEligiblePourSearch
+ * qui cherchait advertising_channel_type === "SEARCH") comparait en realite
+ * "2" === "SEARCH", toujours faux - le filtre d'eligibilite audience ne
+ * fonctionnait donc jamais via les disponibilites detaillees, seulement via
+ * le raccourci launched_to_all. Decouvert en diagnostiquant pourquoi des
+ * audiences jugees "eligibles" etaient quand meme rejetees par Google.
+ */
+export function decoderEnum(enumObjet: Record<string, string | number>, valeur: unknown): string {
   const brut = String(valeur ?? "");
-  if (brut === "" || Object.prototype.hasOwnProperty.call(enumObjet, brut)) return brut;
+  if (brut === "") return brut;
   const num = Number(brut);
   if (!Number.isNaN(num) && enumObjet[num] !== undefined) return String(enumObjet[num]);
   return brut;
