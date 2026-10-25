@@ -1,4 +1,4 @@
-import { GoogleAdsApi, Customer, fromMicros, enums, ResourceNames } from "google-ads-api";
+import { GoogleAdsApi, Customer, fromMicros, toMicros, enums, ResourceNames } from "google-ads-api";
 import { PrismaClient } from "@prisma/client";
 import { dechiffrer } from "./cipher";
 import { buildOAuthClient, ADS_SCOPE } from "./googleAuth";
@@ -291,4 +291,110 @@ export async function changerStatutCampagne(prisma: PrismaClient, campagneId: st
       status: enums.CampaignStatus[nouveauStatut],
     },
   ]);
+}
+
+export interface ParametresCreationCampagne {
+  nom: string;
+  budgetQuotidien: number; // euros/jour
+  urlFinale: string;
+  titres: string[]; // 3 a 15 titres d'annonce
+  descriptions: string[]; // 2 a 4 descriptions d'annonce
+  motsCles: string[];
+  motsClesExclus: string[];
+}
+
+/**
+ * Cree une campagne Search complete (budget, campagne, groupe d'annonces,
+ * mots-cles, mots-cles exclus, annonce responsive) en un seul enchainement
+ * d'appels. JAMAIS appelee directement par Morgane : uniquement par
+ * googleAdsActions.ts, lors de l'application d'une PropositionAds deja
+ * validee par l'utilisateur. La campagne est TOUJOURS creee en PAUSE
+ * (status PAUSED) - demande explicite de l'utilisateur : aucune depense ne
+ * commence avant qu'il ne l'active lui-meme dans Google Ads, apres
+ * verification. Enchere automatique "maximiser les conversions" (pas
+ * d'enchere manuelle par mot-cle a gerer).
+ */
+export async function creerCampagne(prisma: PrismaClient, params: ParametresCreationCampagne): Promise<{ campagneId: string }> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+
+  const budgetResultat = await customer.campaignBudgets.create([
+    {
+      name: `${params.nom} - budget`,
+      amount_micros: toMicros(params.budgetQuotidien),
+      delivery_method: enums.BudgetDeliveryMethod.STANDARD,
+      explicitly_shared: false,
+    },
+  ]);
+  const budgetResourceName = budgetResultat.results?.[0]?.resource_name;
+  if (!budgetResourceName) throw new Error("Echec de la creation du budget (aucun resource_name retourne).");
+
+  const campagneResultat = await customer.campaigns.create([
+    {
+      name: params.nom,
+      status: enums.CampaignStatus.PAUSED,
+      advertising_channel_type: enums.AdvertisingChannelType.SEARCH,
+      campaign_budget: budgetResourceName,
+      maximize_conversions: {},
+      network_settings: {
+        target_google_search: true,
+        target_search_network: true,
+        target_content_network: false,
+        target_partner_search_network: false,
+      },
+    },
+  ]);
+  const campagneResourceName = campagneResultat.results?.[0]?.resource_name;
+  if (!campagneResourceName) throw new Error("Echec de la creation de la campagne (aucun resource_name retourne).");
+  const campagneId = campagneResourceName.split("/").pop()!;
+
+  const groupeResultat = await customer.adGroups.create([
+    {
+      name: `${params.nom} - groupe d'annonces`,
+      campaign: campagneResourceName,
+      status: enums.AdGroupStatus.ENABLED,
+      type: enums.AdGroupType.SEARCH_STANDARD,
+    },
+  ]);
+  const groupeResourceName = groupeResultat.results?.[0]?.resource_name;
+  if (!groupeResourceName) throw new Error("Echec de la creation du groupe d'annonces (aucun resource_name retourne).");
+
+  if (params.motsCles.length > 0) {
+    await customer.adGroupCriteria.create(
+      params.motsCles.map((texte) => ({
+        ad_group: groupeResourceName,
+        status: enums.AdGroupCriterionStatus.ENABLED,
+        keyword: { text: texte, match_type: enums.KeywordMatchType.BROAD },
+      }))
+    );
+  }
+
+  if (params.motsClesExclus.length > 0) {
+    await customer.campaignCriteria.create(
+      params.motsClesExclus.map((texte) => ({
+        campaign: campagneResourceName,
+        status: enums.CampaignCriterionStatus.ENABLED,
+        negative: true,
+        keyword: { text: texte, match_type: enums.KeywordMatchType.BROAD },
+      }))
+    );
+  }
+
+  await customer.adGroupAds.create([
+    {
+      ad_group: groupeResourceName,
+      status: enums.AdGroupAdStatus.ENABLED,
+      ad: {
+        final_urls: [params.urlFinale],
+        responsive_search_ad: {
+          headlines: params.titres.map((texte) => ({ text: texte })),
+          descriptions: params.descriptions.map((texte) => ({ text: texte })),
+        },
+      },
+    },
+  ]);
+
+  return { campagneId };
 }

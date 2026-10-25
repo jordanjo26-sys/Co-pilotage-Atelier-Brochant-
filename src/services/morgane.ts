@@ -178,19 +178,36 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition de mise en pause ou de reactivation d'une campagne Google Ads, APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur sur CETTE campagne precise.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne existante, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
     input_schema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["pause_campagne", "reactiver_campagne"], description: "Action proposee." },
-        campagneId: { type: "string", description: "Identifiant Google Ads de la campagne (campaign.id, voir obtenir_campagnes_ads)." },
-        campagneNom: { type: "string", description: "Nom de la campagne, pour affichage sur l'ecran de validation." },
+        type: { type: "string", enum: ["pause_campagne", "reactiver_campagne", "creer_campagne"], description: "Action proposee." },
+        campagneId: {
+          type: "string",
+          description: "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Omis/vide pour creer_campagne (elle n'existe pas encore).",
+        },
+        campagneNom: { type: "string", description: "Nom de la campagne (existante, ou nom propose pour une nouvelle campagne)." },
         justification: {
           type: "string",
           description: "Resume en langage clair de pourquoi cette action est proposee, affiche a l'utilisateur sur l'ecran de validation.",
         },
+        budgetQuotidien: { type: "number", description: "Budget quotidien en euros, decide avec l'utilisateur dans la conversation. Uniquement pour creer_campagne." },
+        urlFinale: { type: "string", description: "Page de destination des annonces (URL complete). Uniquement pour creer_campagne." },
+        titres: {
+          type: "array",
+          items: { type: "string" },
+          description: "Entre 3 et 15 titres d'annonce (30 caracteres max chacun, contrainte Google Ads). Uniquement pour creer_campagne.",
+        },
+        descriptions: {
+          type: "array",
+          items: { type: "string" },
+          description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Uniquement pour creer_campagne.",
+        },
+        motsCles: { type: "array", items: { type: "string" }, description: "Mots-cles pertinents a cibler (au moins un). Uniquement pour creer_campagne." },
+        motsClesExclus: { type: "array", items: { type: "string" }, description: "Mots-cles exclus (negatifs), optionnel. Uniquement pour creer_campagne." },
       },
-      required: ["type", "campagneId", "campagneNom", "justification"],
+      required: ["type", "campagneNom", "justification"],
     },
   },
 ];
@@ -369,21 +386,33 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
     }
 
     case "proposer_action_ads": {
-      const { type, campagneId, campagneNom, justification } = params as Record<string, unknown>;
-      if (type !== "pause_campagne" && type !== "reactiver_campagne") return { erreur: "type invalide (attendu : pause_campagne ou reactiver_campagne)" };
-      if (typeof campagneId !== "string" || !campagneId) return { erreur: "campagneId manquant" };
+      const { type, campagneId, campagneNom, justification, budgetQuotidien, urlFinale, titres, descriptions, motsCles, motsClesExclus } = params as Record<string, unknown>;
+      if (type !== "pause_campagne" && type !== "reactiver_campagne" && type !== "creer_campagne") {
+        return { erreur: "type invalide (attendu : pause_campagne, reactiver_campagne ou creer_campagne)" };
+      }
+      if (type !== "creer_campagne" && (typeof campagneId !== "string" || !campagneId)) return { erreur: "campagneId manquant" };
       if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
       if (typeof justification !== "string" || !justification) return { erreur: "justification manquante" };
+      const toTableauString = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined);
       try {
         const proposition = await creerPropositionAds(prisma, {
           type: type as TypePropositionAds,
-          campagneId,
+          campagneId: typeof campagneId === "string" ? campagneId : "",
           campagneNom,
           justification,
+          budgetQuotidien: typeof budgetQuotidien === "number" ? budgetQuotidien : undefined,
+          urlFinale: typeof urlFinale === "string" ? urlFinale : undefined,
+          titres: toTableauString(titres),
+          descriptions: toTableauString(descriptions),
+          motsCles: toTableauString(motsCles),
+          motsClesExclus: toTableauString(motsClesExclus),
         });
         return {
           ok: true,
-          message: "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
+          message:
+            type === "creer_campagne"
+              ? "Proposition de creation deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : l'utilisateur doit l'accepter la-bas, et meme une fois acceptee, la campagne sera creee EN PAUSE (ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads)."
+              : "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
           propositionId: proposition.id,
         };
       } catch (err) {
@@ -461,19 +490,33 @@ les termes de recherche) : tu n'as aujourd'hui que des chiffres agreges par \
 CAMPAGNE (pas de donnee par mot-cle ni par terme de recherche) - dis-le \
 plutot que d'improviser un conseil que ces donnees ne permettent pas de \
 justifier.
-  Tu peux proposer de mettre en pause ou de reactiver une campagne \
-(proposer_action_ads), mais JAMAIS directement : il faut d'abord en discuter \
-avec l'utilisateur dans la conversation et qu'il donne clairement son accord \
-sur CETTE campagne precise, avant d'appeler l'outil. L'outil ne modifie rien \
-tout de suite : il depose une proposition sur l'ecran de validation dedie de \
-l'application (onglet Google Ads), que l'utilisateur doit encore accepter \
-la-bas pour qu'elle soit reellement appliquee - dis-le lui explicitement \
-apres avoir depose la proposition ("c'est en attente de validation sur \
-l'ecran dedie, rien n'est encore modifie"). Ne depose jamais une proposition \
-sans accord explicite et recent dans la conversation. Les autres actions \
-(modification de budget, d'enchere, creation de campagne, gestion de \
-mots-cles) n'existent pas encore : dis-le clairement si l'utilisateur les \
-demande plutot que de pretendre les avoir faites.`;
+  Tu peux proposer de mettre en pause ou de reactiver une campagne, ou de \
+creer une campagne Search complete (proposer_action_ads), mais JAMAIS \
+directement : il faut d'abord en discuter avec l'utilisateur dans la \
+conversation et qu'il donne clairement son accord sur CETTE action precise, \
+avant d'appeler l'outil. L'outil ne modifie rien tout de suite : il depose \
+une proposition sur l'ecran de validation dedie de l'application (onglet \
+Google Ads), que l'utilisateur doit encore accepter la-bas pour qu'elle \
+soit reellement appliquee - dis-le lui explicitement apres avoir depose la \
+proposition ("c'est en attente de validation sur l'ecran dedie, rien n'est \
+encore modifie"). Ne depose jamais une proposition sans accord explicite et \
+recent dans la conversation.
+  Creation de campagne (creer_campagne) : c'est a TOI de proposer le \
+contenu, pas a l'utilisateur de tout dicter - en t'appuyant sur ce que tu \
+sais deja de son activite et de ses campagnes existantes (performances, \
+CPA, formulations qui marchent). Avant de deposer la proposition, mets-toi \
+d'accord avec l'utilisateur sur : le nom de la campagne, le budget \
+quotidien (toujours decide ensemble, jamais invente), l'URL de destination, \
+3 a 15 titres d'annonce (30 caracteres max chacun), 2 a 4 descriptions (90 \
+caracteres max chacune), au moins un mot-cle pertinent, et des mots-cles \
+exclus si pertinent. Rappelle-lui systematiquement que la campagne sera \
+creee EN PAUSE : aucune depense ne commence avant qu'il ne l'active \
+lui-meme dans Google Ads apres verification - c'est une securite \
+volontaire, pas une limitation a contourner. Les actions de gestion fine \
+(mot-cle par mot-cle sur une campagne existante, ajustement d'enchere \
+precis, modification de budget d'une campagne existante) n'existent pas \
+encore : dis-le clairement si l'utilisateur les demande plutot que de \
+pretendre les avoir faites.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils

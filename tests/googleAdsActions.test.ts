@@ -76,6 +76,50 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     await assert.rejects(refuserPropositionAds(prisma, proposition.id), /en_attente/);
   });
 
+  await t.test("creerPropositionAds (creer_campagne) : rejette une entree qui ne respecte pas les contraintes Google Ads", async () => {
+    const base = {
+      type: "creer_campagne" as const,
+      campagneId: "",
+      campagneNom: "Débouchage express",
+      justification: "Accord de l'utilisateur pour cibler les recherches de débouchage urgent.",
+      budgetQuotidien: 50,
+      urlFinale: "https://copilotage-brochant.fr",
+      titres: ["Débouchage express", "Intervention 24/7", "Devis gratuit"],
+      descriptions: ["Intervention rapide à Paris.", "Devis gratuit, sans engagement."],
+      motsCles: ["débouchage urgence"],
+      motsClesExclus: [],
+    };
+
+    await assert.rejects(creerPropositionAds(prisma, { ...base, budgetQuotidien: 0 }), /budgetQuotidien/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, urlFinale: undefined }), /urlFinale/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, titres: ["Un seul titre"] }), /titres/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, descriptions: ["Une seule description"] }), /descriptions/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, motsCles: [] }), /motsCles/);
+  });
+
+  await t.test("creerPropositionAds (creer_campagne) : entree valide -> deposee en_attente avec tous ses details", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "creer_campagne",
+      campagneId: "",
+      campagneNom: "Débouchage express",
+      justification: "Accord de l'utilisateur pour cibler les recherches de débouchage urgent.",
+      budgetQuotidien: 50,
+      urlFinale: "https://copilotage-brochant.fr",
+      titres: ["Débouchage express", "Intervention 24/7", "Devis gratuit"],
+      descriptions: ["Intervention rapide à Paris.", "Devis gratuit, sans engagement."],
+      motsCles: ["débouchage urgence", "plombier débouchage"],
+      motsClesExclus: ["formation", "emploi"],
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.campagneId, "");
+    assert.equal(proposition.budgetQuotidien, 50);
+    assert.deepEqual(proposition.titres, ["Débouchage express", "Intervention 24/7", "Devis gratuit"]);
+    assert.deepEqual(proposition.motsClesExclus, ["formation", "emploi"]);
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -97,6 +141,26 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultat = await accepterPropositionAds(prisma, nouvelle.id);
       assert.equal(resultat.statut, "echec");
       assert.match(resultat.erreur || "", /non configure/);
+
+      // Meme verification pour creer_campagne : doit echouer proprement
+      // (creerCampagne appelle obtenirClientAds en premier, avant tout appel
+      // reseau) plutot que de tenter un appel reel.
+      const propositionCreation = await creerPropositionAds(prisma, {
+        type: "creer_campagne",
+        campagneId: "",
+        campagneNom: "Débouchage express",
+        justification: "Accord de l'utilisateur.",
+        budgetQuotidien: 50,
+        urlFinale: "https://copilotage-brochant.fr",
+        titres: ["Débouchage express", "Intervention 24/7", "Devis gratuit"],
+        descriptions: ["Intervention rapide à Paris.", "Devis gratuit, sans engagement."],
+        motsCles: ["débouchage urgence"],
+        motsClesExclus: [],
+      });
+      const resultatCreation = await accepterPropositionAds(prisma, propositionCreation.id);
+      assert.equal(resultatCreation.statut, "echec");
+      assert.match(resultatCreation.erreur || "", /non configure/);
+      assert.equal(resultatCreation.campagneId, "", "campagneId ne doit pas changer puisque la creation a echoue avant tout appel API");
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

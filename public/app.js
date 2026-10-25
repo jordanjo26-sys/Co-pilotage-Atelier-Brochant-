@@ -593,6 +593,7 @@ document.getElementById("form-import-ads").addEventListener("submit", async (e) 
 const LIBELLE_TYPE_PROPOSITION_ADS = {
   pause_campagne: "Mettre en pause",
   reactiver_campagne: "Réactiver",
+  creer_campagne: "Nouvelle campagne",
 };
 const BADGE_STATUT_PROPOSITION_ADS = {
   en_attente: "badge-partiel",
@@ -664,6 +665,15 @@ async function chargerPropositionsAds() {
                <button type="button" class="ghost" onclick="refuserPropositionAds('${p.id}', this)">Refuser</button>
              </div>`
           : "";
+      const detailsCreation =
+        p.type === "creer_campagne"
+          ? `<div class="anomalie-meta">Budget : ${p.budgetQuotidien != null ? p.budgetQuotidien.toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " €/jour" : "—"} · URL : ${echapper(p.urlFinale || "—")}</div>
+             <div class="anomalie-meta"><strong>Titres</strong> : ${(p.titres || []).map(echapper).join(" · ")}</div>
+             <div class="anomalie-meta"><strong>Descriptions</strong> : ${(p.descriptions || []).map(echapper).join(" · ")}</div>
+             <div class="anomalie-meta"><strong>Mots-clés</strong> : ${(p.motsCles || []).map(echapper).join(", ") || "—"}</div>
+             ${(p.motsClesExclus || []).length > 0 ? `<div class="anomalie-meta"><strong>Mots-clés exclus</strong> : ${p.motsClesExclus.map(echapper).join(", ")}</div>` : ""}
+             <div class="anomalie-meta">Sera créée <strong>en pause</strong> : aucune dépense tant que tu ne l'actives pas toi-même dans Google Ads.</div>`
+          : "";
       return `
     <div class="decision-carte">
       <div class="relance-entete">
@@ -672,6 +682,7 @@ async function chargerPropositionsAds() {
         <span class="badge ${badge}">${echapper(libelleStatut)}</span>
       </div>
       <div class="anomalie-meta">${echapper(p.justification)}</div>
+      ${detailsCreation}
       <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}</div>
       ${p.erreur ? `<div class="anomalie-meta" style="color:var(--critical)">${echapper(p.erreur)}</div>` : ""}
       ${actions}

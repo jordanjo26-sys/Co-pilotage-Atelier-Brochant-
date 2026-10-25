@@ -582,14 +582,28 @@ model CampagneAdsImport {
 // apres discussion avec l'utilisateur (demande explicite : Morgane ne doit
 // jamais agir directement sur une campagne, seulement proposer - voir
 // l'ecran de validation dedie dans l'app, distinct de la conversation).
+//
+// "creer_campagne" (phase 2) : campagneId reste vide tant que la campagne
+// n'existe pas encore (rempli apres application reussie, pour pouvoir
+// ensuite la retrouver/l'analyser). Les champs budgetQuotidien/urlFinale/
+// titres/descriptions/motsCles/motsClesExclus ne sont utilises que par ce
+// type - vides pour pause_campagne/reactiver_campagne. Campagne TOUJOURS
+// creee en PAUSE par securite (demande explicite de l'utilisateur) :
+// l'utilisateur doit l'activer lui-meme dans Google Ads apres verification.
 model PropositionAds {
-  id            String    @id @default(cuid())
-  type          String // "pause_campagne" | "reactiver_campagne"
-  campagneId    String // identifiant Google Ads de la campagne (campaign.id)
-  campagneNom   String
-  justification String // explication de Morgane, affichee a l'utilisateur sur l'ecran de validation
-  statut        String    @default("en_attente") // "en_attente" | "acceptee" | "refusee" | "appliquee" | "echec"
-  erreur        String? // detail si l'application a echoue (statut "echec")
-  creeLe        DateTime  @default(now())
-  decideLe      DateTime?
+  id              String    @id @default(cuid())
+  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne"
+  campagneId      String // identifiant Google Ads de la campagne (campaign.id) ; vide pour une proposition de creation pas encore appliquee
+  campagneNom     String
+  justification   String // explication de Morgane, affichee a l'utilisateur sur l'ecran de validation
+  budgetQuotidien Float? // euros/jour, uniquement pour "creer_campagne"
+  urlFinale       String? // page de destination des annonces, uniquement pour "creer_campagne"
+  titres          String[] @default([]) // titres d'annonce (3 a 15), uniquement pour "creer_campagne"
+  descriptions    String[] @default([]) // descriptions d'annonce (2 a 4), uniquement pour "creer_campagne"
+  motsCles        String[] @default([]) // mots-cles pertinents, uniquement pour "creer_campagne"
+  motsClesExclus  String[] @default([]) // mots-cles exclus (negatifs), uniquement pour "creer_campagne"
+  statut          String    @default("en_attente") // "en_attente" | "acceptee" | "refusee" | "appliquee" | "echec"
+  erreur          String? // detail si l'application a echoue (statut "echec")
+  creeLe          DateTime  @default(now())
+  decideLe        DateTime?
 }
