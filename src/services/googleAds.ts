@@ -185,7 +185,9 @@ export function messageErreurGoogleAds(err: unknown): string {
         message?: unknown;
         error_code?: unknown;
         location?: { field_path_elements?: Array<{ field_name?: unknown; index?: unknown }> };
-        details?: { policy_violation_details?: { external_policy_name?: unknown; external_policy_description?: unknown } };
+        details?: {
+          policy_violation_details?: { external_policy_name?: unknown; external_policy_description?: unknown; is_exemptible?: unknown };
+        };
       };
       if (typeof premiere?.message === "string" && premiere.message) {
         const code = premiere.error_code ? ` (${JSON.stringify(premiere.error_code)})` : "";
@@ -201,7 +203,7 @@ export function messageErreurGoogleAds(err: unknown): string {
         // ces deux champs le disent explicitement (ex. "Trademarks in ad text").
         const politique = premiere.details?.policy_violation_details;
         const detailPolitique = politique?.external_policy_name
-          ? ` [politique : ${String(politique.external_policy_name)}${politique.external_policy_description ? ` - ${String(politique.external_policy_description)}` : ""}]`
+          ? ` [politique : ${String(politique.external_policy_name)}${politique.external_policy_description ? ` - ${String(politique.external_policy_description)}` : ""}${politique.is_exemptible ? " - demande d'exception possible" : " - aucune exception possible"}]`
           : "";
         return `${premiere.message}${code}${chemin ? ` [champ : ${chemin}]` : ""}${detailPolitique}`;
       }
