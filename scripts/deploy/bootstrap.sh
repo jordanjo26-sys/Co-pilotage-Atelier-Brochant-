@@ -78,7 +78,7 @@ TWILIO_NUMERO="+33973921009"
 # Mode du standard telephonique : "relais" (Twilio ConversationRelay, voix
 # en temps reel, plus fluide ; exige d'avoir accepte l'avenant IA dans la
 # console Twilio) ou "gather" (une requete HTTP par replique).
-TELEPHONE_MODE="gather"
+TELEPHONE_MODE="relais"
 
 echo "== Fuseau horaire =="
 # Les images cloud sont generalement en UTC par defaut : sans ce reglage,
