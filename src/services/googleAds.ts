@@ -592,13 +592,27 @@ export async function listerTermesRecherche(prisma: PrismaClient, jours = 30, ca
   }));
 }
 
+// La librairie google-ads-api ne decode pas toujours un enum en texte
+// lisible (constate a plusieurs reprises : call_conversion_reporting_state,
+// puis conversion_action.type/category/status) - parfois elle renvoie deja
+// le libellé ("ENABLED"), parfois le code numerique brut ("2"). Decode dans
+// les deux cas via l'objet enum lui-meme (mapping inverse numero->libelle
+// fourni par google-ads-api) plutot que de maintenir une table a la main.
+function decoderEnum(enumObjet: Record<string, string | number>, valeur: unknown): string {
+  const brut = String(valeur ?? "");
+  if (brut === "" || Object.prototype.hasOwnProperty.call(enumObjet, brut)) return brut;
+  const num = Number(brut);
+  if (!Number.isNaN(num) && enumObjet[num] !== undefined) return String(enumObjet[num]);
+  return brut;
+}
+
 export interface ActionConversionAds {
   id: string;
   nom: string;
   type: string;
   categorie: string;
   statut: string;
-  comptabiliseeDansConversions: boolean;
+  comptePourObjectifPrincipal: boolean;
   dureeMinimaleAppel: number | null;
 }
 
@@ -610,6 +624,9 @@ export interface ActionConversionAds {
  * precisement CE QUI est compte comme conversion (type
  * PHONE_CALL_FROM_ADS/WEBSITE_CALL vs WEBSITE vs autre), et si une action
  * censee exister (ex. appel telephonique) est absente ou desactivee.
+ * comptePourObjectifPrincipal = primary_for_goal : remplace depuis aout
+ * 2022 l'ancien champ include_in_conversions_metric (devenu immuable cote
+ * API, voir changerComptageActionConversion).
  */
 export async function listerActionsConversion(prisma: PrismaClient): Promise<ActionConversionAds[]> {
   const customer = await obtenirClientAds(prisma);
@@ -624,7 +641,7 @@ export async function listerActionsConversion(prisma: PrismaClient): Promise<Act
       conversion_action.type,
       conversion_action.category,
       conversion_action.status,
-      conversion_action.include_in_conversions_metric,
+      conversion_action.primary_for_goal,
       conversion_action.phone_call_duration_seconds
     FROM conversion_action
     ORDER BY conversion_action.name
@@ -633,19 +650,25 @@ export async function listerActionsConversion(prisma: PrismaClient): Promise<Act
   return lignes.map((ligne) => ({
     id: String(ligne.conversion_action?.id ?? ""),
     nom: ligne.conversion_action?.name ?? "",
-    type: String(ligne.conversion_action?.type ?? ""),
-    categorie: String(ligne.conversion_action?.category ?? ""),
-    statut: String(ligne.conversion_action?.status ?? ""),
-    comptabiliseeDansConversions: Boolean(ligne.conversion_action?.include_in_conversions_metric),
+    type: decoderEnum(enums.ConversionActionType as unknown as Record<string, string | number>, ligne.conversion_action?.type),
+    categorie: decoderEnum(enums.ConversionActionCategory as unknown as Record<string, string | number>, ligne.conversion_action?.category),
+    statut: decoderEnum(enums.ConversionActionStatus as unknown as Record<string, string | number>, ligne.conversion_action?.status),
+    comptePourObjectifPrincipal: Boolean(ligne.conversion_action?.primary_for_goal),
     dureeMinimaleAppel: ligne.conversion_action?.phone_call_duration_seconds ?? null,
   }));
 }
 
 /**
- * Change si une action de conversion compte dans les conversions
- * (include_in_conversions_metric). JAMAIS appelee directement par Morgane :
- * uniquement par googleAdsActions.ts, lors de l'application d'une
- * PropositionAds deja validee par l'utilisateur sur l'ecran dedie.
+ * Change si une action de conversion compte dans l'objectif principal de
+ * conversions (primary_for_goal). N'exclut PAS l'action ni ne supprime son
+ * historique - elle continue d'apparaitre dans "Toutes les conversions",
+ * seulement plus dans le chiffre principal utilise pour le CPA et les
+ * encheres automatiques. Corrige une premiere version qui utilisait
+ * include_in_conversions_metric, devenu en lecture seule cote API Google
+ * Ads depuis aout 2022 (echec reel observe : "IMMUTABLE_FIELD"). JAMAIS
+ * appelee directement par Morgane : uniquement par googleAdsActions.ts,
+ * lors de l'application d'une PropositionAds deja validee par
+ * l'utilisateur sur l'ecran dedie.
  */
 export async function changerComptageActionConversion(prisma: PrismaClient, conversionActionId: string, inclure: boolean): Promise<void> {
   const customer = await obtenirClientAds(prisma);
@@ -656,7 +679,7 @@ export async function changerComptageActionConversion(prisma: PrismaClient, conv
   await customer.conversionActions.update([
     {
       resource_name: ResourceNames.conversionAction(customerId, conversionActionId),
-      include_in_conversions_metric: inclure,
+      primary_for_goal: inclure,
     },
   ]);
 }
