@@ -95,6 +95,8 @@ test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPosit
     ajouterAudiencesCampagne,
     ajouterAnnonceTest,
     listerPerformanceAnnonces,
+    supprimerCampagne,
+    ajusterEncheresAppareil,
   } = await import("../src/services/googleAds");
   const prisma = new PrismaClient();
 
@@ -142,6 +144,14 @@ test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPosit
 
     await t.test("listerPerformanceAnnonces rejette avec un message explicite", async () => {
       await assert.rejects(listerPerformanceAnnonces(prisma, "456"), /Google Ads non configure/);
+    });
+
+    await t.test("supprimerCampagne rejette avec un message explicite", async () => {
+      await assert.rejects(supprimerCampagne(prisma, "123456"), /Google Ads non configure/);
+    });
+
+    await t.test("ajusterEncheresAppareil rejette avec un message explicite", async () => {
+      await assert.rejects(ajusterEncheresAppareil(prisma, "123456", [{ appareil: "MOBILE", pourcentage: -20 }]), /Google Ads non configure/);
     });
   } finally {
     if (sauvegarde !== undefined) process.env.GOOGLE_ADS_DEVELOPER_TOKEN = sauvegarde;

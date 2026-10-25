@@ -19,6 +19,9 @@ import {
   StrategieEncheres,
   HoraireAds,
   messageErreurGoogleAds,
+  supprimerCampagne,
+  ajusterEncheresAppareil,
+  AjustementAppareilAds,
 } from "./googleAds";
 import { logEvenement } from "./journalService";
 
@@ -46,7 +49,9 @@ export type TypePropositionAds =
   | "modifier_strategie_encheres"
   | "definir_horaires_campagne"
   | "ajouter_audiences_campagne"
-  | "ajouter_annonce_test";
+  | "ajouter_annonce_test"
+  | "supprimer_campagne"
+  | "ajuster_encheres_appareil";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -74,6 +79,7 @@ export interface PropositionAdsEntree {
   cpaCibleEuros?: number; // requis si strategieEncheres = "TARGET_CPA"
   horaires?: HoraireAds[]; // optionnel pour creer_campagne ; requis (au moins un) pour definir_horaires_campagne
   audiences?: string[]; // optionnel pour creer_campagne ; requis (au moins un) pour ajouter_audiences_campagne
+  ajustementsAppareil?: AjustementAppareilAds[]; // requis (au moins un) pour ajuster_encheres_appareil
 }
 
 /**
@@ -139,6 +145,23 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
   if (entree.type === "ajouter_audiences_campagne") {
     if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_audiences_campagne).");
     if (!entree.audiences || entree.audiences.length === 0) throw new Error("audiences : au moins un centre d'interet est requis.");
+  }
+  if (entree.type === "supprimer_campagne") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour supprimer_campagne).");
+  }
+  if (entree.type === "ajuster_encheres_appareil") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajuster_encheres_appareil).");
+    if (!entree.ajustementsAppareil || entree.ajustementsAppareil.length === 0) {
+      throw new Error("ajustementsAppareil : au moins un ajustement (appareil + pourcentage) est requis.");
+    }
+    for (const a of entree.ajustementsAppareil) {
+      if (a.appareil !== "MOBILE" && a.appareil !== "TABLET" && a.appareil !== "DESKTOP") {
+        throw new Error(`appareil invalide : "${a.appareil}" (attendu : MOBILE, TABLET ou DESKTOP).`);
+      }
+      if (typeof a.pourcentage !== "number" || a.pourcentage < -90 || a.pourcentage > 900) {
+        throw new Error(`pourcentage invalide pour ${a.appareil} : ${a.pourcentage} (Google Ads accepte entre -90 et +900).`);
+      }
+    }
   }
   if (entree.type === "ajouter_annonce_test") {
     if (!entree.groupeId) throw new Error("groupeId manquant (requis pour ajouter_annonce_test).");
@@ -273,6 +296,12 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
       case "ajouter_annonce_test":
         await ajouterAnnonceTest(prisma, proposition.groupeId ?? "", proposition.titres, proposition.descriptions, proposition.urlFinale ?? "");
         break;
+      case "supprimer_campagne":
+        await supprimerCampagne(prisma, proposition.campagneId);
+        break;
+      case "ajuster_encheres_appareil":
+        await ajusterEncheresAppareil(prisma, proposition.campagneId, (proposition.ajustementsAppareil as unknown as AjustementAppareilAds[] | null) ?? []);
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -313,7 +342,11 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
                               ? `Audience(s) ajoutee(s) en observation sur "${proposition.campagneNom}" : ${proposition.audiences.join(", ")}.`
                               : proposition.type === "ajouter_annonce_test"
                                 ? `Annonce de test ajoutee au groupe ${proposition.groupeId}, creee EN PAUSE - a activer manuellement pour demarrer la comparaison.`
-                                : "Applique avec succes sur Google Ads.",
+                                : proposition.type === "supprimer_campagne"
+                                  ? `Campagne "${proposition.campagneNom}" supprimee (statut REMOVED) - operation definitive, elle n'est plus geree ni modifiable.`
+                                  : proposition.type === "ajuster_encheres_appareil"
+                                    ? `Enchere(s) ajustee(s) par appareil sur "${proposition.campagneNom}" : ${((proposition.ajustementsAppareil as unknown as AjustementAppareilAds[] | null) ?? []).map((a) => `${a.appareil} ${a.pourcentage > 0 ? "+" : ""}${a.pourcentage}%`).join(", ")}.`
+                                    : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {

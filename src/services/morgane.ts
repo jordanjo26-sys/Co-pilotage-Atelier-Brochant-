@@ -29,9 +29,9 @@ import {
   diagnosticLienGestionnaire,
 } from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
-import { auditerSiteWeb } from "./referencementAudit";
+import { auditerSiteWeb, analyserPageDestination } from "./referencementAudit";
 import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
-import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds } from "./googleAds";
+import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds, AjustementAppareilAds } from "./googleAds";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -272,6 +272,18 @@ const OUTILS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "analyser_page_destination_ads",
+    description:
+      "Analyse une page de destination d'annonce (lecture seule, sans navigateur) sous l'angle de la conversion : temps de reponse, adaptation mobile, numero(s) de telephone cliquables (liens tel:), presence d'un formulaire, mots d'appel a l'action trouves dans le texte visible (appelez, devis, contactez...), et si le contenu n'existe qu'en JavaScript (invisible sans executer le site). CE N'EST PAS une mesure de taux de conversion reel (ca demanderait les donnees Google Ads/Analytics, pas le HTML) - uniquement des signaux structurels qui, s'ils manquent (pas de telephone cliquable, aucun appel a l'action), expliquent souvent un mauvais taux de conversion malgre un bon trafic publicitaire. N'accede pas au code du site. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL complete de la page de destination a analyser." },
+      },
+      required: ["url"],
+    },
+  },
+  {
     name: "verifier_politique_annonces_ads",
     description:
       "Retourne le statut d'approbation reel (APPROVED/APPROVED_LIMITED/DISAPPROVED...) et les sujets de politique (ex. TRADEMARKS_IN_AD_TEXT, LOCAL_SERVICES_AD) des annonces EXISTANTES, regroupes par campagne (nombre d'annonces concernees, pas le detail annonce par annonce). Utile pour comparer une campagne qui diffuse deja a une campagne bloquee a la creation (ex. erreur POLICY_ERROR sur un mot-cle) - permet de voir si le compte porte une restriction visible sur ses annonces deja actives, ou si le probleme est specifique a la nouvelle tentative. IMPORTANT : si le compte a plus de quelques campagnes, precise TOUJOURS campagneId pour cibler la campagne pertinente (ex. celle qui diffuse deja) plutot que d'interroger tout le compte, qui peut etre tres volumineux. Lecture seule.",
@@ -321,7 +333,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), ajustement des encheres par appareil, suppression definitive d'une campagne, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui. Pour supprimer_campagne : operation IRREVERSIBLE (contrairement a pause_campagne) - la campagne ne peut plus etre reactivee ni modifiee ensuite. Assure-toi que l'utilisateur comprend bien ce caractere definitif avant de deposer cette proposition, et prefere pause_campagne si un doute existe sur son intention reelle.",
     input_schema: {
       type: "object",
       properties: {
@@ -343,6 +355,8 @@ const OUTILS: Anthropic.Tool[] = [
             "definir_horaires_campagne",
             "ajouter_audiences_campagne",
             "ajouter_annonce_test",
+            "supprimer_campagne",
+            "ajuster_encheres_appareil",
           ],
           description: "Action proposee.",
         },
@@ -487,7 +501,19 @@ const OUTILS: Anthropic.Tool[] = [
           type: "array",
           items: { type: "string" },
           description:
-            "Noms de centres d'interet Google (ex. \"Bricolage et jardinage\", \"Propriétaires de maison\") a resoudre puis attacher en SIGNAL D'OBSERVATION (n'exclut ni ne restreint qui voit l'annonce sur une campagne Search - sert a ajuster les encheres et analyser la performance par segment). Ce n'est PAS du remarketing (reciblage des visiteurs du site) : ca necessiterait une balise sur le site, absente aujourd'hui - ne jamais presenter ceci comme du remarketing a l'utilisateur. Optionnel pour creer_campagne, REQUIS (au moins un) pour ajouter_audiences_campagne.",
+            "Noms de centres d'interet (en francais OU en anglais - rechercher_audiences_ads traduit automatiquement les themes courants du metier : securite, demenagement, bricolage, serrurier, proprietaire, etc.) a resoudre puis attacher en SIGNAL D'OBSERVATION (n'exclut ni ne restreint qui voit l'annonce sur une campagne Search - sert a ajuster les encheres et analyser la performance par segment). Ce n'est PAS du remarketing (reciblage des visiteurs du site) : ca necessiterait une balise sur le site, absente aujourd'hui - ne jamais presenter ceci comme du remarketing a l'utilisateur. Utilise TOUJOURS rechercher_audiences_ads d'abord pour verifier les noms exacts trouves par Google avant de les inclure ici. Optionnel pour creer_campagne, REQUIS (au moins un) pour ajouter_audiences_campagne.",
+        },
+        ajustementsAppareil: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              appareil: { type: "string", enum: ["MOBILE", "TABLET", "DESKTOP"] },
+              pourcentage: { type: "number", description: "Entre -90 et +900. Ex. -20 pour reduire les encheres de 20% sur cet appareil, 50 pour les augmenter de 50%." },
+            },
+            required: ["appareil", "pourcentage"],
+          },
+          description: "Ajustements d'enchere par appareil. REQUIS (au moins un) pour ajuster_encheres_appareil.",
         },
       },
       required: ["type", "campagneNom", "justification"],
@@ -726,6 +752,16 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "analyser_page_destination_ads": {
+      const url = typeof params.url === "string" ? params.url : "";
+      if (!url) return { erreur: "url manquante" };
+      try {
+        return { analyse: await analyserPageDestination(url) };
+      } catch (err) {
+        return { erreur: `Echec de l'analyse de ${url} : ${(err as Error).message}` };
+      }
+    }
+
     case "verifier_politique_annonces_ads": {
       const campagneId = typeof params.campagneId === "string" && params.campagneId ? params.campagneId : undefined;
       try {
@@ -804,6 +840,7 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         cpaCibleEuros,
         horaires,
         audiences,
+        ajustementsAppareil,
       } = params as Record<string, unknown>;
       const typesValides: TypePropositionAds[] = [
         "pause_campagne",
@@ -821,6 +858,8 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         "definir_horaires_campagne",
         "ajouter_audiences_campagne",
         "ajouter_annonce_test",
+        "supprimer_campagne",
+        "ajuster_encheres_appareil",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
@@ -872,6 +911,16 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
             minuteFin: [0, 15, 30, 45].includes(x.minuteFin as number) ? (x.minuteFin as 0 | 15 | 30 | 45) : undefined,
           }));
       };
+      const toAjustementsAppareil = (v: unknown): AjustementAppareilAds[] | undefined => {
+        if (!Array.isArray(v)) return undefined;
+        const appareilsValides = ["MOBILE", "TABLET", "DESKTOP"];
+        return v
+          .filter((x): x is Record<string, unknown> => {
+            const o = x as Record<string, unknown>;
+            return !!o && typeof o === "object" && appareilsValides.includes(o.appareil as string) && typeof o.pourcentage === "number";
+          })
+          .map((x) => ({ appareil: x.appareil as AjustementAppareilAds["appareil"], pourcentage: x.pourcentage as number }));
+      };
       try {
         const proposition = await creerPropositionAds(prisma, {
           type: type as TypePropositionAds,
@@ -903,6 +952,7 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           cpaCibleEuros: typeof cpaCibleEuros === "number" ? cpaCibleEuros : undefined,
           horaires: toHoraires(horaires),
           audiences: toTableauString(audiences),
+          ajustementsAppareil: toAjustementsAppareil(ajustementsAppareil),
         });
         return {
           ok: true,
@@ -913,11 +963,13 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
                 ? "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : une fois acceptee la-bas, utilise obtenir_actions_conversion_ads pour recuperer son id, puis obtenir_snippet_conversion_ads pour obtenir le code a donner a l'utilisateur."
                 : "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
           avertissement:
-            ciblesGeographiques && Array.isArray(ciblesGeographiques) && ciblesGeographiques.length > 0
-              ? "Les noms de lieux donnes seront resolus par Google au moment de l'acceptation. Si l'un d'eux ne correspond a aucun lieu connu, toute la creation echouera avec un message clair (statut 'echec') - rien ne sera cree a moitie."
-              : audiences && Array.isArray(audiences) && audiences.length > 0
-                ? "Les noms de centres d'interet seront resolus par Google au moment de l'acceptation (meme principe que le ciblage geographique : tout echoue proprement si l'un d'eux ne correspond a rien). Rappel : c'est un signal d'observation, pas du remarketing - rien n'exclut qui voit l'annonce."
-                : undefined,
+            type === "supprimer_campagne"
+              ? "IRREVERSIBLE : une fois acceptee, cette campagne ne pourra plus etre reactivee ni modifiee. Assure-toi que l'utilisateur a bien confirme vouloir une suppression definitive, pas juste une pause."
+              : ciblesGeographiques && Array.isArray(ciblesGeographiques) && ciblesGeographiques.length > 0
+                ? "Les noms de lieux donnes seront resolus par Google au moment de l'acceptation. Si l'un d'eux ne correspond a aucun lieu connu, toute la creation echouera avec un message clair (statut 'echec') - rien ne sera cree a moitie."
+                : audiences && Array.isArray(audiences) && audiences.length > 0
+                  ? "Les noms de centres d'interet seront resolus par Google au moment de l'acceptation (meme principe que le ciblage geographique : tout echoue proprement si l'un d'eux ne correspond a rien). Rappel : c'est un signal d'observation, pas du remarketing - rien n'exclut qui voit l'annonce."
+                  : undefined,
           propositionId: proposition.id,
         };
       } catch (err) {
@@ -1167,14 +1219,22 @@ Utile pour une activite avec des horaires d'intervention reels - \
 mets-toi d'accord sur les horaires exacts avec l'utilisateur, ne les \
 devine pas.
   Audiences (audiences, optionnel a la creation, REQUIS pour \
-ajouter_audiences_campagne) : noms de centres d'interet Google (ex. \
-"Propriétaires de maison") resolus puis attaches en SIGNAL \
-D'OBSERVATION sur une campagne Search - n'exclut ni ne restreint qui \
-voit l'annonce, sert a ajuster les encheres et analyser la performance \
-par segment. Ce n'est JAMAIS du remarketing (reciblage des visiteurs du \
-site) : le remarketing exigerait une balise de suivi sur le site, \
-absente aujourd'hui - ne dis jamais a l'utilisateur que tu peux faire du \
-remarketing, precise la difference s'il en parle.
+ajouter_audiences_campagne) : noms de centres d'interet Google resolus \
+puis attaches en SIGNAL D'OBSERVATION sur une campagne Search - n'exclut \
+ni ne restreint qui voit l'annonce, sert a ajuster les encheres et \
+analyser la performance par segment. Ce n'est JAMAIS du remarketing \
+(reciblage des visiteurs du site) : le remarketing exigerait une balise \
+de suivi sur le site, absente aujourd'hui - ne dis jamais a l'utilisateur \
+que tu peux faire du remarketing, precise la difference s'il en parle. \
+Tu peux chercher en francais (securite, demenagement, bricolage, \
+serrurier, proprietaire...) : rechercher_audiences_ads traduit \
+automatiquement les themes courants du metier vers l'anglais, seule \
+langue dans laquelle Google expose ces categories - inutile de demander \
+a l'utilisateur de donner les noms en anglais lui-meme. UTILISE TOUJOURS \
+rechercher_audiences_ads en premier (jamais diagnostiquer_audience_ads \
+directement sauf investigation technique) pour verifier les noms exacts \
+trouves par Google avant de les proposer - un nom invente ou mal resolu \
+fait echouer tout l'ajout, pas seulement celui-la.
   Annonce de test A/B (ajouter_annonce_test) : ajoute une annonce \
 supplementaire a un groupe d'annonces EXISTANT (groupeId, titres, \
 descriptions, urlFinale - memes contraintes que creer_campagne), creee \
@@ -1182,6 +1242,20 @@ EN PAUSE comme toute creation. Une fois les deux annonces actives, \
 compare leur performance avec obtenir_performance_annonces_ads (jamais \
 avant d'avoir assez de donnees - quelques clics ne suffisent pas a \
 conclure).
+  Ajustement d'enchere par appareil (ajustementsAppareil, REQUIS pour \
+ajuster_encheres_appareil) : appareil (MOBILE/TABLET/DESKTOP) + \
+pourcentage (-90 a +900, ex. -20 pour reduire les encheres de 20% sur cet \
+appareil). Utile si un appareil convertit nettement moins bien ou mieux \
+qu'un autre (verifie via les donnees disponibles avant de proposer un \
+chiffre, ne l'invente pas). C'est un ajustement par campagne, pas par \
+mot-cle individuel.
+  Suppression de campagne (supprimer_campagne) : operation IRREVERSIBLE \
+(contrairement a pause_campagne, qui peut toujours etre annulee) - une \
+fois supprimee, une campagne ne peut plus etre reactivee ni modifiee. \
+Ne propose JAMAIS cette action a la place d'une simple mise en pause sans \
+que l'utilisateur ait explicitement demande une suppression definitive. \
+En cas de doute sur son intention reelle, demande confirmation ou \
+propose pause_campagne a la place.
   Ce qui n'existe PAS encore : l'ajustement d'enchere individuel par \
 mot-cle, et le reglage du type de correspondance mot-cle par mot-cle \
 (aujourd'hui un seul type pour toute la campagne/le lot ajoute). Le \
@@ -1228,7 +1302,23 @@ horaires) avec ce qui est annonce ailleurs (ex. Google Ads, fiche Google \
 Business) - une incoherence nuit autant au SEO qu'a la confiance qu'un \
 assistant IA accorde au contenu.
   Ne promets jamais un classement ou un volume de trafic garanti : \
-recommandations fondees sur l'audit reel, jamais de prevision chiffree.`;
+recommandations fondees sur l'audit reel, jamais de prevision chiffree.
+
+Analyse de page de destination (analyser_page_destination_ads, sujet \
+distinct du referencement ci-dessus - ici on regarde la page du point de \
+vue de quelqu'un qui vient de cliquer sur une annonce, pas d'un moteur \
+de recherche) : temps de reponse, adaptation mobile, telephone(s) \
+cliquables (liens tel:), presence d'un formulaire, mots d'appel a \
+l'action trouves dans le texte. CE N'EST PAS une mesure de taux de \
+conversion reel (il faudrait les donnees Google Ads/Analytics, pas le \
+HTML) - uniquement des signaux structurels. Sois honnete sur cette \
+limite si l'utilisateur demande "combien ca convertit" : dis-lui que \
+seul obtenir_campagnes_ads (conversions reelles comptees par Google) \
+repond a ca, pas cet outil. L'usage typique : une campagne a beaucoup de \
+clics mais peu de conversions -> verifier si la page de destination a un \
+telephone cliquable et un appel a l'action clair avant de chercher \
+ailleurs. Meme principe d'acces que le referencement : lecture seule, \
+pas d'acces au code du site.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils

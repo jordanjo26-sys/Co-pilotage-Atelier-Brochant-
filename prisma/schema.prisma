@@ -592,7 +592,7 @@ model CampagneAdsImport {
 // l'utilisateur doit l'activer lui-meme dans Google Ads apres verification.
 model PropositionAds {
   id              String    @id @default(cuid())
-  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion" | "creer_action_conversion_site" | "modifier_budget_campagne" | "ajouter_mots_cles_positifs" | "ajouter_extensions_campagne" | "modifier_strategie_encheres" | "definir_horaires_campagne" | "ajouter_audiences_campagne" | "ajouter_annonce_test"
+  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion" | "creer_action_conversion_site" | "modifier_budget_campagne" | "ajouter_mots_cles_positifs" | "ajouter_extensions_campagne" | "modifier_strategie_encheres" | "definir_horaires_campagne" | "ajouter_audiences_campagne" | "ajouter_annonce_test" | "supprimer_campagne" | "ajuster_encheres_appareil"
   campagneId      String // identifiant Google Ads de la campagne (campaign.id) ; vide pour une proposition de creation pas encore appliquee
   campagneNom     String
   justification   String // explication de Morgane, affichee a l'utilisateur sur l'ecran de validation
@@ -617,6 +617,7 @@ model PropositionAds {
   cpaCibleEuros   Float? // cout par acquisition cible en euros, requis si strategieEncheres = "TARGET_CPA"
   horaires        Json? // [{jour, heureDebut, minuteDebut?, heureFin, minuteFin?}], pour "creer_campagne" et "definir_horaires_campagne"
   audiences       String[] @default([]) // noms de centres d'interet a rechercher puis attacher (signal d'observation), pour "creer_campagne" et "ajouter_audiences_campagne"
+  ajustementsAppareil Json? // [{appareil: "MOBILE"|"TABLET"|"DESKTOP", pourcentage}], requis (au moins un) pour "ajuster_encheres_appareil"
   statut          String    @default("en_attente") // "en_attente" | "acceptee" | "refusee" | "appliquee" | "echec"
   erreur          String? // detail si l'application a echoue (statut "echec")
   creeLe          DateTime  @default(now())

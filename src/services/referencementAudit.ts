@@ -126,3 +126,74 @@ export async function auditerSiteWeb(url: string): Promise<AuditReferencementSit
     robotsIaBloques: robots.contenu ? detecterRobotsIaBloques(robots.contenu) : [],
   };
 }
+
+const MOTS_APPEL_ACTION = [
+  "appelez",
+  "appeler",
+  "contactez",
+  "contacter",
+  "devis",
+  "intervention",
+  "urgence",
+  "demander",
+  "reservez",
+  "réservez",
+  "nous contacter",
+  "en savoir plus",
+];
+
+export interface AnalysePageDestination {
+  url: string;
+  codeStatut: number;
+  tempsReponseMs: number;
+  https: boolean;
+  viewportMobile: boolean;
+  renduCoteClientUniquement: boolean;
+  telephonesCliquables: string[]; // numeros trouves dans des liens href="tel:...", vide si aucun
+  formulaireDetecte: boolean;
+  motsAppelActionTrouves: string[]; // parmi MOTS_APPEL_ACTION, ceux presents dans le texte visible de la page
+}
+
+/**
+ * Analyse technique (lecture seule, sans navigateur) d'une page de
+ * destination d'annonce - les signaux qu'une visite rapide peut verifier
+ * objectivement AVANT de cliquer sur une annonce : la page repond vite, est
+ * adaptee mobile, affiche un numero cliquable et un appel a l'action clair.
+ * Ce n'est PAS une mesure de taux de conversion reel (ca demanderait les
+ * donnees Google Ads/Analytics de la page, pas son HTML) - seulement des
+ * signaux structurels qui, s'ils manquent, expliquent souvent un mauvais
+ * taux de conversion malgre un bon trafic.
+ */
+export async function analyserPageDestination(url: string): Promise<AnalysePageDestination> {
+  const debut = Date.now();
+  const reponse = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  const tempsReponseMs = Date.now() - debut;
+  const html = await reponse.text();
+
+  const viewportMobile = /<meta[^>]*name=["']viewport["']/i.test(html);
+
+  let texteVisible = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "");
+  const corpsMatch = texteVisible.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  texteVisible = (corpsMatch ? corpsMatch[1] : texteVisible)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const telephonesCliquables = [...html.matchAll(/href=["']tel:([^"']+)["']/gi)].map((m) => m[1]);
+  const formulaireDetecte = /<form[\s>]/i.test(html);
+  const texteMinuscule = texteVisible.toLowerCase();
+  const motsAppelActionTrouves = MOTS_APPEL_ACTION.filter((mot) => texteMinuscule.includes(mot));
+
+  return {
+    url,
+    codeStatut: reponse.status,
+    tempsReponseMs,
+    https: url.startsWith("https://"),
+    viewportMobile,
+    renduCoteClientUniquement: texteVisible.length < 200,
+    telephonesCliquables,
+    formulaireDetecte,
+    motsAppelActionTrouves,
+  };
+}

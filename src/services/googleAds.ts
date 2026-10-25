@@ -401,6 +401,33 @@ export async function changerStatutCampagne(prisma: PrismaClient, campagneId: st
 }
 
 /**
+ * Supprime une campagne (statut REMOVED). Google Ads ne propose pas de
+ * suppression definitive via l'API - passer une campagne a REMOVED est
+ * l'equivalent : elle disparait de la gestion active (plus modifiable, ne
+ * diffuse plus), mais son historique reste visible dans les rapports.
+ * Operation volontairement IRREVERSIBLE de notre cote - contrairement a
+ * pause_campagne/reactiver_campagne, il n'existe aucune action retour.
+ * JAMAIS appelee directement par Morgane : uniquement par
+ * googleAdsActions.ts, apres validation explicite de l'utilisateur sur
+ * l'ecran dedie.
+ */
+export async function supprimerCampagne(prisma: PrismaClient, campagneId: string): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.campaigns.update([
+    {
+      resource_name: ResourceNames.campaign(customerId, campagneId),
+      status: enums.CampaignStatus.REMOVED,
+    },
+  ]);
+}
+
+/**
  * Change le statut (ENABLED/PAUSED) d'un mot-cle PRECIS (par opposition a
  * changerStatutCampagne, qui agit sur la campagne entiere). groupeId et
  * criterionId identifient le mot-cle de facon unique (voir listerMotsCles) -
@@ -743,6 +770,50 @@ export async function diagnostiquerAudience(prisma: PrismaClient, terme: string)
   });
 }
 
+/**
+ * Traductions francais -> anglais pour les themes d'audience courants chez
+ * un serrurier/depanneur. Necessaire car user_interest.name n'existe qu'en
+ * anglais cote API Google Ads, quelle que soit la langue du compte ou de la
+ * requete GAQL - une recherche en francais ("securite", "demenagement") ne
+ * trouve donc jamais rien sans cette etape. Dictionnaire volontairement
+ * cible sur le vocabulaire plausible pour ce metier, pas une traduction
+ * generaliste ; a completer si un terme pertinent manque.
+ */
+const TRADUCTIONS_AUDIENCES: Record<string, string[]> = {
+  securite: ["security"],
+  "sécurité": ["security"],
+  "securite domestique": ["home security"],
+  "sécurité domestique": ["home security"],
+  alarme: ["alarm", "security"],
+  demenagement: ["moving", "relocation"],
+  "déménagement": ["moving", "relocation"],
+  emmenagement: ["moving", "relocation"],
+  "emménagement": ["moving", "relocation"],
+  bricolage: ["home improvement"],
+  jardinage: ["gardening"],
+  "amelioration de l'habitat": ["home improvement"],
+  "amélioration de l'habitat": ["home improvement"],
+  serrurier: ["locksmith"],
+  serrurerie: ["locksmith"],
+  serrure: ["locksmith"],
+  proprietaire: ["homeowner"],
+  "propriétaire": ["homeowner"],
+  proprietaires: ["homeowners"],
+  "propriétaires": ["homeowners"],
+  locataire: ["renter", "tenant"],
+  locataires: ["renters", "tenants"],
+  immobilier: ["real estate"],
+  "assurance habitation": ["home insurance", "homeowners insurance"],
+  renovation: ["renovation", "home improvement"],
+  "rénovation": ["renovation", "home improvement"],
+  automatisation: ["home automation"],
+  domotique: ["home automation"],
+};
+
+function traduireTermeAudience(terme: string): string[] {
+  return TRADUCTIONS_AUDIENCES[terme.trim().toLowerCase()] ?? [];
+}
+
 export async function rechercherAudiences(prisma: PrismaClient, termes: string[]): Promise<AudienceAds[]> {
   const customer = await obtenirClientAds(prisma);
   if (!customer) {
@@ -752,16 +823,22 @@ export async function rechercherAudiences(prisma: PrismaClient, termes: string[]
 
   const resultats: AudienceAds[] = [];
   for (const terme of termes) {
-    const termeEchappe = terme.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const lignes = await customer.query(`
-      SELECT user_interest.resource_name, user_interest.name, user_interest.taxonomy_type, user_interest.launched_to_all, user_interest.availabilities
-      FROM user_interest
-      WHERE user_interest.name LIKE '%${termeEchappe}%'
-      LIMIT 20
-    `);
-    const ligne = lignes.find((l) => l.user_interest?.resource_name && centreInteretEligiblePourSearch(l.user_interest));
-    if (ligne?.user_interest?.resource_name) {
-      resultats.push({ nomRecherche: terme, resourceName: ligne.user_interest.resource_name, nomTrouve: ligne.user_interest.name ?? "" });
+    // Le terme original est toujours essaye en premier (utile si l'appelant
+    // donne deja un nom anglais exact), puis ses traductions si rien trouve.
+    const candidats = [terme, ...traduireTermeAudience(terme)];
+    for (const candidat of candidats) {
+      const termeEchappe = candidat.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      const lignes = await customer.query(`
+        SELECT user_interest.resource_name, user_interest.name, user_interest.taxonomy_type, user_interest.launched_to_all, user_interest.availabilities
+        FROM user_interest
+        WHERE user_interest.name LIKE '%${termeEchappe}%'
+        LIMIT 20
+      `);
+      const ligne = lignes.find((l) => l.user_interest?.resource_name && centreInteretEligiblePourSearch(l.user_interest));
+      if (ligne?.user_interest?.resource_name) {
+        resultats.push({ nomRecherche: terme, resourceName: ligne.user_interest.resource_name, nomTrouve: ligne.user_interest.name ?? "" });
+        break;
+      }
     }
   }
   return resultats;
@@ -790,6 +867,56 @@ export async function ajouterAudiencesCampagne(prisma: PrismaClient, campagneId:
       user_interest: { user_interest_category: c.resourceName },
     }))
   );
+}
+
+export interface AjustementAppareilAds {
+  appareil: "MOBILE" | "TABLET" | "DESKTOP";
+  pourcentage: number; // ex. -20 pour reduire les encheres de 20% sur cet appareil, 50 pour les augmenter de 50%
+}
+
+/**
+ * Ajuste les encheres par type d'appareil sur une campagne EXISTANTE.
+ * Google Ads cree implicitement un critere "appareil" (MOBILE/TABLET/DESKTOP)
+ * par campagne des sa creation, meme sans ajustement explicite (modificateur
+ * neutre par defaut) - il faut donc d'abord chercher ce critere existant et
+ * le METTRE A JOUR (pas le creer), sauf dans le cas rare ou il n'existe pas
+ * encore, auquel cas on le cree.
+ */
+export async function ajusterEncheresAppareil(prisma: PrismaClient, campagneId: string, ajustements: AjustementAppareilAds[]): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+  if (ajustements.length === 0) return;
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  for (const { appareil, pourcentage } of ajustements) {
+    if (pourcentage < -90 || pourcentage > 900) {
+      throw new Error(`pourcentage invalide pour ${appareil} : ${pourcentage} (Google Ads accepte entre -90 et +900).`);
+    }
+    const bidModifier = 1 + pourcentage / 100;
+
+    const lignes = await customer.query(`
+      SELECT campaign_criterion.resource_name
+      FROM campaign_criterion
+      WHERE campaign.id = ${campagneId} AND campaign_criterion.type = 'DEVICE' AND campaign_criterion.device.type = '${appareil}'
+    `);
+    const resourceNameExistant = lignes[0]?.campaign_criterion?.resource_name;
+
+    if (resourceNameExistant) {
+      await customer.campaignCriteria.update([{ resource_name: resourceNameExistant, bid_modifier: bidModifier }]);
+    } else {
+      await customer.campaignCriteria.create([
+        {
+          campaign: ResourceNames.campaign(customerId, campagneId),
+          status: enums.CampaignCriterionStatus.ENABLED,
+          bid_modifier: bidModifier,
+          device: { type: enums.Device[appareil] },
+        },
+      ]);
+    }
+  }
 }
 
 /**

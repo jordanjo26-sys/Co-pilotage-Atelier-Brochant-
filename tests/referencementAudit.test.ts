@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, Server } from "node:http";
-import { auditerSiteWeb } from "../src/services/referencementAudit";
+import { auditerSiteWeb, analyserPageDestination } from "../src/services/referencementAudit";
 
 /**
  * Teste auditerSiteWeb contre un vrai serveur HTTP local (pas de mock
@@ -77,6 +77,47 @@ test("auditerSiteWeb : application monopage (SPA) - detecte le rendu cote client
     assert.equal(audit.sitemapXml.existe, false);
     assert.equal(audit.llmsTxt.existe, false);
     assert.deepEqual(audit.robotsIaBloques, []);
+  } finally {
+    serveur.close();
+  }
+});
+
+test("analyserPageDestination : page avec telephone cliquable, formulaire et appels a l'action", async () => {
+  const HTML_PAGE = `<!doctype html><html><head>
+    <title>Serrurier Fichet</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    </head><body>
+      <h1>Serrurier Fichet</h1>
+      <p>Porte bloquee ou serrure cassee ? Appelez-nous au <a href="tel:0972574450">09 72 57 44 50</a> pour une intervention rapide en Île-de-France, 7 jours sur 7 et 24 heures sur 24, sur tout type de serrure.</p>
+      <form><input name="nom"><button>Demander un devis</button></form>
+    </body></html>`;
+
+  const { serveur, origine } = await demarrerServeur(() => ({ statut: 200, corps: HTML_PAGE }));
+
+  try {
+    const analyse = await analyserPageDestination(`${origine}/`);
+    assert.equal(analyse.codeStatut, 200);
+    assert.equal(analyse.viewportMobile, true);
+    assert.deepEqual(analyse.telephonesCliquables, ["0972574450"]);
+    assert.equal(analyse.formulaireDetecte, true);
+    assert.ok(analyse.motsAppelActionTrouves.includes("appelez"));
+    assert.ok(analyse.motsAppelActionTrouves.includes("devis"));
+    assert.equal(analyse.renduCoteClientUniquement, false);
+  } finally {
+    serveur.close();
+  }
+});
+
+test("analyserPageDestination : page sans telephone ni formulaire ni appel a l'action", async () => {
+  const HTML_PAGE = `<!doctype html><html><head><title>Page</title></head><body><p>Contenu sans rapport, juste du texte neutre et suffisamment long pour ne pas etre considere comme un rendu cote client uniquement par l'heuristique de longueur.</p></body></html>`;
+
+  const { serveur, origine } = await demarrerServeur(() => ({ statut: 200, corps: HTML_PAGE }));
+
+  try {
+    const analyse = await analyserPageDestination(`${origine}/`);
+    assert.deepEqual(analyse.telephonesCliquables, []);
+    assert.equal(analyse.formulaireDetecte, false);
+    assert.deepEqual(analyse.motsAppelActionTrouves, []);
   } finally {
     serveur.close();
   }
