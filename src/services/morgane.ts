@@ -815,7 +815,14 @@ export async function repondreMorgane(prisma: PrismaClient, historique: MessageM
   if (!apiKey) {
     throw new Error("Morgane n'est pas encore configuree (cle ANTHROPIC_API_KEY manquante cote serveur).");
   }
-  const client = new Anthropic({ apiKey });
+  // Delai borne sur chaque appel (comme pour standardTelephonique.ts) : sans
+  // cela, un appel Anthropic lent ou bloque (ex. compte proche de sa limite
+  // d'usage) peut rester en attente plusieurs minutes cote serveur pendant
+  // que le navigateur mobile, lui, abandonne la requete HTTP bien avant
+  // (observe en production : "Erreur : Load failed" cote utilisateur, sans
+  // aucun message clair, le serveur n'ayant jamais eu l'occasion de repondre
+  // avec l'erreur reelle). Avec ce delai, l'echec remonte vite et clairement.
+  const client = new Anthropic({ apiKey, timeout: 25_000, maxRetries: 1 });
 
   const messages: Anthropic.MessageParam[] = historique
     .slice(-20)
