@@ -159,7 +159,7 @@ test("standard telephonique : tours de conversation, message et compte rendu", a
       },
     ]);
     const tour2 = await traiterTour(prisma, appel, "Non merci, au revoir", client2);
-    assert.deepEqual(tour2, { reponse: "Au revoir Madame.", raccrocher: true });
+    assert.deepEqual(tour2, { reponse: "Au revoir Madame.", raccrocher: true, messageFinal: "Au revoir Madame." });
 
     appel = await prisma.appel.findUniqueOrThrow({ where: { callSid: "CA-1" } });
     const { sujet, texte } = construireCompteRendu(appel);
