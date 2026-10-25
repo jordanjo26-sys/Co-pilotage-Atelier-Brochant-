@@ -790,6 +790,165 @@ async function chargerPropositionsAds() {
     .join("");
 }
 
+// Module Reseaux sociaux (Facebook/Instagram), phase fondations : connexion
+// Meta + publication manuelle apres validation. Meme principe que les
+// propositions Ads (statuts en_attente/acceptee/appliquee/refusee/echec),
+// on reutilise donc les memes libelles/badges.
+async function chargerStatutReseauxSociaux() {
+  const div = document.getElementById("reseaux-sociaux-statut");
+  if (!div) return;
+  const res = await fetch("/api/reseaux-sociaux/connexion");
+  const data = await res.json();
+  div.innerHTML = data.connecte
+    ? `<p class="gmail-connecte"><span class="statut-dot">Connecté</span> — Page « ${echapper(data.pageNom)} »${data.instagramUsername ? ` · Instagram @${echapper(data.instagramUsername)}` : " · Instagram non lié"}</p>`
+    : `<p class="statut-dot off">Non connecté. <a href="/auth/meta">Connecter Facebook/Instagram →</a></p>`;
+}
+
+let cheminMediaReseauxSociaux = null;
+
+const champFichierReseauxSociaux = document.getElementById("fichier-media-reseaux-sociaux");
+if (champFichierReseauxSociaux) {
+  champFichierReseauxSociaux.addEventListener("change", async () => {
+    const apercu = document.getElementById("apercu-media-reseaux-sociaux");
+    const fichier = champFichierReseauxSociaux.files[0];
+    cheminMediaReseauxSociaux = null;
+    if (!fichier) {
+      apercu.innerHTML = "";
+      return;
+    }
+    apercu.textContent = "Envoi de la photo…";
+    const donnees = new FormData();
+    donnees.append("fichier", fichier);
+    try {
+      const r = await fetch("/api/reseaux-sociaux/media", { method: "POST", body: donnees });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erreur || "Échec de l'envoi de la photo.");
+      cheminMediaReseauxSociaux = d.chemin;
+      apercu.innerHTML = `<img src="/${echapper(d.chemin)}" alt="Aperçu" style="max-width:220px;max-height:220px;border-radius:8px;margin-top:6px" />`;
+    } catch (err) {
+      apercu.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
+const formPublicationReseauxSociaux = document.getElementById("form-publication-reseaux-sociaux");
+if (formPublicationReseauxSociaux) {
+  formPublicationReseauxSociaux.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const resultatDiv = document.getElementById("resultat-publication-reseaux-sociaux");
+    const texte = document.getElementById("texte-publication-reseaux-sociaux").value.trim();
+    const plateformes = [];
+    if (document.getElementById("plateforme-facebook").checked) plateformes.push("FACEBOOK");
+    if (document.getElementById("plateforme-instagram").checked) plateformes.push("INSTAGRAM");
+
+    if (!texte) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Le texte de la publication est requis.`;
+      return;
+    }
+    if (plateformes.length === 0) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Choisis au moins une plateforme.`;
+      return;
+    }
+
+    resultatDiv.textContent = "Dépôt de la proposition…";
+    try {
+      const r = await fetch("/api/reseaux-sociaux/propositions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plateformes,
+          texte,
+          cheminMedia: cheminMediaReseauxSociaux || undefined,
+          justification: "Publication proposée depuis l'onglet Réseaux sociaux.",
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erreur || "Échec du dépôt de la proposition.");
+      resultatDiv.innerHTML = `Proposition déposée — à accepter ci-dessous pour publier.`;
+      formPublicationReseauxSociaux.reset();
+      document.getElementById("apercu-media-reseaux-sociaux").innerHTML = "";
+      document.getElementById("plateforme-facebook").checked = true;
+      cheminMediaReseauxSociaux = null;
+      await chargerPropositionsReseauxSociaux();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
+async function accepterPropositionReseauxSociaux(id, bouton) {
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/reseaux-sociaux/propositions/${id}/accepter`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec de l'acceptation.");
+    await chargerPropositionsReseauxSociaux();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.accepterPropositionReseauxSociaux = accepterPropositionReseauxSociaux;
+
+async function refuserPropositionReseauxSociaux(id, bouton) {
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/reseaux-sociaux/propositions/${id}/refuser`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec du refus.");
+    await chargerPropositionsReseauxSociaux();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.refuserPropositionReseauxSociaux = refuserPropositionReseauxSociaux;
+
+const LIBELLE_PLATEFORME_RESEAUX_SOCIAUX = { FACEBOOK: "Facebook", INSTAGRAM: "Instagram" };
+
+async function chargerPropositionsReseauxSociaux() {
+  const liste = document.getElementById("liste-propositions-reseaux-sociaux");
+  if (!liste) return;
+  const res = await fetch("/api/reseaux-sociaux/propositions");
+  const propositions = await res.json();
+
+  if (propositions.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune proposition pour le moment.</p>`;
+    return;
+  }
+
+  liste.innerHTML = propositions
+    .map((p) => {
+      const badge = BADGE_STATUT_PROPOSITION_ADS[p.statut] || "badge-doublon_fichier";
+      const libelleStatut = LIBELLE_STATUT_PROPOSITION_ADS[p.statut] || p.statut;
+      const actions =
+        p.statut === "en_attente"
+          ? `<div class="relance-actions">
+               <button type="button" onclick="accepterPropositionReseauxSociaux('${p.id}', this)">Accepter</button>
+               <button type="button" class="ghost" onclick="refuserPropositionReseauxSociaux('${p.id}', this)">Refuser</button>
+             </div>`
+          : "";
+      return `
+    <div class="decision-carte">
+      <div class="relance-entete">
+        <span class="badge badge-palier-neutre">${(p.plateformes || []).map((pf) => echapper(LIBELLE_PLATEFORME_RESEAUX_SOCIAUX[pf] || pf)).join(" + ")}</span>
+        <span class="badge ${badge}">${echapper(libelleStatut)}</span>
+      </div>
+      <div class="anomalie-meta">${echapper(p.texte)}</div>
+      ${p.cheminMedia ? `<img src="/${echapper(p.cheminMedia)}" alt="Photo" style="max-width:160px;max-height:160px;border-radius:8px;margin:6px 0" />` : ""}
+      <div class="anomalie-meta">${echapper(p.justification)}</div>
+      <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}</div>
+      ${p.erreur ? `<div class="anomalie-meta" style="color:var(--critical)">${echapper(p.erreur)}</div>` : ""}
+      ${actions}
+    </div>`;
+    })
+    .join("");
+}
+
 // Liste individuelle des paiements Stripe deja captes : jusqu'ici seuls des
 // compteurs agreges apparaissaient au moment d'un clic sur "Synchroniser
 // maintenant", sans aucune trace consultable ensuite - impossible de
@@ -1362,7 +1521,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

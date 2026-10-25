@@ -33,6 +33,9 @@ import { dernieresCampagnesImportees } from "./googleAdsImport";
 import { auditerSiteWeb, analyserPageDestination } from "./referencementAudit";
 import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
 import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds, AjustementAppareilAds } from "./googleAds";
+import { creerPropositionPost, listerPropositionsPost } from "./reseauxSociauxActions";
+import { obtenirStatistiquesPost, reseauxSociauxEstConfigure } from "./reseauxSociaux";
+import { obtenirConnexionMeta } from "./metaAuth";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -526,6 +529,38 @@ const OUTILS: Anthropic.Tool[] = [
       required: ["type", "campagneNom", "justification"],
     },
   },
+  {
+    name: "obtenir_connexion_reseaux_sociaux",
+    description: "Indique si une Page Facebook (et un compte Instagram professionnel lie) est connectee au module Reseaux sociaux, et laquelle. Lecture seule.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "proposer_publication_reseaux_sociaux",
+    description:
+      "Enregistre une proposition de publication Facebook et/ou Instagram, APRES que l'utilisateur ait clairement donne son accord dans la conversation sur ce contenu precis. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Reseaux sociaux), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit publiee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur sur le TEXTE EXACT et la/les plateforme(s). Instagram exige une photo (cheminMedia) - texte seul impossible sur ce reseau ; Facebook accepte les deux. Le media doit deja avoir ete uploade par l'utilisateur via l'onglet dedie (tu n'as pas la capacite d'uploader un fichier toi-meme) - demande-lui le chemin qu'il a obtenu si besoin.",
+    input_schema: {
+      type: "object",
+      properties: {
+        plateformes: { type: "array", items: { type: "string", enum: ["FACEBOOK", "INSTAGRAM"] }, description: "Au moins une plateforme." },
+        texte: { type: "string", description: "Texte/legende exact du post, valide avec l'utilisateur." },
+        cheminMedia: { type: "string", description: "Chemin du media deja uploade (ex. 'media-publics/xxxx.jpg'), fourni par l'utilisateur. REQUIS si 'INSTAGRAM' fait partie des plateformes." },
+        justification: { type: "string", description: "Resume en langage clair de pourquoi ce post est propose, affiche a l'utilisateur sur l'ecran de validation." },
+      },
+      required: ["plateformes", "texte", "justification"],
+    },
+  },
+  {
+    name: "obtenir_statistiques_publication_reseaux_sociaux",
+    description: "Retourne les likes/commentaires (et partages sur Facebook uniquement) d'une publication DEJA PUBLIEE, a partir de son identifiant (visible sur une proposition au statut 'appliquee'). Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        idPublication: { type: "string", description: "Identifiant de la publication, tel que renvoye lors de sa publication." },
+        plateforme: { type: "string", enum: ["FACEBOOK", "INSTAGRAM"] },
+      },
+      required: ["idPublication", "plateforme"],
+    },
+  },
 ];
 
 async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown): Promise<unknown> {
@@ -992,6 +1027,42 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "obtenir_connexion_reseaux_sociaux": {
+      if (!reseauxSociauxEstConfigure()) return { connecte: false, erreur: "Module Reseaux sociaux non configure cote serveur (META_APP_ID/META_APP_SECRET/META_REDIRECT_URI manquants)." };
+      const connexion = await obtenirConnexionMeta(prisma);
+      return connexion
+        ? { connecte: true, pageNom: connexion.pageNom, instagramUsername: connexion.instagramUsername }
+        : { connecte: false };
+    }
+
+    case "proposer_publication_reseaux_sociaux": {
+      const plateformes = Array.isArray(params.plateformes) ? params.plateformes.filter((p): p is string => typeof p === "string") : [];
+      const texte = typeof params.texte === "string" ? params.texte : "";
+      const cheminMedia = typeof params.cheminMedia === "string" ? params.cheminMedia : undefined;
+      const justification = typeof params.justification === "string" ? params.justification : "";
+      try {
+        const proposition = await creerPropositionPost(prisma, { plateformes, texte, cheminMedia, justification });
+        return {
+          ok: true,
+          message: "Proposition de publication deposee sur l'ecran de validation (onglet Reseaux sociaux). Rien n'est publie : l'utilisateur doit l'accepter la-bas.",
+          propositionId: proposition.id,
+        };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
+    case "obtenir_statistiques_publication_reseaux_sociaux": {
+      const idPublication = typeof params.idPublication === "string" ? params.idPublication : "";
+      const plateforme = params.plateforme === "FACEBOOK" || params.plateforme === "INSTAGRAM" ? params.plateforme : undefined;
+      if (!idPublication || !plateforme) return { erreur: "idPublication et plateforme sont requis." };
+      try {
+        return { statistiques: await obtenirStatistiquesPost(prisma, idPublication, plateforme) };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
     default:
       return { erreur: `Outil inconnu : ${nom}` };
   }
@@ -1349,7 +1420,32 @@ repond a ca, pas cet outil. L'usage typique : une campagne a beaucoup de \
 clics mais peu de conversions -> verifier si la page de destination a un \
 telephone cliquable et un appel a l'action clair avant de chercher \
 ailleurs. Meme principe d'acces que le referencement : lecture seule, \
-pas d'acces au code du site.`;
+pas d'acces au code du site.
+
+Module Reseaux sociaux (Facebook/Instagram, sujet SEPARE de Google Ads - \
+outils obtenir_connexion_reseaux_sociaux, proposer_publication_reseaux_sociaux, \
+obtenir_statistiques_publication_reseaux_sociaux). Phase "fondations" \
+seulement : creer/publier des posts avec une photo (texte seul possible \
+sur Facebook uniquement, jamais sur Instagram), pas encore de generation \
+d'image/video par IA, pas encore de recuperation automatique de photos \
+depuis une source externe - dis-le clairement si l'utilisateur en demande \
+plus, sans laisser croire que c'est deja fait.
+  Avant de proposer quoi que ce soit, verifie obtenir_connexion_reseaux_sociaux : \
+si rien n'est connecte, dis-le a l'utilisateur et redirige-le vers /auth/meta \
+depuis l'application (necessite une Page Facebook + un compte Instagram \
+professionnel lie + une application Meta for Developers deja creee par \
+l'utilisateur - tu ne peux rien faire sans ca).
+  Tu n'as pas la capacite d'uploader un fichier toi-meme : le media doit \
+deja avoir ete uploade par l'utilisateur via l'onglet Reseaux sociaux de \
+l'application (qui te donne un cheminMedia, ex. "media-publics/xxxx.jpg") \
+AVANT que tu ne puisses le referencer dans une proposition - ne l'invente \
+jamais.
+  Comme pour Google Ads : propose uniquement APRES accord explicite et \
+recent de l'utilisateur sur le texte exact et les plateformes, et dis-lui \
+toujours que la publication reelle ne se fait qu'apres son acceptation \
+sur l'ecran de validation dedie, jamais depuis la conversation.
+  Instagram EXIGE une photo (cheminMedia) - rappelle-le si l'utilisateur \
+demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils

@@ -475,6 +475,23 @@ ${AUTH_BASIC_CONF}
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Photos/videos de publications Facebook/Instagram (module Reseaux
+    # sociaux) : les serveurs de Meta qui vont chercher le media pour le
+    # publier ne peuvent evidemment pas s'authentifier derriere le mot de
+    # passe nginx qui protege le reste du site - meme raison que
+    # /telephonie/ pour Twilio. Contenu destine a etre rendu public par la
+    # publication elle-meme, donc pas de regression de confidentialite.
+    location /media-publics/ {
+        auth_basic off;
+        proxy_pass http://copilote_app;
+        proxy_connect_timeout 2s;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     location / {
         proxy_pass http://copilote_app;
         # Bascule sur l'instance de secours si la principale ne repond pas

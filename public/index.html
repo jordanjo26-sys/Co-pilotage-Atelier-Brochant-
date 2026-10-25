@@ -204,6 +204,22 @@
         <div id="liste-propositions-ads"></div>
       </section>
 
+      <section class="carte accent-ambre">
+        <h2>Réseaux sociaux (Facebook / Instagram)</h2>
+        <p class="aide">Module en construction : création et publication de posts avec photo, après votre validation — rien ne part automatiquement. Génération d'images par IA et récupération automatique de photos pas encore disponibles.</p>
+        <div id="reseaux-sociaux-statut"></div>
+        <form id="form-publication-reseaux-sociaux" class="form-grille" style="margin-top:10px">
+          <input type="file" id="fichier-media-reseaux-sociaux" accept="image/jpeg,image/png,image/webp" />
+          <div id="apercu-media-reseaux-sociaux"></div>
+          <textarea id="texte-publication-reseaux-sociaux" placeholder="Texte de la publication…" rows="3" style="width:100%"></textarea>
+          <label><input type="checkbox" id="plateforme-facebook" checked /> Facebook</label>
+          <label><input type="checkbox" id="plateforme-instagram" /> Instagram (photo obligatoire)</label>
+          <button type="submit">Proposer la publication</button>
+        </form>
+        <div id="resultat-publication-reseaux-sociaux"></div>
+        <div id="liste-propositions-reseaux-sociaux" style="margin-top:14px"></div>
+      </section>
+
       <section class="carte accent-violet">
         <h2>Mémoire de Morgane</h2>
         <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>

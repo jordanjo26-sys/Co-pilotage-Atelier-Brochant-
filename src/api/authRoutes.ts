@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import { buildConsentUrl, handleOAuthCallback } from "../services/googleAuth";
+import { buildConsentUrl as buildConsentUrlMeta, handleOAuthCallback as handleOAuthCallbackMeta } from "../services/metaAuth";
 import { logEvenement } from "../services/journalService";
 
 /**
@@ -38,6 +39,37 @@ export function buildAuthRouter(prisma: PrismaClient): Router {
       );
     } catch (err) {
       res.status(500).send(`<p>Echec de connexion Gmail : ${(err as Error).message}</p>`);
+    }
+  });
+
+  router.get("/meta", (_req, res) => {
+    try {
+      res.redirect(buildConsentUrlMeta());
+    } catch (err) {
+      res.status(500).send(`<p>${(err as Error).message}</p>`);
+    }
+  });
+
+  router.get("/meta/callback", async (req, res) => {
+    const code = req.query.code;
+    if (typeof code !== "string") {
+      return res.status(400).send("<p>Code d'autorisation manquant.</p>");
+    }
+
+    try {
+      const { pageNom, instagramUsername } = await handleOAuthCallbackMeta(prisma, code);
+      await logEvenement(prisma, {
+        evenement: "meta_connexion",
+        action: `Connexion Meta etablie pour la Page "${pageNom}"`,
+        resultat: instagramUsername ? `Compte Instagram lie : @${instagramUsername}.` : "Aucun compte Instagram professionnel lie a cette Page.",
+      });
+      res.send(
+        `<p>Page Facebook <strong>${pageNom}</strong> connectee avec succes` +
+          (instagramUsername ? ` (Instagram : @${instagramUsername})` : "") +
+          `. Vous pouvez fermer cette page et retourner sur le cockpit.</p>`
+      );
+    } catch (err) {
+      res.status(500).send(`<p>Echec de connexion Meta : ${(err as Error).message}</p>`);
     }
   });
 

@@ -623,3 +623,34 @@ model PropositionAds {
   creeLe          DateTime  @default(now())
   decideLe        DateTime?
 }
+
+// --- Module Reseaux sociaux (Facebook/Instagram) -----------------------
+// Phase "fondations" : connexion Meta, creation/publication de posts avec
+// photo, memes principes de securite que Google Ads (OAuth, secrets
+// chiffres, aucune publication sans validation explicite de l'utilisateur
+// sur un ecran dedie - jamais directement depuis la conversation).
+
+model ConnexionMeta {
+  id                         String    @id @default(cuid())
+  pageId                     String    @unique
+  pageNom                    String
+  pageAccessTokenChiffre     String // jeton longue duree de la Page, chiffre au repos (voir cipher.ts)
+  instagramBusinessAccountId String? // absent si seule la Page Facebook est utilisable (pas de compte Instagram professionnel lie)
+  instagramUsername          String?
+  actif                      Boolean   @default(true)
+  connecteLe                 DateTime  @default(now())
+}
+
+model PropositionPost {
+  id                     String    @id @default(cuid())
+  plateformes            String[] // "FACEBOOK" et/ou "INSTAGRAM"
+  texte                  String // legende/texte du post
+  cheminMedia            String? // chemin sous public/media-publics/, requis pour Instagram (texte seul impossible sur ce reseau)
+  justification          String // explication (de Morgane ou de l'utilisateur), affichee sur l'ecran de validation
+  statut                 String    @default("en_attente") // "en_attente" | "acceptee" | "refusee" | "appliquee" | "echec"
+  erreur                 String?
+  idPublicationFacebook  String?
+  idPublicationInstagram String?
+  creeLe                 DateTime  @default(now())
+  decideLe               DateTime?
+}
