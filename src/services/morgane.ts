@@ -19,6 +19,7 @@ import {
   listerExtensionsAppel,
   obtenirSnippetConversion,
   listerPerformanceAnnonces,
+  verifierPolitiqueAnnonces,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
@@ -265,6 +266,17 @@ const OUTILS: Anthropic.Tool[] = [
         url: { type: "string", description: "URL complete de la page a analyser (ex. https://fichet-depannage.fr/)." },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "verifier_politique_annonces_ads",
+    description:
+      "Retourne le statut d'approbation reel (APPROVED/APPROVED_LIMITED/DISAPPROVED...) et les sujets de politique (ex. TRADEMARKS_IN_AD_TEXT, LOCAL_SERVICES_AD) des annonces EXISTANTES, par campagne. Utile pour comparer une campagne qui diffuse deja a une campagne bloquee a la creation (ex. erreur POLICY_ERROR sur un mot-cle) - permet de voir si le compte porte une restriction visible sur ses annonces deja actives, ou si le probleme est specifique a la nouvelle tentative. Precise campagneId pour te concentrer sur une campagne. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campagneId: { type: "string", description: "Limiter a une campagne precise (campaign.id, voir obtenir_campagnes_ads). Omis = toutes les campagnes." },
+      },
     },
   },
   {
@@ -672,6 +684,15 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         return { audit: await auditerSiteWeb(url) };
       } catch (err) {
         return { erreur: `Echec de l'analyse de ${url} : ${(err as Error).message}` };
+      }
+    }
+
+    case "verifier_politique_annonces_ads": {
+      const campagneId = typeof params.campagneId === "string" && params.campagneId ? params.campagneId : undefined;
+      try {
+        return { annonces: await verifierPolitiqueAnnonces(prisma, campagneId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
       }
     }
 
