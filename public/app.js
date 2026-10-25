@@ -585,6 +585,101 @@ document.getElementById("form-import-ads").addEventListener("submit", async (e) 
   }
 });
 
+// Propositions d'action Ads de Morgane (pause/reactivation de campagne) :
+// ecran de validation dedie, distinct de la conversation (demande explicite
+// de l'utilisateur - voir src/services/googleAdsActions.ts). Morgane ne
+// modifie jamais une campagne directement ; elle depose une proposition ici,
+// que l'utilisateur accepte ou refuse.
+const LIBELLE_TYPE_PROPOSITION_ADS = {
+  pause_campagne: "Mettre en pause",
+  reactiver_campagne: "Réactiver",
+};
+const BADGE_STATUT_PROPOSITION_ADS = {
+  en_attente: "badge-partiel",
+  acceptee: "badge-partiel",
+  appliquee: "badge-ok",
+  refusee: "badge-doublon_fichier",
+  echec: "badge-echec",
+};
+const LIBELLE_STATUT_PROPOSITION_ADS = {
+  en_attente: "En attente",
+  acceptee: "Acceptée…",
+  appliquee: "Appliquée",
+  refusee: "Refusée",
+  echec: "Échec",
+};
+
+async function accepterPropositionAds(id, bouton) {
+  bouton.disabled = true;
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/google-ads/propositions/${id}/accepter`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec de l'acceptation.");
+    await chargerPropositionsAds();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.accepterPropositionAds = accepterPropositionAds;
+
+async function refuserPropositionAds(id, bouton) {
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/google-ads/propositions/${id}/refuser`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec du refus.");
+    await chargerPropositionsAds();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.refuserPropositionAds = refuserPropositionAds;
+
+async function chargerPropositionsAds() {
+  const liste = document.getElementById("liste-propositions-ads");
+  if (!liste) return;
+  const res = await fetch("/api/google-ads/propositions");
+  const propositions = await res.json();
+
+  if (propositions.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune proposition pour le moment.</p>`;
+    return;
+  }
+
+  liste.innerHTML = propositions
+    .map((p) => {
+      const badge = BADGE_STATUT_PROPOSITION_ADS[p.statut] || "badge-doublon_fichier";
+      const libelleStatut = LIBELLE_STATUT_PROPOSITION_ADS[p.statut] || p.statut;
+      const actions =
+        p.statut === "en_attente"
+          ? `<div class="relance-actions">
+               <button type="button" onclick="accepterPropositionAds('${p.id}', this)">Accepter</button>
+               <button type="button" class="ghost" onclick="refuserPropositionAds('${p.id}', this)">Refuser</button>
+             </div>`
+          : "";
+      return `
+    <div class="decision-carte">
+      <div class="relance-entete">
+        <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_PROPOSITION_ADS[p.type] || p.type)}</span>
+        <span class="relance-retard">${echapper(p.campagneNom)}</span>
+        <span class="badge ${badge}">${echapper(libelleStatut)}</span>
+      </div>
+      <div class="anomalie-meta">${echapper(p.justification)}</div>
+      <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}</div>
+      ${p.erreur ? `<div class="anomalie-meta" style="color:var(--critical)">${echapper(p.erreur)}</div>` : ""}
+      ${actions}
+    </div>`;
+    })
+    .join("");
+}
+
 // Liste individuelle des paiements Stripe deja captes : jusqu'ici seuls des
 // compteurs agreges apparaissaient au moment d'un clic sur "Synchroniser
 // maintenant", sans aucune trace consultable ensuite - impossible de
@@ -1157,7 +1252,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

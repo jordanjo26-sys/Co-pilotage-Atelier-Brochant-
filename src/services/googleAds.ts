@@ -1,15 +1,18 @@
-import { GoogleAdsApi, Customer, fromMicros } from "google-ads-api";
+import { GoogleAdsApi, Customer, fromMicros, enums, ResourceNames } from "google-ads-api";
 import { PrismaClient } from "@prisma/client";
 import { dechiffrer } from "./cipher";
 import { buildOAuthClient, ADS_SCOPE } from "./googleAuth";
 
 /**
- * Acces en lecture seule aux campagnes Google Ads (demande explicite de
- * l'utilisateur : "un agent capable d'analyser toutes mes campagnes en
- * ligne"). Phase 1 volontairement limitee a la lecture : aucune fonction
- * ici ne modifie une campagne, un budget ou une enchere - voir la
- * discussion avec l'utilisateur, qui a choisi de commencer par l'analyse
- * seule avant d'ajouter la capacite d'agir.
+ * Acces aux campagnes Google Ads (demande explicite de l'utilisateur : "un
+ * agent capable d'analyser toutes mes campagnes en ligne"). Phase 1 en
+ * lecture seule ; phase 2 (ce fichier) ajoute la capacite de modifier une
+ * campagne (ex. pause/reactivation), mais UNIQUEMENT via
+ * src/services/googleAdsActions.ts : aucune fonction de ce fichier n'est
+ * appelee directement par Morgane pour agir - elle passe toujours par une
+ * proposition, validee par l'utilisateur sur un ecran dedie, jamais une
+ * execution immediate depuis la conversation (demande explicite de
+ * l'utilisateur).
  *
  * Reutilise la connexion Google deja etablie pour Gmail/Calendar (meme
  * refresh token, scope "adwords" ajoute a GMAIL_SCOPES dans
@@ -134,7 +137,7 @@ export async function diagnosticLienGestionnaire(prisma: PrismaClient): Promise<
  * d'erreur ici, c'est a l'appelant de decider comment reagir (Morgane
  * explique simplement que ce n'est pas encore configure).
  */
-async function obtenirClientAds(prisma: PrismaClient): Promise<Customer | null> {
+export async function obtenirClientAds(prisma: PrismaClient): Promise<Customer | null> {
   if (!googleAdsEstConfigure()) return null;
 
   const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
@@ -266,4 +269,26 @@ export async function listerCampagnesAds(prisma: PrismaClient, jours = 30): Prom
     ctr: Number(ligne.metrics?.ctr ?? 0),
     cpcMoyen: fromMicros(Number(ligne.metrics?.average_cpc ?? 0)),
   }));
+}
+
+/**
+ * Change le statut (ENABLED/PAUSED) d'une campagne. N'est JAMAIS appelee
+ * directement par Morgane : uniquement par googleAdsActions.ts, lors de
+ * l'application d'une PropositionAds deja validee par l'utilisateur sur
+ * l'ecran dedie - voir la discussion avec l'utilisateur (demande explicite
+ * de ne jamais agir sans validation hors conversation).
+ */
+export async function changerStatutCampagne(prisma: PrismaClient, campagneId: string, nouveauStatut: "ENABLED" | "PAUSED"): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.campaigns.update([
+    {
+      resource_name: ResourceNames.campaign(customerId, campagneId),
+      status: enums.CampaignStatus[nouveauStatut],
+    },
+  ]);
 }

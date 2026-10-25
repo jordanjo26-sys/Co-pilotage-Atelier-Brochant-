@@ -34,6 +34,7 @@ import {
 } from "../services/demandesIntervention";
 import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
+import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds } from "../services/googleAdsActions";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -621,6 +622,35 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/google-ads/dernier-import", async (_req, res) => {
     const resultat = await dernieresCampagnesImportees(prisma);
     res.json(resultat);
+  });
+
+  // --- Google Ads : propositions d'action de Morgane (ecran de validation) -
+  //
+  // Demande explicite de l'utilisateur : Morgane ne modifie jamais une
+  // campagne directement depuis la conversation - elle depose une
+  // proposition (voir /morgane/message, outil proposer_action_ads), que
+  // l'utilisateur accepte ou refuse ici, hors conversation. Voir
+  // src/services/googleAdsActions.ts.
+
+  router.get("/google-ads/propositions", async (req, res) => {
+    const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
+    res.json(await listerPropositionsAds(prisma, statut));
+  });
+
+  router.post("/google-ads/propositions/:id/accepter", async (req, res) => {
+    try {
+      res.json(await accepterPropositionAds(prisma, req.params.id));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.post("/google-ads/propositions/:id/refuser", async (req, res) => {
+    try {
+      res.json(await refuserPropositionAds(prisma, req.params.id));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   // --- Morgane, assistante IA (Phase 7 du cahier des charges) -------------

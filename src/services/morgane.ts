@@ -13,6 +13,7 @@ import { logEvenement } from "./journalService";
 import { verifierMailsImportants } from "./mailsImportants";
 import { listerCampagnesAds, messageErreurGoogleAds, diagnosticConfigurationAds, diagnosticScopesJeton, diagnosticLienGestionnaire } from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
+import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -166,12 +167,30 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "obtenir_campagnes_ads",
     description:
-      "Retourne la liste des campagnes Google Ads avec leurs indicateurs de performance sur la periode demandee : impressions, clics, cout, conversions, CTR, CPC moyen, budget quotidien. Lecture seule : aucun outil ne permet de modifier une campagne, un budget ou une enchere pour l'instant.",
+      "Retourne la liste des campagnes Google Ads avec leurs indicateurs de performance sur la periode demandee : impressions, clics, cout, conversions, CTR, CPC moyen, budget quotidien. Lecture seule.",
     input_schema: {
       type: "object",
       properties: {
         jours: { type: "number", description: "Nombre de jours a analyser en arriere (30 par defaut)." },
       },
+    },
+  },
+  {
+    name: "proposer_action_ads",
+    description:
+      "Enregistre une proposition de mise en pause ou de reactivation d'une campagne Google Ads, APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur sur CETTE campagne precise.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["pause_campagne", "reactiver_campagne"], description: "Action proposee." },
+        campagneId: { type: "string", description: "Identifiant Google Ads de la campagne (campaign.id, voir obtenir_campagnes_ads)." },
+        campagneNom: { type: "string", description: "Nom de la campagne, pour affichage sur l'ecran de validation." },
+        justification: {
+          type: "string",
+          description: "Resume en langage clair de pourquoi cette action est proposee, affiche a l'utilisateur sur l'ecran de validation.",
+        },
+      },
+      required: ["type", "campagneId", "campagneNom", "justification"],
     },
   },
 ];
@@ -349,6 +368,29 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       return { source: "import_manuel", fichierNom: importe.fichierNom, importeLe: importe.importeLe, campagnes: importe.campagnes };
     }
 
+    case "proposer_action_ads": {
+      const { type, campagneId, campagneNom, justification } = params as Record<string, unknown>;
+      if (type !== "pause_campagne" && type !== "reactiver_campagne") return { erreur: "type invalide (attendu : pause_campagne ou reactiver_campagne)" };
+      if (typeof campagneId !== "string" || !campagneId) return { erreur: "campagneId manquant" };
+      if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
+      if (typeof justification !== "string" || !justification) return { erreur: "justification manquante" };
+      try {
+        const proposition = await creerPropositionAds(prisma, {
+          type: type as TypePropositionAds,
+          campagneId,
+          campagneNom,
+          justification,
+        });
+        return {
+          ok: true,
+          message: "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
+          propositionId: proposition.id,
+        };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
     default:
       return { erreur: `Outil inconnu : ${nom}` };
   }
@@ -419,14 +461,19 @@ les termes de recherche) : tu n'as aujourd'hui que des chiffres agreges par \
 CAMPAGNE (pas de donnee par mot-cle ni par terme de recherche) - dis-le \
 plutot que d'improviser un conseil que ces donnees ne permettent pas de \
 justifier.
-  Tu ne peux PAS agir sur les campagnes (aucune modification de budget, \
-d'enchere, de statut, ni creation, ni gestion de mots-cles) : cette \
-capacite n'existe pas encore. Si l'utilisateur demande d'appliquer un \
-changement, explique clairement que cette action n'est pas encore \
-disponible plutot que de pretendre l'avoir faite, et que les actions \
-Google Ads sont justement en cours de conception avec lui (donnees par \
-mot-cle a ajouter en premier, puis des actions validees une par une avant \
-tout envoi reel - jamais d'action automatique).`;
+  Tu peux proposer de mettre en pause ou de reactiver une campagne \
+(proposer_action_ads), mais JAMAIS directement : il faut d'abord en discuter \
+avec l'utilisateur dans la conversation et qu'il donne clairement son accord \
+sur CETTE campagne precise, avant d'appeler l'outil. L'outil ne modifie rien \
+tout de suite : il depose une proposition sur l'ecran de validation dedie de \
+l'application (onglet Google Ads), que l'utilisateur doit encore accepter \
+la-bas pour qu'elle soit reellement appliquee - dis-le lui explicitement \
+apres avoir depose la proposition ("c'est en attente de validation sur \
+l'ecran dedie, rien n'est encore modifie"). Ne depose jamais une proposition \
+sans accord explicite et recent dans la conversation. Les autres actions \
+(modification de budget, d'enchere, creation de campagne, gestion de \
+mots-cles) n'existent pas encore : dis-le clairement si l'utilisateur les \
+demande plutot que de pretendre les avoir faites.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils

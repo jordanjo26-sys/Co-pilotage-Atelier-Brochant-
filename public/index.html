@@ -189,13 +189,19 @@
 
       <section class="carte accent-ambre">
         <h2>Google Ads (import manuel)</h2>
-        <p class="aide">Le temps que Google valide l'accès API, déposez ici un export CSV « Campagnes » téléchargé depuis Google Ads : Morgane l'utilisera pour analyser vos campagnes.</p>
+        <p class="aide">Repli si l'accès API live est indisponible : déposez ici un export CSV « Campagnes » téléchargé depuis Google Ads, Morgane l'utilisera pour analyser vos campagnes.</p>
         <div id="google-ads-statut"></div>
         <form id="form-import-ads" class="form-grille" style="margin-top:10px">
           <input type="file" id="fichier-import-ads" accept=".csv" required />
           <button type="submit">Importer le CSV</button>
         </form>
         <div id="resultat-import-ads"></div>
+      </section>
+
+      <section class="carte accent-bleu">
+        <h2>Google Ads — propositions de Morgane</h2>
+        <p class="aide">Mises en pause/réactivations de campagne proposées par Morgane après discussion avec vous. Rien n'est appliqué sur Google Ads tant que vous n'acceptez pas ici.</p>
+        <div id="liste-propositions-ads"></div>
       </section>
 
       <section class="carte accent-violet">
