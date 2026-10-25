@@ -77,3 +77,20 @@ export async function recupererMessagesSecours(prisma: PrismaClient, maintenant:
   }
   return nouveaux;
 }
+
+/**
+ * Comptes rendus d'appel jamais envoyes (ex. quota Gmail depasse au moment
+ * de la fin d'appel, constate le 15/10) : renvoyes automatiquement, au plus
+ * tard 5 minutes apres. Seuls les appels de moins de 3 jours sont repris.
+ */
+export async function renvoyerComptesRendusEnAttente(prisma: PrismaClient, maintenant: Date = new Date()): Promise<number> {
+  const enAttente = await prisma.appel.findMany({
+    where: {
+      notifieLe: null,
+      createdAt: { gte: new Date(maintenant.getTime() - 3 * 24 * 3600 * 1000), lte: new Date(maintenant.getTime() - 5 * 60 * 1000) },
+    },
+    take: 20,
+  });
+  for (const appel of enAttente) await finaliserAppel(prisma, appel.callSid);
+  return enAttente.length;
+}
