@@ -1276,6 +1276,58 @@ export async function listerMotsCles(prisma: PrismaClient, jours = 30, campagneI
   }));
 }
 
+export interface MotCleConfigureAds {
+  campagneId: string;
+  campagneNom: string;
+  groupeId: string;
+  groupeNom: string;
+  texte: string;
+  typeCorrespondance: string;
+  statut: string;
+  statutApprobation: string;
+}
+
+/**
+ * Liste les mots-cles REELLEMENT CONFIGURES sur une campagne, independamment
+ * de toute activite (par opposition a listerMotsCles, qui interroge
+ * keyword_view et exige metrics.impressions > 0 - donc renvoie TOUJOURS une
+ * liste vide pour une campagne en pause ou tout juste creee, meme si ses
+ * mots-cles existent bien). Necessaire pour verifier qu'une creation de
+ * campagne a correctement cree ses mots-cles avant toute diffusion.
+ */
+export async function listerMotsClesConfigures(prisma: PrismaClient, campagneId: string): Promise<MotCleConfigureAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const lignes = await customer.query(`
+    SELECT
+      campaign.id,
+      campaign.name,
+      ad_group.id,
+      ad_group.name,
+      ad_group_criterion.keyword.text,
+      ad_group_criterion.keyword.match_type,
+      ad_group_criterion.status,
+      ad_group_criterion.approval_status
+    FROM keyword_view
+    WHERE ad_group_criterion.status != 'REMOVED'${clauseCampagne(campagneId)}
+    LIMIT 300
+  `);
+
+  return lignes.map((ligne) => ({
+    campagneId: String(ligne.campaign?.id ?? ""),
+    campagneNom: ligne.campaign?.name ?? "",
+    groupeId: String(ligne.ad_group?.id ?? ""),
+    groupeNom: ligne.ad_group?.name ?? "",
+    texte: ligne.ad_group_criterion?.keyword?.text ?? "",
+    typeCorrespondance: String(ligne.ad_group_criterion?.keyword?.match_type ?? ""),
+    statut: String(ligne.ad_group_criterion?.status ?? ""),
+    statutApprobation: String(ligne.ad_group_criterion?.approval_status ?? ""),
+  }));
+}
+
 export interface TermeRechercheAds {
   campagneId: string;
   campagneNom: string;

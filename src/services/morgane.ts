@@ -21,6 +21,7 @@ import {
   listerPerformanceAnnonces,
   verifierPolitiqueAnnonces,
   rechercherAudiences,
+  listerMotsClesConfigures,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
@@ -290,6 +291,18 @@ const OUTILS: Anthropic.Tool[] = [
         termes: { type: "array", items: { type: "string" }, description: "Termes a chercher, ex. ['demenagement', 'moving', 'securite', 'alarm', 'bricolage', 'home improvement']." },
       },
       required: ["termes"],
+    },
+  },
+  {
+    name: "lister_mots_cles_configures_ads",
+    description:
+      "Liste les mots-cles REELLEMENT CONFIGURES sur une campagne (texte, type de correspondance, statut, statut d'approbation), SANS filtre d'activite. A utiliser pour verifier qu'une campagne a bien ete creee avec ses mots-cles - obtenir_mots_cles_ads (base sur les statistiques) renvoie TOUJOURS une liste vide pour une campagne en pause ou tout juste creee, meme si ses mots-cles existent, car il exige des impressions > 0. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campagneId: { type: "string", description: "Campagne a verifier (campaign.id, voir obtenir_campagnes_ads)." },
+      },
+      required: ["campagneId"],
     },
   },
   {
@@ -716,6 +729,16 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         const trouvees = await rechercherAudiences(prisma, termes);
         const manquantes = termes.filter((t) => !trouvees.some((a) => a.nomRecherche === t));
         return { trouvees, manquantes };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
+    case "lister_mots_cles_configures_ads": {
+      const campagneId = typeof params.campagneId === "string" ? params.campagneId : "";
+      if (!campagneId) return { erreur: "campagneId manquant" };
+      try {
+        return { motsCles: await listerMotsClesConfigures(prisma, campagneId) };
       } catch (err) {
         return { erreur: messageErreurGoogleAds(err) };
       }
