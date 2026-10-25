@@ -181,10 +181,21 @@ export function messageErreurGoogleAds(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as { errors?: unknown; message?: unknown; details?: unknown };
     if (Array.isArray(e.errors) && e.errors.length > 0) {
-      const premiere = e.errors[0] as { message?: unknown; error_code?: unknown };
+      const premiere = e.errors[0] as {
+        message?: unknown;
+        error_code?: unknown;
+        location?: { field_path_elements?: Array<{ field_name?: unknown; index?: unknown }> };
+      };
       if (typeof premiere?.message === "string" && premiere.message) {
         const code = premiere.error_code ? ` (${JSON.stringify(premiere.error_code)})` : "";
-        return `${premiere.message}${code}`;
+        // Le chemin exact du champ en cause (ex. "operations[2].create.keyword.match_type")
+        // est indispensable pour diagnostiquer une erreur generique comme "REQUIRED" sans
+        // deviner a l'aveugle lequel des nombreux appels mutate de creerCampagne est en cause.
+        const chemin = (premiere.location?.field_path_elements ?? [])
+          .map((el) => (el?.field_name ? `${String(el.field_name)}${el.index !== undefined ? `[${el.index}]` : ""}` : null))
+          .filter((x): x is string => Boolean(x))
+          .join(".");
+        return `${premiere.message}${code}${chemin ? ` [champ : ${chemin}]` : ""}`;
       }
     }
     if (typeof e.message === "string" && e.message) return e.message;
