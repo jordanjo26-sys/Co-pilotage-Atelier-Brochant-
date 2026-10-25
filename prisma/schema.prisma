@@ -592,7 +592,7 @@ model CampagneAdsImport {
 // l'utilisateur doit l'activer lui-meme dans Google Ads apres verification.
 model PropositionAds {
   id              String    @id @default(cuid())
-  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion" | "creer_action_conversion_site" | "modifier_budget_campagne" | "ajouter_mots_cles_positifs"
+  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion" | "creer_action_conversion_site" | "modifier_budget_campagne" | "ajouter_mots_cles_positifs" | "ajouter_extensions_campagne"
   campagneId      String // identifiant Google Ads de la campagne (campaign.id) ; vide pour une proposition de creation pas encore appliquee
   campagneNom     String
   justification   String // explication de Morgane, affichee a l'utilisateur sur l'ecran de validation
@@ -610,6 +610,9 @@ model PropositionAds {
   ciblesGeographiques String[] @default([]) // noms de lieux (ex. "Île-de-France", "Seine-et-Marne") a resoudre via Google puis cibler, uniquement pour "creer_campagne"
   numeroTelephone String? // pour l'extension d'appel creee avec la campagne, uniquement pour "creer_campagne"
   typeCorrespondance String? // "EXACT" | "PHRASE" | "BROAD", pour "creer_campagne" et "ajouter_mots_cles_positifs" (defaut PHRASE si absent)
+  sitelinks       Json? // [{texte, description1?, description2?, url?}], pour "creer_campagne" et "ajouter_extensions_campagne"
+  callouts        String[] @default([]) // textes courts (1 a 25 caracteres), pour "creer_campagne" et "ajouter_extensions_campagne"
+  structuredSnippets Json? // [{header, valeurs: string[]}], pour "creer_campagne" et "ajouter_extensions_campagne"
   statut          String    @default("en_attente") // "en_attente" | "acceptee" | "refusee" | "appliquee" | "echec"
   erreur          String? // detail si l'application a echoue (statut "echec")
   creeLe          DateTime  @default(now())

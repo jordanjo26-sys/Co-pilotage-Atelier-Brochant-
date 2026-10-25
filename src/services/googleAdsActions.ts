@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import {
   changerStatutCampagne,
   changerStatutMotCle,
@@ -9,6 +9,9 @@ import {
   TypeActionConversionSite,
   changerBudgetCampagne,
   ajouterMotsClesPositifs,
+  ajouterExtensionsCampagne,
+  SitelinkAds,
+  StructuredSnippetAds,
   messageErreurGoogleAds,
 } from "./googleAds";
 import { logEvenement } from "./journalService";
@@ -32,7 +35,8 @@ export type TypePropositionAds =
   | "exclure_action_conversion"
   | "creer_action_conversion_site"
   | "modifier_budget_campagne"
-  | "ajouter_mots_cles_positifs";
+  | "ajouter_mots_cles_positifs"
+  | "ajouter_extensions_campagne";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -53,6 +57,9 @@ export interface PropositionAdsEntree {
   ciblesGeographiques?: string[]; // noms de lieux a cibler, optionnel pour creer_campagne
   numeroTelephone?: string; // pour l'extension d'appel a la creation, optionnel pour creer_campagne
   typeCorrespondance?: "EXACT" | "PHRASE" | "BROAD"; // optionnel pour creer_campagne/ajouter_mots_cles_positifs (defaut PHRASE)
+  sitelinks?: SitelinkAds[]; // optionnel pour creer_campagne et ajouter_extensions_campagne
+  callouts?: string[]; // optionnel pour creer_campagne et ajouter_extensions_campagne
+  structuredSnippets?: StructuredSnippetAds[]; // optionnel pour creer_campagne et ajouter_extensions_campagne
 }
 
 /**
@@ -99,8 +106,20 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
     if (!entree.groupeId) throw new Error("groupeId manquant (requis pour ajouter_mots_cles_positifs).");
     if (!entree.motsCles || entree.motsCles.length === 0) throw new Error("motsCles : au moins un mot-cle est requis.");
   }
+  if (entree.type === "ajouter_extensions_campagne") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_extensions_campagne).");
+    const nbExtensions = (entree.sitelinks?.length ?? 0) + (entree.callouts?.length ?? 0) + (entree.structuredSnippets?.length ?? 0);
+    if (nbExtensions === 0) throw new Error("Au moins un sitelink, une accroche (callout) ou un extrait structure est requis.");
+  }
 
-  const proposition = await prisma.propositionAds.create({ data: entree });
+  // sitelinks/structuredSnippets sont des tableaux d'objets structures,
+  // stockes en colonne Json - Prisma attend InputJsonValue pour ce champ,
+  // que le typage structurel de SitelinkAds[]/StructuredSnippetAds[] ne
+  // satisfait pas directement (pas de signature d'index), d'ou ce
+  // contournement de typage ; la forme reelle des donnees ne change pas.
+  const proposition = await prisma.propositionAds.create({
+    data: entree as unknown as Prisma.PropositionAdsCreateInput,
+  });
 
   await logEvenement(prisma, {
     evenement: "proposition_ads_creee",
@@ -152,6 +171,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
           typeCorrespondance: (proposition.typeCorrespondance as "EXACT" | "PHRASE" | "BROAD" | null) ?? undefined,
           ciblesGeographiques: proposition.ciblesGeographiques.length > 0 ? proposition.ciblesGeographiques : undefined,
           numeroTelephone: proposition.numeroTelephone ?? undefined,
+          sitelinks: (proposition.sitelinks as unknown as SitelinkAds[] | null) ?? undefined,
+          callouts: proposition.callouts.length > 0 ? proposition.callouts : undefined,
+          structuredSnippets: (proposition.structuredSnippets as unknown as StructuredSnippetAds[] | null) ?? undefined,
         });
         campagneIdCreee = resultat.campagneId;
         break;
@@ -184,6 +206,13 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
           (proposition.typeCorrespondance as "EXACT" | "PHRASE" | "BROAD" | null) ?? "PHRASE"
         );
         break;
+      case "ajouter_extensions_campagne":
+        await ajouterExtensionsCampagne(prisma, proposition.campagneId, {
+          sitelinks: (proposition.sitelinks as unknown as SitelinkAds[] | null) ?? undefined,
+          callouts: proposition.callouts.length > 0 ? proposition.callouts : undefined,
+          structuredSnippets: (proposition.structuredSnippets as unknown as StructuredSnippetAds[] | null) ?? undefined,
+        });
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -214,7 +243,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
                     ? `Budget quotidien de "${proposition.campagneNom}" change a ${proposition.budgetQuotidien} EUR/jour.`
                     : proposition.type === "ajouter_mots_cles_positifs"
                       ? `${proposition.motsCles.length} mot(s)-cle(s) positif(s) ajoute(s) : ${proposition.motsCles.join(", ")}.`
-                      : "Applique avec succes sur Google Ads.",
+                      : proposition.type === "ajouter_extensions_campagne"
+                        ? `Extensions ajoutees a "${proposition.campagneNom}" : ${(proposition.sitelinks as unknown as SitelinkAds[] | null)?.length ?? 0} sitelink(s), ${proposition.callouts.length} accroche(s), ${(proposition.structuredSnippets as unknown as StructuredSnippetAds[] | null)?.length ?? 0} extrait(s) structure(s).`
+                        : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {

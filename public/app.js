@@ -601,6 +601,7 @@ const LIBELLE_TYPE_PROPOSITION_ADS = {
   creer_action_conversion_site: "Nouvelle conversion web",
   modifier_budget_campagne: "Modifier le budget",
   ajouter_mots_cles_positifs: "Ajouter des mots-clés",
+  ajouter_extensions_campagne: "Ajouter des extensions",
 };
 const BADGE_STATUT_PROPOSITION_ADS = {
   en_attente: "badge-partiel",
@@ -616,6 +617,31 @@ const LIBELLE_STATUT_PROPOSITION_ADS = {
   refusee: "Refusée",
   echec: "Échec",
 };
+
+function rendreExtensionsPropositionAds(p) {
+  const sitelinks = p.sitelinks || [];
+  const callouts = p.callouts || [];
+  const snippets = p.structuredSnippets || [];
+  const morceaux = [];
+  if (sitelinks.length > 0) {
+    morceaux.push(
+      `<div class="anomalie-meta"><strong>Liens d'accroche</strong> : ${sitelinks
+        .map((s) => echapper(s.texte) + (s.description1 ? ` (${echapper(s.description1)} ${echapper(s.description2 || "")})` : ""))
+        .join(" · ")}</div>`
+    );
+  }
+  if (callouts.length > 0) {
+    morceaux.push(`<div class="anomalie-meta"><strong>Accroches</strong> : ${callouts.map(echapper).join(" · ")}</div>`);
+  }
+  if (snippets.length > 0) {
+    morceaux.push(
+      `<div class="anomalie-meta"><strong>Extraits structurés</strong> : ${snippets
+        .map((s) => `${echapper(s.header)} : ${(s.valeurs || []).map(echapper).join(", ")}`)
+        .join(" · ")}</div>`
+    );
+  }
+  return morceaux.join("\n");
+}
 
 async function accepterPropositionAds(id, bouton) {
   bouton.disabled = true;
@@ -681,6 +707,7 @@ async function chargerPropositionsAds() {
              ${(p.motsClesExclus || []).length > 0 ? `<div class="anomalie-meta"><strong>Mots-clés exclus</strong> : ${p.motsClesExclus.map(echapper).join(", ")}</div>` : ""}
              ${(p.ciblesGeographiques || []).length > 0 ? `<div class="anomalie-meta"><strong>Ciblage géographique</strong> : ${p.ciblesGeographiques.map(echapper).join(", ")}</div>` : ""}
              ${p.numeroTelephone ? `<div class="anomalie-meta"><strong>Extension d'appel</strong> : ${echapper(p.numeroTelephone)}, créée avec la campagne</div>` : ""}
+             ${rendreExtensionsPropositionAds(p)}
              <div class="anomalie-meta">Sera créée <strong>en pause</strong> : aucune dépense tant que tu ne l'actives pas toi-même dans Google Ads.</div>`
           : p.type === "ajouter_mots_cles_exclus"
             ? `<div class="anomalie-meta"><strong>Mots-clés exclus à ajouter</strong> : ${(p.motsClesExclus || []).map(echapper).join(", ") || "—"}</div>`
@@ -694,7 +721,9 @@ async function chargerPropositionsAds() {
                     ? `<div class="anomalie-meta"><strong>Nouveau budget</strong> : ${p.budgetQuotidien != null ? p.budgetQuotidien.toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " €/jour" : "—"}</div>`
                     : p.type === "ajouter_mots_cles_positifs"
                       ? `<div class="anomalie-meta"><strong>Mots-clés à ajouter</strong> : ${(p.motsCles || []).map(echapper).join(", ") || "—"}${p.typeCorrespondance ? ` (${echapper(p.typeCorrespondance)})` : ""}</div>`
-                      : "";
+                      : p.type === "ajouter_extensions_campagne"
+                        ? rendreExtensionsPropositionAds(p)
+                        : "";
       return `
     <div class="decision-carte">
       <div class="relance-entete">

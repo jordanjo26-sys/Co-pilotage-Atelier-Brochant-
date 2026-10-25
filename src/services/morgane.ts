@@ -25,6 +25,7 @@ import {
 } from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
 import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
+import { SitelinkAds, StructuredSnippetAds } from "./googleAds";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -259,6 +260,7 @@ const OUTILS: Anthropic.Tool[] = [
             "creer_action_conversion_site",
             "modifier_budget_campagne",
             "ajouter_mots_cles_positifs",
+            "ajouter_extensions_campagne",
           ],
           description: "Action proposee.",
         },
@@ -271,7 +273,7 @@ const OUTILS: Anthropic.Tool[] = [
         campagneId: {
           type: "string",
           description:
-            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus/modifier_budget_campagne/ajouter_mots_cles_positifs. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus/modifier_budget_campagne/ajouter_mots_cles_positifs/ajouter_extensions_campagne. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
         },
         conversionActionId: {
           type: "string",
@@ -341,6 +343,37 @@ const OUTILS: Anthropic.Tool[] = [
           enum: ["EXACT", "PHRASE", "BROAD"],
           description:
             "Type de correspondance applique a TOUS les mots-cles de motsCles (pas de reglage par mot-cle individuel aujourd'hui). Optionnel pour creer_campagne et ajouter_mots_cles_positifs - PHRASE par defaut si omis (plus sur pour le budget que BROAD, moins restrictif que EXACT).",
+        },
+        sitelinks: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              texte: { type: "string", description: "Libelle affiche du lien (1 a 25 caracteres)." },
+              description1: { type: "string", description: "1ere ligne de description (1 a 35 caracteres) - optionnelle, mais doit etre accompagnee de description2." },
+              description2: { type: "string", description: "2e ligne de description (1 a 35 caracteres) - optionnelle, mais doit etre accompagnee de description1." },
+              url: { type: "string", description: "Page de destination du lien - si omise, reutilise l'URL finale de la campagne." },
+            },
+            required: ["texte"],
+          },
+          description: "Liens d'accroche (sitelinks) a creer et lier. Optionnel pour creer_campagne et ajouter_extensions_campagne.",
+        },
+        callouts: {
+          type: "array",
+          items: { type: "string" },
+          description: "Accroches courtes (callouts, 1 a 25 caracteres chacune, ex. 'Intervention rapide'). Optionnel pour creer_campagne et ajouter_extensions_campagne.",
+        },
+        structuredSnippets: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              header: { type: "string", description: "Categorie Google predefinie (ex. 'Services', 'Types', 'Marques') - ne pas inventer une categorie hors de la liste officielle de Google." },
+              valeurs: { type: "array", items: { type: "string" }, description: "3 a 10 valeurs, 1 a 25 caracteres chacune." },
+            },
+            required: ["header", "valeurs"],
+          },
+          description: "Extraits structures (structured snippets) a creer et lier. Optionnel pour creer_campagne et ajouter_extensions_campagne.",
         },
       },
       required: ["type", "campagneNom", "justification"],
@@ -588,6 +621,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         ciblesGeographiques,
         numeroTelephone,
         typeCorrespondance,
+        sitelinks,
+        callouts,
+        structuredSnippets,
       } = params as Record<string, unknown>;
       const typesValides: TypePropositionAds[] = [
         "pause_campagne",
@@ -600,6 +636,7 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         "creer_action_conversion_site",
         "modifier_budget_campagne",
         "ajouter_mots_cles_positifs",
+        "ajouter_extensions_campagne",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
@@ -614,6 +651,26 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
       if (typeof justification !== "string" || !justification) return { erreur: "justification manquante" };
       const toTableauString = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined);
+      const toSitelinks = (v: unknown): SitelinkAds[] | undefined => {
+        if (!Array.isArray(v)) return undefined;
+        return v
+          .filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && typeof (x as Record<string, unknown>).texte === "string")
+          .map((x) => ({
+            texte: x.texte as string,
+            description1: typeof x.description1 === "string" ? x.description1 : undefined,
+            description2: typeof x.description2 === "string" ? x.description2 : undefined,
+            url: typeof x.url === "string" ? x.url : undefined,
+          }));
+      };
+      const toStructuredSnippets = (v: unknown): StructuredSnippetAds[] | undefined => {
+        if (!Array.isArray(v)) return undefined;
+        return v
+          .filter(
+            (x): x is Record<string, unknown> =>
+              !!x && typeof x === "object" && typeof (x as Record<string, unknown>).header === "string" && Array.isArray((x as Record<string, unknown>).valeurs)
+          )
+          .map((x) => ({ header: x.header as string, valeurs: (x.valeurs as unknown[]).filter((v2): v2 is string => typeof v2 === "string") }));
+      };
       try {
         const proposition = await creerPropositionAds(prisma, {
           type: type as TypePropositionAds,
@@ -635,6 +692,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           numeroTelephone: typeof numeroTelephone === "string" ? numeroTelephone : undefined,
           typeCorrespondance:
             typeCorrespondance === "EXACT" || typeCorrespondance === "PHRASE" || typeCorrespondance === "BROAD" ? typeCorrespondance : undefined,
+          sitelinks: toSitelinks(sitelinks),
+          callouts: toTableauString(callouts),
+          structuredSnippets: toStructuredSnippets(structuredSnippets),
         });
         return {
           ok: true,
@@ -864,11 +924,29 @@ l'utilisateur du budget cible et de pourquoi, comme pour une creation.
 (ajouter_mots_cles_positifs) : precise campagneId, groupeId (voir \
 obtenir_mots_cles_ads pour le retrouver) et motsCles. typeCorrespondance \
 optionnel (PHRASE par defaut).
+  Extensions d'annonce - liens d'accroche, accroches, extraits structures \
+(ajouter_extensions_campagne pour une campagne existante ; sitelinks/ \
+callouts/structuredSnippets optionnels directement dans creer_campagne) :
+  - sitelinks : texte (1-25 caracteres) obligatoire par lien, \
+description1+description2 (1-35 caracteres chacune) optionnelles mais \
+TOUJOURS ensemble (jamais l'une sans l'autre), url optionnelle (sinon \
+reutilise l'URL de la campagne). Mets-toi d'accord avec l'utilisateur sur \
+le contenu avant de proposer - ne les invente pas au hasard, ancre-les \
+dans l'activite reelle (ex. un service precis, une zone, le contact).
+  - callouts : textes courts (1-25 caracteres), 4 a 6 est un bon volume \
+habituel meme si rien ne l'impose techniquement ici.
+  - structuredSnippets : header OBLIGATOIREMENT une categorie officielle \
+Google (ex. "Services", "Types", "Marques" - jamais une categorie \
+inventee, Google rejettera le reste sinon), valeurs : 3 a 10 par header, \
+1-25 caracteres chacune.
   Ce qui n'existe PAS encore : l'ajustement d'enchere individuel par \
 mot-cle, et le reglage du type de correspondance mot-cle par mot-cle \
-(aujourd'hui un seul type pour toute la campagne/le lot ajoute). Dis-le \
-clairement si l'utilisateur les demande plutot que de pretendre les avoir \
-faites.`;
+(aujourd'hui un seul type pour toute la campagne/le lot ajoute) - la \
+campagne utilise de toute facon une strategie d'enchere automatique \
+(maximiser les conversions), qui ignore en general les encheres manuelles \
+par mot-cle, donc ce n'est pas qu'une limitation technique a lever mais \
+aussi une question de pertinence. Dis-le clairement si l'utilisateur les \
+demande plutot que de pretendre les avoir faites.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils

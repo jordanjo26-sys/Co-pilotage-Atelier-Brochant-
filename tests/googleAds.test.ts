@@ -84,7 +84,7 @@ test("listerCampagnesAds : non configure -> erreur explicite", async (t) => {
 // configuration, jamais un vrai appel API dans un test automatique.
 test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPositifs : non configure -> erreur explicite", async (t) => {
   const { PrismaClient } = await import("@prisma/client");
-  const { rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPositifs } = await import("../src/services/googleAds");
+  const { rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPositifs, ajouterExtensionsCampagne } = await import("../src/services/googleAds");
   const prisma = new PrismaClient();
 
   const sauvegarde = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
@@ -100,6 +100,10 @@ test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPosit
 
     await t.test("ajouterMotsClesPositifs rejette avec un message explicite", async () => {
       await assert.rejects(ajouterMotsClesPositifs(prisma, "456", ["serrurier fichet essonne"]), /Google Ads non configure/);
+    });
+
+    await t.test("ajouterExtensionsCampagne rejette avec un message explicite", async () => {
+      await assert.rejects(ajouterExtensionsCampagne(prisma, "123456", { callouts: ["Intervention rapide"] }), /Google Ads non configure/);
     });
   } finally {
     if (sauvegarde !== undefined) process.env.GOOGLE_ADS_DEVELOPER_TOKEN = sauvegarde;

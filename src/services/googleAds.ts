@@ -368,6 +368,124 @@ export async function rechercherCiblesGeographiques(prisma: PrismaClient, noms: 
   return [...parNom.values()];
 }
 
+export interface SitelinkAds {
+  texte: string; // link_text, 1 a 25 caracteres
+  description1?: string; // 1 a 35 caracteres ; si fourni, description2 doit l'etre aussi (et inversement)
+  description2?: string;
+  url?: string; // page de destination du sitelink ; si absente, reutilise l'URL finale de la campagne
+}
+
+export interface StructuredSnippetAds {
+  header: string; // doit etre une des valeurs predefinies par Google (ex. "Services", "Types", "Marques")
+  valeurs: string[]; // 3 a 10 valeurs, 1 a 25 caracteres chacune
+}
+
+export interface ExtensionsCampagne {
+  sitelinks?: SitelinkAds[];
+  callouts?: string[]; // 1 a 25 caracteres chacun
+  structuredSnippets?: StructuredSnippetAds[];
+}
+
+function validerExtensions(extensions: ExtensionsCampagne) {
+  for (const s of extensions.sitelinks ?? []) {
+    if (!s.texte || s.texte.length > 25) throw new Error(`Sitelink invalide : "${s.texte}" (1 a 25 caracteres requis).`);
+    if (Boolean(s.description1) !== Boolean(s.description2)) {
+      throw new Error(`Sitelink "${s.texte}" : description1 et description2 doivent etre fournies ensemble, ou aucune des deux.`);
+    }
+  }
+  for (const c of extensions.callouts ?? []) {
+    if (!c || c.length > 25) throw new Error(`Accroche (callout) invalide : "${c}" (1 a 25 caracteres requis).`);
+  }
+  for (const s of extensions.structuredSnippets ?? []) {
+    if (!s.header) throw new Error("Extrait structure : header manquant.");
+    if (s.valeurs.length < 3 || s.valeurs.length > 10) throw new Error(`Extrait structure "${s.header}" : ${s.valeurs.length} valeur(s), il en faut entre 3 et 10.`);
+  }
+}
+
+/**
+ * Cree et lie des extensions d'annonce (liens d'accroche, accroches,
+ * extraits structures) a une campagne. Usage interne, partage entre
+ * creerCampagne (a la creation) et ajouterExtensionsCampagne (campagne
+ * existante) - meme logique, seule la provenance du resource_name de
+ * campagne change.
+ */
+async function creerEtLierExtensions(
+  customer: Customer,
+  campagneResourceName: string,
+  urlParDefaut: string,
+  extensions: ExtensionsCampagne
+): Promise<void> {
+  validerExtensions(extensions);
+  const callouts = extensions.callouts ?? [];
+  const structuredSnippets = extensions.structuredSnippets ?? [];
+  const sitelinks = extensions.sitelinks ?? [];
+  if (callouts.length === 0 && structuredSnippets.length === 0 && sitelinks.length === 0) return;
+
+  const aCreer: Array<{ fieldType: number; payload: Record<string, unknown> }> = [
+    ...callouts.map((texte) => ({ fieldType: enums.AssetFieldType.CALLOUT, payload: { callout_asset: { callout_text: texte } } })),
+    ...structuredSnippets.map((s) => ({
+      fieldType: enums.AssetFieldType.STRUCTURED_SNIPPET,
+      payload: { structured_snippet_asset: { header: s.header, values: s.valeurs } },
+    })),
+    ...sitelinks.map((s) => ({
+      fieldType: enums.AssetFieldType.SITELINK,
+      payload: {
+        final_urls: [s.url || urlParDefaut],
+        sitelink_asset: {
+          link_text: s.texte,
+          ...(s.description1 ? { description1: s.description1, description2: s.description2 } : {}),
+        },
+      },
+    })),
+  ];
+
+  const resultat = await customer.assets.create(aCreer.map((a) => a.payload));
+  const resourceNames = resultat.results?.map((r) => r.resource_name) ?? [];
+  if (resourceNames.length !== aCreer.length || resourceNames.some((rn) => !rn)) {
+    throw new Error("Echec de la creation d'une ou plusieurs extensions (aucun resource_name retourne).");
+  }
+
+  await customer.campaignAssets.create(
+    resourceNames.map((rn, i) => ({
+      campaign: campagneResourceName,
+      asset: rn!,
+      field_type: aCreer[i].fieldType,
+      status: enums.AssetLinkStatus.ENABLED,
+    }))
+  );
+}
+
+/**
+ * Ajoute des extensions d'annonce a une campagne EXISTANTE. JAMAIS appelee
+ * directement par Morgane : uniquement par googleAdsActions.ts, lors de
+ * l'application d'une PropositionAds deja validee par l'utilisateur.
+ */
+export async function ajouterExtensionsCampagne(prisma: PrismaClient, campagneId: string, extensions: ExtensionsCampagne): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+
+  const lignes = await customer.query(`
+    SELECT campaign.resource_name, campaign_budget.resource_name
+    FROM campaign
+    WHERE campaign.id = ${campagneId}
+  `);
+  const campagneResourceName = lignes[0]?.campaign?.resource_name;
+  if (!campagneResourceName) throw new Error(`Campagne ${campagneId} introuvable.`);
+
+  const ad = await customer.query(`
+    SELECT ad_group_ad.ad.final_urls
+    FROM ad_group_ad
+    WHERE campaign.id = ${campagneId} AND ad_group_ad.status != 'REMOVED'
+    LIMIT 1
+  `);
+  const urlParDefaut = ad[0]?.ad_group_ad?.ad?.final_urls?.[0] ?? "";
+
+  await creerEtLierExtensions(customer, campagneResourceName, urlParDefaut, extensions);
+}
+
 export interface ParametresCreationCampagne {
   nom: string;
   budgetQuotidien: number; // euros/jour
@@ -379,6 +497,9 @@ export interface ParametresCreationCampagne {
   typeCorrespondance?: "EXACT" | "PHRASE" | "BROAD"; // defaut PHRASE - BROAD expose a trop de trafic non pertinent sans surveillance active
   ciblesGeographiques?: string[]; // noms de lieux a resoudre puis cibler (ex. "Île-de-France") - aucun = pas de restriction geographique
   numeroTelephone?: string; // si fourni, cree une extension d'appel liee des la creation (suivi d'appel compte-cible par defaut)
+  sitelinks?: SitelinkAds[];
+  callouts?: string[];
+  structuredSnippets?: StructuredSnippetAds[];
 }
 
 /**
@@ -508,6 +629,18 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
         status: enums.AssetLinkStatus.ENABLED,
       },
     ]);
+  }
+
+  if (params.sitelinks?.length || params.callouts?.length || params.structuredSnippets?.length) {
+    try {
+      await creerEtLierExtensions(customer, campagneResourceName, params.urlFinale, {
+        sitelinks: params.sitelinks,
+        callouts: params.callouts,
+        structuredSnippets: params.structuredSnippets,
+      });
+    } catch (err) {
+      throw new Error(`Campagne creee (id ${campagneId}) mais echec de la creation des extensions (liens d'accroche/accroches/extraits) : ${messageErreurGoogleAds(err)}`);
+    }
   }
 
   return { campagneId };

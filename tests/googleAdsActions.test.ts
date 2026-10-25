@@ -344,6 +344,47 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (ajouter_extensions_campagne) : rejette une entree sans aucune extension", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "ajouter_extensions_campagne",
+        campagneId: "",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Ameliorer la visibilite de l'annonce.",
+      }),
+      /campagneId/
+    );
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "ajouter_extensions_campagne",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Ameliorer la visibilite de l'annonce.",
+      }),
+      /sitelink|callout|extrait structure/
+    );
+  });
+
+  await t.test("creerPropositionAds (ajouter_extensions_campagne) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "ajouter_extensions_campagne",
+      campagneId: "123456",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Ameliorer la visibilite de l'annonce.",
+      sitelinks: [{ texte: "Nos services", description1: "Ouverture de porte", description2: "Remplacement de serrure" }],
+      callouts: ["Intervention rapide", "Serrurier Fichet"],
+      structuredSnippets: [{ header: "Services", valeurs: ["Ouverture de porte", "Remplacement de serrure", "Diagnostic"] }],
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.campagneId, "123456");
+    assert.deepEqual(proposition.sitelinks, [{ texte: "Nos services", description1: "Ouverture de porte", description2: "Remplacement de serrure" }]);
+    assert.deepEqual(proposition.callouts, ["Intervention rapide", "Serrurier Fichet"]);
+    assert.deepEqual(proposition.structuredSnippets, [{ header: "Services", valeurs: ["Ouverture de porte", "Remplacement de serrure", "Diagnostic"] }]);
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -460,6 +501,18 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultatPositifs = await accepterPropositionAds(prisma, propositionPositifs.id);
       assert.equal(resultatPositifs.statut, "echec");
       assert.match(resultatPositifs.erreur || "", /non configure/);
+
+      // Meme verification pour ajouter_extensions_campagne.
+      const propositionExtensions = await creerPropositionAds(prisma, {
+        type: "ajouter_extensions_campagne",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Ameliorer la visibilite de l'annonce.",
+        callouts: ["Intervention rapide"],
+      });
+      const resultatExtensions = await accepterPropositionAds(prisma, propositionExtensions.id);
+      assert.equal(resultatExtensions.statut, "echec");
+      assert.match(resultatExtensions.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];
