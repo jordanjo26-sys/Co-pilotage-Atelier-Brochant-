@@ -684,6 +684,54 @@ function centreInteretEligiblePourSearch(ui: {
   });
 }
 
+export interface DiagnosticAudienceAds {
+  resourceName: string;
+  nom: string;
+  typeTaxonomie: string; // AFFINITY | IN_MARKET | ... - toutes les categories ne sont pas utilisables de la meme facon comme critere
+  lancePourTous: boolean; // user_interest.launched_to_all
+  eligiblePourSearch: boolean; // ce que notre filtre actuel decide
+  disponibilites: string[]; // lecture brute de user_interest.availabilities, pour diagnostiquer sans deviner
+}
+
+/**
+ * Diagnostic BRUT (lecture seule, aucun filtre applique autre que le LIKE)
+ * de tous les centres d'interet correspondant a un terme, avec leurs
+ * champs d'eligibilite complets. A utiliser quand rechercherAudiences()
+ * laisse passer une categorie que Google rejette ensuite
+ * (INVALID_USER_INTEREST) malgre le filtre launched_to_all/availabilities -
+ * permet de voir les vraies donnees au lieu de deviner une nouvelle
+ * hypothese non verifiee.
+ */
+export async function diagnostiquerAudience(prisma: PrismaClient, terme: string): Promise<DiagnosticAudienceAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  const termeEchappe = terme.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const lignes = await customer.query(`
+    SELECT user_interest.resource_name, user_interest.name, user_interest.taxonomy_type, user_interest.launched_to_all, user_interest.availabilities
+    FROM user_interest
+    WHERE user_interest.name LIKE '%${termeEchappe}%'
+    LIMIT 20
+  `);
+  return lignes.map((ligne) => {
+    const ui = ligne.user_interest ?? {};
+    const disponibilites = (ui.availabilities ?? []).map((a) => {
+      const mode = decoderEnum(enums.CriterionCategoryChannelAvailabilityMode as unknown as Record<string, string | number>, a?.channel?.availability_mode);
+      const canal = decoderEnum(enums.AdvertisingChannelType as unknown as Record<string, string | number>, a?.channel?.advertising_channel_type);
+      return mode === "ALL_CHANNELS" ? "ALL_CHANNELS" : `${mode}:${canal}`;
+    });
+    return {
+      resourceName: ui.resource_name ?? "",
+      nom: ui.name ?? "",
+      typeTaxonomie: decoderEnum(enums.UserInterestTaxonomyType as unknown as Record<string, string | number>, ui.taxonomy_type),
+      lancePourTous: ui.launched_to_all === true,
+      eligiblePourSearch: centreInteretEligiblePourSearch(ui),
+      disponibilites,
+    };
+  });
+}
+
 export async function rechercherAudiences(prisma: PrismaClient, termes: string[]): Promise<AudienceAds[]> {
   const customer = await obtenirClientAds(prisma);
   if (!customer) {

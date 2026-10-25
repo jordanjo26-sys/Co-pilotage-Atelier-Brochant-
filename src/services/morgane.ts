@@ -21,6 +21,7 @@ import {
   listerPerformanceAnnonces,
   verifierPolitiqueAnnonces,
   rechercherAudiences,
+  diagnostiquerAudience,
   listerMotsClesConfigures,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
@@ -291,6 +292,18 @@ const OUTILS: Anthropic.Tool[] = [
         termes: { type: "array", items: { type: "string" }, description: "Termes a chercher, ex. ['demenagement', 'moving', 'securite', 'alarm', 'bricolage', 'home improvement']." },
       },
       required: ["termes"],
+    },
+  },
+  {
+    name: "diagnostiquer_audience_ads",
+    description:
+      "Diagnostic BRUT (lecture seule) de tous les centres d'interet Google correspondant a UN terme : type de taxonomie (AFFINITY/IN_MARKET/...), si lance pour tous les canaux, disponibilites detaillees par canal, et si notre filtre actuel le juge eligible au reseau Search. A utiliser quand rechercher_audiences_ads ou ajouter_audiences_campagne renvoie INVALID_USER_INTEREST malgre un nom trouve : permet de voir les vraies donnees Google pour comprendre pourquoi, au lieu de deviner une nouvelle hypothese. Ne cherche qu'UN terme a la fois (contrairement a rechercher_audiences_ads). Aucune modification.",
+    input_schema: {
+      type: "object",
+      properties: {
+        terme: { type: "string", description: "Un seul terme a diagnostiquer, ex. 'Locks & Locksmiths'." },
+      },
+      required: ["terme"],
     },
   },
   {
@@ -729,6 +742,16 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         const trouvees = await rechercherAudiences(prisma, termes);
         const manquantes = termes.filter((t) => !trouvees.some((a) => a.nomRecherche === t));
         return { trouvees, manquantes };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
+    case "diagnostiquer_audience_ads": {
+      const terme = typeof params.terme === "string" ? params.terme : "";
+      if (!terme) return { erreur: "terme manquant" };
+      try {
+        return { resultats: await diagnostiquerAudience(prisma, terme) };
       } catch (err) {
         return { erreur: messageErreurGoogleAds(err) };
       }
