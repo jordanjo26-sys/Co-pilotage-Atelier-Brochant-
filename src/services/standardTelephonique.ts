@@ -188,7 +188,7 @@ function presentationEntreprise(): string {
   const lignes = [
     `Noms de l'entreprise : ${config.nomsEntreprise.join(" et ")} (une seule et meme entreprise).`,
     `Activite : ${config.activite}`,
-    `Zone d'intervention : ${config.zoneIntervention}.`,
+    `Zone d'intervention : ${config.zoneIntervention}`,
     `Horaires : ${config.horairesTexte}`,
   ];
   if (config.adresse) lignes.push(`Adresse : ${config.adresse}.`);

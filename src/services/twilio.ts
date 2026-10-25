@@ -154,12 +154,12 @@ export async function telechargerEnregistrement(url: string): Promise<Buffer | n
 /**
  * Relais vocal temps reel (Twilio ConversationRelay, voir
  * src/services/relaisVocal.ts). Voix et fournisseur surchargeables sans
- * toucher au code ; par defaut, la meme voix (Lea, neuronale) que le mode
- * <Say>.
+ * toucher au code ; par defaut, voix francaise ElevenLabs (plus naturelle
+ * que Polly). Si Twilio la refuse, /fin-relais bascule sur le mode <Gather>.
  */
 export function relaisVocal(urlWss: string, accueil: string, actionUrl: string): string {
-  const fournisseur = process.env.TELEPHONE_RELAIS_TTS || "Amazon";
-  const voixRelais = process.env.TELEPHONE_RELAIS_VOIX || "Lea-Neural";
+  const fournisseur = process.env.TELEPHONE_RELAIS_TTS || "ElevenLabs";
+  const voixRelais = process.env.TELEPHONE_RELAIS_VOIX || "a5n9pJUnAhX4fn7lx3uo";
   return twiml(
     `<Connect action="${echapperXml(actionUrl)}">` +
       `<ConversationRelay url="${echapperXml(urlWss)}" language="fr-FR" ttsProvider="${echapperXml(fournisseur)}" voice="${echapperXml(voixRelais)}" welcomeGreeting="${echapperXml(accueil)}" welcomeGreetingInterruptible="none" interruptible="speech" interruptSensitivity="low"/>` +
