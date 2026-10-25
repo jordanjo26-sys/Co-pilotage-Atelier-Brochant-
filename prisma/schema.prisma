@@ -592,7 +592,7 @@ model CampagneAdsImport {
 // l'utilisateur doit l'activer lui-meme dans Google Ads apres verification.
 model PropositionAds {
   id              String    @id @default(cuid())
-  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion"
+  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion" | "creer_action_conversion_site"
   campagneId      String // identifiant Google Ads de la campagne (campaign.id) ; vide pour une proposition de creation pas encore appliquee
   campagneNom     String
   justification   String // explication de Morgane, affichee a l'utilisateur sur l'ecran de validation
@@ -605,7 +605,8 @@ model PropositionAds {
   groupeId        String? // ad_group.id, requis pour "pause_mot_cle"/"reactiver_mot_cle" (identifie le mot-cle avec criterionId)
   criterionId     String? // ad_group_criterion.criterion_id, requis pour "pause_mot_cle"/"reactiver_mot_cle"
   motCleTexte     String? // texte du mot-cle, affichage uniquement, pour "pause_mot_cle"/"reactiver_mot_cle"
-  conversionActionId String? // conversion_action.id, requis pour "exclure_action_conversion"
+  conversionActionId String? // conversion_action.id, requis pour "exclure_action_conversion" ; rempli apres creation reussie pour "creer_action_conversion_site"
+  typeConversionSite String? // "CLICK_TO_CALL" | "WEBPAGE", requis pour "creer_action_conversion_site"
   statut          String    @default("en_attente") // "en_attente" | "acceptee" | "refusee" | "appliquee" | "echec"
   erreur          String? // detail si l'application a echoue (statut "echec")
   creeLe          DateTime  @default(now())

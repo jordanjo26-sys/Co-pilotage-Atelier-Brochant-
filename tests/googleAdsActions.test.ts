@@ -220,6 +220,33 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (creer_action_conversion_site) : rejette une entree sans typeConversionSite valide", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "creer_action_conversion_site",
+        campagneId: "",
+        campagneNom: "Clic pour appeler - site Fichet",
+        justification: "Suivre les clics sur le numéro affiché sur le site.",
+      }),
+      /typeConversionSite/
+    );
+  });
+
+  await t.test("creerPropositionAds (creer_action_conversion_site) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "creer_action_conversion_site",
+      campagneId: "",
+      campagneNom: "Clic pour appeler - site Fichet",
+      justification: "Suivre les clics sur le numéro affiché sur le site.",
+      typeConversionSite: "CLICK_TO_CALL",
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.typeConversionSite, "CLICK_TO_CALL");
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -299,6 +326,18 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultatConversion = await accepterPropositionAds(prisma, propositionConversion.id);
       assert.equal(resultatConversion.statut, "echec");
       assert.match(resultatConversion.erreur || "", /non configure/);
+
+      // Meme verification pour creer_action_conversion_site.
+      const propositionSite = await creerPropositionAds(prisma, {
+        type: "creer_action_conversion_site",
+        campagneId: "",
+        campagneNom: "Clic pour appeler - site Fichet",
+        justification: "Suivre les clics sur le numéro affiché sur le site.",
+        typeConversionSite: "CLICK_TO_CALL",
+      });
+      const resultatSite = await accepterPropositionAds(prisma, propositionSite.id);
+      assert.equal(resultatSite.statut, "echec");
+      assert.match(resultatSite.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

@@ -598,6 +598,7 @@ const LIBELLE_TYPE_PROPOSITION_ADS = {
   pause_mot_cle: "Pause mot-clé",
   reactiver_mot_cle: "Réactiver mot-clé",
   exclure_action_conversion: "Exclure du comptage",
+  creer_action_conversion_site: "Nouvelle conversion web",
 };
 const BADGE_STATUT_PROPOSITION_ADS = {
   en_attente: "badge-partiel",
@@ -683,7 +684,9 @@ async function chargerPropositionsAds() {
               ? `<div class="anomalie-meta"><strong>Mot-clé</strong> : ${echapper(p.motCleTexte || "—")}</div>`
               : p.type === "exclure_action_conversion"
                 ? `<div class="anomalie-meta">Cette action de conversion ne comptera plus dans les conversions (elle n'est pas supprimée).</div>`
-                : "";
+                : p.type === "creer_action_conversion_site"
+                  ? `<div class="anomalie-meta">Type : ${p.typeConversionSite === "CLICK_TO_CALL" ? "Clic sur le numéro de téléphone" : "Envoi de formulaire"}. Une fois acceptée, demande le code à coller sur le site directement à Morgane.</div>`
+                  : "";
       return `
     <div class="decision-carte">
       <div class="relance-entete">

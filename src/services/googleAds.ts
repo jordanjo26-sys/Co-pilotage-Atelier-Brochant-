@@ -725,3 +725,67 @@ export async function listerExtensionsAppel(prisma: PrismaClient, campagneId?: s
     })(),
   }));
 }
+
+export type TypeActionConversionSite = "CLICK_TO_CALL" | "WEBPAGE";
+
+/**
+ * Cree une action de conversion WEB simple (clic sur le numero de
+ * telephone, ou envoi d'un formulaire), standard et fiable - par
+ * opposition au suivi d'appel avance (numero de suivi dynamique Google),
+ * plus complexe et pas garanti sans verification au cas par cas. JAMAIS
+ * appelee directement par Morgane : uniquement par googleAdsActions.ts,
+ * lors de l'application d'une PropositionAds deja validee par
+ * l'utilisateur. Categorie choisie automatiquement selon le type
+ * (PHONE_CALL_LEAD pour un clic a appeler, SUBMIT_LEAD_FORM pour un
+ * formulaire).
+ */
+export async function creerActionConversionSite(prisma: PrismaClient, nom: string, type: TypeActionConversionSite): Promise<{ id: string }> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+
+  const resultat = await customer.conversionActions.create([
+    {
+      name: nom,
+      type: type === "CLICK_TO_CALL" ? enums.ConversionActionType.CLICK_TO_CALL : enums.ConversionActionType.WEBPAGE,
+      category: type === "CLICK_TO_CALL" ? enums.ConversionActionCategory.PHONE_CALL_LEAD : enums.ConversionActionCategory.SUBMIT_LEAD_FORM,
+      status: enums.ConversionActionStatus.ENABLED,
+      counting_type: enums.ConversionActionCountingType.ONE_PER_CLICK,
+    },
+  ]);
+  const resourceName = resultat.results?.[0]?.resource_name;
+  if (!resourceName) throw new Error("Echec de la creation de l'action de conversion (aucun resource_name retourne).");
+
+  return { id: resourceName.split("/").pop()! };
+}
+
+export interface SnippetConversionAds {
+  globalSiteTag: string;
+  eventSnippet: string;
+}
+
+/**
+ * Recupere le code pret a coller (balise globale + extrait d'evenement)
+ * pour une action de conversion donnee, fourni directement par Google Ads
+ * (ConversionActionService) - evite de deviner ou de recopier un format a
+ * la main. Lecture seule.
+ */
+export async function obtenirSnippetConversion(prisma: PrismaClient, conversionActionId: string): Promise<SnippetConversionAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  const lignes = await customer.query(`
+    SELECT conversion_action.tag_snippets
+    FROM conversion_action
+    WHERE conversion_action.resource_name = '${ResourceNames.conversionAction(customerId, conversionActionId)}'
+  `);
+
+  const snippets = lignes[0]?.conversion_action?.tag_snippets ?? [];
+  return snippets
+    .filter((s) => s.global_site_tag && s.event_snippet)
+    .map((s) => ({ globalSiteTag: s.global_site_tag!, eventSnippet: s.event_snippet! }));
+}

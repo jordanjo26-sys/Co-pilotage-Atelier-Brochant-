@@ -17,6 +17,7 @@ import {
   listerTermesRecherche,
   listerActionsConversion,
   listerExtensionsAppel,
+  obtenirSnippetConversion,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
@@ -227,21 +228,48 @@ const OUTILS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "obtenir_snippet_conversion_ads",
+    description:
+      "Retourne le code pret a coller (balise globale + extrait d'evenement JavaScript) fourni directement par Google Ads pour une action de conversion WEB donnee (CLICK_TO_CALL ou WEBPAGE, creee via proposer_action_ads type creer_action_conversion_site). A utiliser UNIQUEMENT une fois cette action de conversion creee et acceptee sur l'ecran de validation - sinon aucun code n'existe encore. Donne ce code textuellement et integralement a l'utilisateur pour qu'il le fasse ajouter sur son site (lui-meme ou via la plateforme qui l'a construit) : ne jamais le reformuler ou le resumer, c'est du code exact a copier-coller. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        conversionActionId: { type: "string", description: "Identifiant de l'action de conversion (id, voir obtenir_actions_conversion_ads ou le resultat de la creation)." },
+      },
+      required: ["conversionActionId"],
+    },
+  },
+  {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus, exclusion d'une action de conversion du comptage, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
     input_schema: {
       type: "object",
       properties: {
         type: {
           type: "string",
-          enum: ["pause_campagne", "reactiver_campagne", "creer_campagne", "ajouter_mots_cles_exclus", "pause_mot_cle", "reactiver_mot_cle", "exclure_action_conversion"],
+          enum: [
+            "pause_campagne",
+            "reactiver_campagne",
+            "creer_campagne",
+            "ajouter_mots_cles_exclus",
+            "pause_mot_cle",
+            "reactiver_mot_cle",
+            "exclure_action_conversion",
+            "creer_action_conversion_site",
+          ],
           description: "Action proposee.",
+        },
+        typeConversionSite: {
+          type: "string",
+          enum: ["CLICK_TO_CALL", "WEBPAGE"],
+          description:
+            "REQUIS pour creer_action_conversion_site. CLICK_TO_CALL = clic sur le numero de telephone affiche sur le site (approxime une intention d'appel, pas une duree d'appel confirmee). WEBPAGE = envoi d'un formulaire/page de confirmation.",
         },
         campagneId: {
           type: "string",
           description:
-            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent) et pour exclure_action_conversion (action au niveau du compte, pas d'une campagne).",
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
         },
         conversionActionId: {
           type: "string",
@@ -261,7 +289,8 @@ const OUTILS: Anthropic.Tool[] = [
         },
         campagneNom: {
           type: "string",
-          description: "Nom de la campagne (existante, ou nom propose pour une nouvelle campagne). Pour exclure_action_conversion : nom de l'action de conversion concernee (affichage).",
+          description:
+            "Nom de la campagne (existante, ou nom propose pour une nouvelle campagne). Pour exclure_action_conversion : nom de l'action de conversion concernee (affichage). Pour creer_action_conversion_site : nom a donner a la nouvelle action de conversion.",
         },
         justification: {
           type: "string",
@@ -502,6 +531,16 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "obtenir_snippet_conversion_ads": {
+      const conversionActionId = typeof params.conversionActionId === "string" ? params.conversionActionId : "";
+      if (!conversionActionId) return { erreur: "conversionActionId manquant" };
+      try {
+        return { snippets: await obtenirSnippetConversion(prisma, conversionActionId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
     case "proposer_action_ads": {
       const {
         type,
@@ -518,6 +557,7 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         criterionId,
         motCleTexte,
         conversionActionId,
+        typeConversionSite,
       } = params as Record<string, unknown>;
       const typesValides: TypePropositionAds[] = [
         "pause_campagne",
@@ -527,11 +567,17 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         "pause_mot_cle",
         "reactiver_mot_cle",
         "exclure_action_conversion",
+        "creer_action_conversion_site",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
       }
-      const exigeCampagneId = type !== "creer_campagne" && type !== "pause_mot_cle" && type !== "reactiver_mot_cle" && type !== "exclure_action_conversion";
+      const exigeCampagneId =
+        type !== "creer_campagne" &&
+        type !== "pause_mot_cle" &&
+        type !== "reactiver_mot_cle" &&
+        type !== "exclure_action_conversion" &&
+        type !== "creer_action_conversion_site";
       if (exigeCampagneId && (typeof campagneId !== "string" || !campagneId)) return { erreur: "campagneId manquant" };
       if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
       if (typeof justification !== "string" || !justification) return { erreur: "justification manquante" };
@@ -552,13 +598,16 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           criterionId: typeof criterionId === "string" ? criterionId : undefined,
           motCleTexte: typeof motCleTexte === "string" ? motCleTexte : undefined,
           conversionActionId: typeof conversionActionId === "string" ? conversionActionId : undefined,
+          typeConversionSite: typeConversionSite === "CLICK_TO_CALL" || typeConversionSite === "WEBPAGE" ? typeConversionSite : undefined,
         });
         return {
           ok: true,
           message:
             type === "creer_campagne"
               ? "Proposition de creation deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : l'utilisateur doit l'accepter la-bas, et meme une fois acceptee, la campagne sera creee EN PAUSE (ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads)."
-              : "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
+              : type === "creer_action_conversion_site"
+                ? "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : une fois acceptee la-bas, utilise obtenir_actions_conversion_ads pour recuperer son id, puis obtenir_snippet_conversion_ads pour obtenir le code a donner a l'utilisateur."
+                : "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
           propositionId: proposition.id,
         };
       } catch (err) {
@@ -734,6 +783,21 @@ obtenir_actions_conversion_ads), fausse le CPA et les decisions prises \
 dessus. Precise conversionActionId (jamais devine). Explique clairement a \
 l'utilisateur que cela ne SUPPRIME pas l'action, seulement son comptage \
 dans les conversions - les donnees passees ne changent pas.
+  Creation d'une action de conversion WEB (creer_action_conversion_site, \
+type CLICK_TO_CALL ou WEBPAGE) : pour qu'un site compte un clic sur le \
+numero de telephone ou l'envoi d'un formulaire comme conversion. Sois \
+HONNETE sur ce que ça mesure vraiment : CLICK_TO_CALL compte un clic sur \
+le lien telephonique (l'internaute ouvre son clavier d'appel), PAS une \
+conversation confirmee ni sa duree - contrairement au suivi d'appel par \
+extension d'annonce (deja actif independamment du site, voir \
+obtenir_extensions_appel_ads), qui lui mesure un appel reellement passe \
+avec une duree minimale. Ne laisse jamais croire que CLICK_TO_CALL \
+equivaut a un appel confirme. Une fois la proposition acceptee par \
+l'utilisateur sur l'ecran dedie, recupere l'id de la nouvelle action \
+(obtenir_actions_conversion_ads) puis son code pret a coller \
+(obtenir_snippet_conversion_ads) et donne ce code A L'UTILISATEUR \
+TEXTUELLEMENT ET INTEGRALEMENT (jamais reformule, resume ou traduit) - \
+c'est du code exact qu'il doit faire ajouter sur son site.
   Les actions de gestion encore plus fine (ajustement d'enchere individuel, \
 modification de budget d'une campagne existante, ajout de mots-cles \
 POSITIFS a une campagne existante) n'existent pas encore : dis-le \

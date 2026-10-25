@@ -1,5 +1,14 @@
 import { PrismaClient } from "@prisma/client";
-import { changerStatutCampagne, changerStatutMotCle, creerCampagne, ajouterMotsClesExclus, changerComptageActionConversion, messageErreurGoogleAds } from "./googleAds";
+import {
+  changerStatutCampagne,
+  changerStatutMotCle,
+  creerCampagne,
+  ajouterMotsClesExclus,
+  changerComptageActionConversion,
+  creerActionConversionSite,
+  TypeActionConversionSite,
+  messageErreurGoogleAds,
+} from "./googleAds";
 import { logEvenement } from "./journalService";
 
 /**
@@ -18,7 +27,8 @@ export type TypePropositionAds =
   | "ajouter_mots_cles_exclus"
   | "pause_mot_cle"
   | "reactiver_mot_cle"
-  | "exclure_action_conversion";
+  | "exclure_action_conversion"
+  | "creer_action_conversion_site";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -34,7 +44,8 @@ export interface PropositionAdsEntree {
   groupeId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
   criterionId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
   motCleTexte?: string; // requis pour pause_mot_cle/reactiver_mot_cle (affichage)
-  conversionActionId?: string; // requis pour exclure_action_conversion
+  conversionActionId?: string; // requis pour exclure_action_conversion ; rempli apres creation pour creer_action_conversion_site
+  typeConversionSite?: TypeActionConversionSite; // requis pour creer_action_conversion_site
 }
 
 /**
@@ -66,6 +77,11 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
   }
   if (entree.type === "exclure_action_conversion") {
     if (!entree.conversionActionId) throw new Error("conversionActionId manquant (requis pour exclure_action_conversion).");
+  }
+  if (entree.type === "creer_action_conversion_site") {
+    if (entree.typeConversionSite !== "CLICK_TO_CALL" && entree.typeConversionSite !== "WEBPAGE") {
+      throw new Error("typeConversionSite manquant ou invalide (requis : CLICK_TO_CALL ou WEBPAGE).");
+    }
   }
 
   const proposition = await prisma.propositionAds.create({ data: entree });
@@ -100,6 +116,7 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
 
   try {
     let campagneIdCreee: string | undefined;
+    let conversionActionIdCreee: string | undefined;
     switch (proposition.type) {
       case "pause_campagne":
         await changerStatutCampagne(prisma, proposition.campagneId, "PAUSED");
@@ -132,13 +149,22 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
       case "exclure_action_conversion":
         await changerComptageActionConversion(prisma, proposition.conversionActionId ?? "", false);
         break;
+      case "creer_action_conversion_site": {
+        const resultat = await creerActionConversionSite(prisma, proposition.campagneNom, (proposition.typeConversionSite as TypeActionConversionSite) ?? "WEBPAGE");
+        conversionActionIdCreee = resultat.id;
+        break;
+      }
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
 
     const miseAJour = await prisma.propositionAds.update({
       where: { id },
-      data: { statut: "appliquee", ...(campagneIdCreee ? { campagneId: campagneIdCreee } : {}) },
+      data: {
+        statut: "appliquee",
+        ...(campagneIdCreee ? { campagneId: campagneIdCreee } : {}),
+        ...(conversionActionIdCreee ? { conversionActionId: conversionActionIdCreee } : {}),
+      },
     });
     await logEvenement(prisma, {
       evenement: "proposition_ads_appliquee",
@@ -152,7 +178,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
               ? `Mot-cle "${proposition.motCleTexte}" ${proposition.type === "pause_mot_cle" ? "mis en pause" : "reactive"}.`
               : proposition.type === "exclure_action_conversion"
                 ? `Action de conversion "${proposition.campagneNom}" retiree du comptage des conversions.`
-                : "Applique avec succes sur Google Ads.",
+                : proposition.type === "creer_action_conversion_site"
+                  ? `Action de conversion "${proposition.campagneNom}" creee (id ${conversionActionIdCreee}) - utilise obtenir_snippet_conversion_ads avec cet id pour recuperer le code a coller sur le site.`
+                  : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {
