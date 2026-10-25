@@ -25,6 +25,7 @@ import {
   diagnosticLienGestionnaire,
 } from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
+import { auditerSiteWeb } from "./referencementAudit";
 import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
 import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds } from "./googleAds";
 
@@ -252,6 +253,18 @@ const OUTILS: Anthropic.Tool[] = [
         jours: { type: "number", description: "Nombre de jours a analyser en arriere (30 par defaut)." },
       },
       required: ["groupeId"],
+    },
+  },
+  {
+    name: "auditer_referencement_site",
+    description:
+      "Analyse une page web en lecture seule : balises SEO (titre, meta description, canonical, viewport), presence de donnees structurees (schema.org/JSON-LD), presence REELLE de robots.txt/sitemap.xml/llms.txt (distingue un vrai fichier du HTML de secours d'une application monopage), robots IA explicitement bloques dans robots.txt (GPTBot, ClaudeBot, PerplexityBot...), et surtout renduCoteClientUniquement : indique si le contenu de la page n'existe QUE via JavaScript execute par le navigateur - critique car la plupart des robots IA (contrairement a Googlebot) n'executent PAS le JavaScript, donc un site 'renduCoteClientUniquement=true' peut etre invisible pour ChatGPT/Perplexity/Claude meme s'il est correct pour Google. N'ACCEDE PAS au code du site (herberge ailleurs, souvent sur une plateforme tierce comme Emergent) : analyse uniquement ce qui est publiquement expose, comme un robot le verrait. Lecture seule - ne modifie jamais rien.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL complete de la page a analyser (ex. https://fichet-depannage.fr/)." },
+      },
+      required: ["url"],
     },
   },
   {
@@ -649,6 +662,16 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         return { annonces: await listerPerformanceAnnonces(prisma, groupeId, jours) };
       } catch (err) {
         return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
+    case "auditer_referencement_site": {
+      const url = typeof params.url === "string" ? params.url : "";
+      if (!url) return { erreur: "url manquante" };
+      try {
+        return { audit: await auditerSiteWeb(url) };
+      } catch (err) {
+        return { erreur: `Echec de l'analyse de ${url} : ${(err as Error).message}` };
       }
     }
 
@@ -1074,7 +1097,46 @@ remarketing proprement dit (balise de suivi des visiteurs du site, \
 listes de reciblage) n'existe pas non plus - voir audiences ci-dessus, \
 qui n'est qu'un signal d'observation sur l'intention de recherche, pas \
 un reciblage de visiteurs. Dis-le clairement si l'utilisateur les \
-demande plutot que de pretendre les avoir faites.`;
+demande plutot que de pretendre les avoir faites.
+
+Referencement (SEO classique et visibilite aupres des assistants IA - \
+sujet distinct de Google Ads, outil auditer_referencement_site) :
+  Tu n'as PAS acces au code du site (herberge sur une plateforme tierce, \
+souvent Emergent) : tu analyses en lecture seule ce qu'un robot verrait \
+publiquement, jamais tu ne modifies rien toi-meme. Pour toute correction, \
+donne a l'utilisateur le texte/code exact a transmettre a la plateforme \
+qui gere le site - meme principe que pour le code de suivi de conversion. \
+Ne dis jamais que tu as "corrige" ou "mis a jour" le site.
+  Distingue toujours deux sujets separes pour l'utilisateur : le SEO \
+classique (etre bien classe sur Google) et le referencement IA/GEO (etre \
+cite par ChatGPT, Perplexity, les apercus IA de Google...) - un site peut \
+tres bien reussir l'un et rater l'autre.
+  Le signal le plus important du rapport est renduCoteClientUniquement : \
+s'il est vrai, le contenu de la page n'existe QUE via du JavaScript \
+execute par un navigateur. Googlebot l'execute generalement (avec des \
+limites et un delai), mais la plupart des robots IA (GPTBot, ClaudeBot, \
+PerplexityBot...) NE L'EXECUTENT PAS : ils ne voient alors rien du \
+contenu reel (services, zone d'intervention, coordonnees...), meme si le \
+site a l'air normal dans un navigateur. C'est souvent LE probleme \
+prioritaire a signaler, pas un detail parmi d'autres - sois directe \
+la-dessus plutot que de le noyer dans une liste.
+  robots.txt/sitemap.xml/llms.txt : le champ "existe" distingue un vrai \
+fichier d'un simple HTML de secours renvoye par une application monopage \
+(frequent, et ca trompe facilement) - explique cette nuance si tu \
+signales leur absence, l'utilisateur pourrait croire qu'ils existent \
+parce que l'URL "repond". llms.txt est une convention recente (resume du \
+site pour les IA) : utile a proposer sans etre indispensable. robotsIaBloques \
+liste les robots IA explicitement bloques si robots.txt existe reellement.
+  Autres points a verifier manuellement en complement du rapport (pas \
+mesures automatiquement) : donnees structurees schema.org adaptees a \
+l'activite (ex. LocalBusiness avec nom/adresse/telephone/horaires pour un \
+commerce local - fortement recommande si nombreBlocsJsonLd = 0), coherence \
+des informations factuelles sur le site (nom, adresse, telephone, \
+horaires) avec ce qui est annonce ailleurs (ex. Google Ads, fiche Google \
+Business) - une incoherence nuit autant au SEO qu'a la confiance qu'un \
+assistant IA accorde au contenu.
+  Ne promets jamais un classement ou un volume de trafic garanti : \
+recommandations fondees sur l'audit reel, jamais de prevision chiffree.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils
