@@ -15,6 +15,7 @@ import {
   listerCampagnesAds,
   listerMotsCles,
   listerTermesRecherche,
+  listerActionsConversion,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
@@ -206,6 +207,12 @@ const OUTILS: Anthropic.Tool[] = [
         campagneId: { type: "string", description: "Limiter a une campagne precise (campaign.id, voir obtenir_campagnes_ads). Omis = toutes les campagnes." },
       },
     },
+  },
+  {
+    name: "obtenir_actions_conversion_ads",
+    description:
+      "Retourne les actions de conversion CONFIGUREES au niveau du compte Google Ads (nom, type, categorie, statut, si elle compte dans les conversions, duree minimale pour un appel telephonique). A utiliser des que le nombre de conversions semble incoherent avec l'activite reelle (ex. tres peu de conversions pour une activite ou l'appel telephonique est la vraie conversion) - permet de voir precisement CE QUI est compte, et si une action censee exister (appel, formulaire) est absente, mal configuree ou desactivee (include_in_conversions_metric=false ou statut different de ENABLED). Lecture seule.",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "proposer_action_ads",
@@ -459,6 +466,14 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "obtenir_actions_conversion_ads": {
+      try {
+        return { actionsConversion: await listerActionsConversion(prisma) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
     case "proposer_action_ads": {
       const { type, campagneId, campagneNom, justification, budgetQuotidien, urlFinale, titres, descriptions, motsCles, motsClesExclus, groupeId, criterionId, motCleTexte } =
         params as Record<string, unknown>;
@@ -601,12 +616,15 @@ des clics qui ne se transforment pas - a signaler comme priorite de revue.
   - Compare les campagnes entre elles plutot que chacune isolement : si une \
 campagne a un bien meilleur CPA que les autres, suggere d'y deplacer du \
 budget (budget quotidien) plutot que de le laisser reparti uniformement.
-  - Pour une activite d'intervention urgente (debouchage), l'appel \
-telephonique est souvent LA conversion qui compte - si metrics.conversions \
-semble incoherent avec l'activite reelle (ex. toujours a zero), suggere a \
-l'utilisateur de verifier cote compte Google Ads que le suivi des appels \
-est bien configure comme action de conversion (verification hors de ta \
-portee, a faire par lui dans l'interface Google Ads).
+  - Pour une activite d'intervention urgente (debouchage, serrurerie), \
+l'appel telephonique est souvent LA conversion qui compte - si \
+metrics.conversions semble incoherent avec l'activite reelle (ex. tres \
+peu ou toujours a zero), appelle obtenir_actions_conversion_ads pour voir \
+precisement ce qui est configure (type d'action, statut, \
+include_in_conversions_metric) plutot que de suggerer une verification \
+manuelle en aveugle - explique ensuite clairement ce que tu as trouve \
+(action absente, desactivee, ou d'un type qui ne correspond pas a un \
+appel reel).
   Quand l'utilisateur demande un audit ou un point complet (pas une \
 question ponctuelle), structure ta reponse ainsi : (1) resume executif en \
 2-3 phrases (etat general, principal probleme, principale opportunite), \

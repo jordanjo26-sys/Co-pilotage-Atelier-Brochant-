@@ -591,3 +591,49 @@ export async function listerTermesRecherche(prisma: PrismaClient, jours = 30, ca
     cpcMoyen: fromMicros(Number(ligne.metrics?.average_cpc ?? 0)),
   }));
 }
+
+export interface ActionConversionAds {
+  nom: string;
+  type: string;
+  categorie: string;
+  statut: string;
+  comptabiliseeDansConversions: boolean;
+  dureeMinimaleAppel: number | null;
+}
+
+/**
+ * Liste les actions de conversion CONFIGUREES au niveau du compte (par
+ * opposition aux metriques metrics.conversions, qui ne sont que le resultat
+ * de ces actions). Indispensable pour diagnostiquer un nombre de
+ * conversions incoherent avec l'activite reelle - permet de voir
+ * precisement CE QUI est compte comme conversion (type
+ * PHONE_CALL_FROM_ADS/WEBSITE_CALL vs WEBSITE vs autre), et si une action
+ * censee exister (ex. appel telephonique) est absente ou desactivee.
+ */
+export async function listerActionsConversion(prisma: PrismaClient): Promise<ActionConversionAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const lignes = await customer.query(`
+    SELECT
+      conversion_action.name,
+      conversion_action.type,
+      conversion_action.category,
+      conversion_action.status,
+      conversion_action.include_in_conversions_metric,
+      conversion_action.phone_call_duration_seconds
+    FROM conversion_action
+    ORDER BY conversion_action.name
+  `);
+
+  return lignes.map((ligne) => ({
+    nom: ligne.conversion_action?.name ?? "",
+    type: String(ligne.conversion_action?.type ?? ""),
+    categorie: String(ligne.conversion_action?.category ?? ""),
+    statut: String(ligne.conversion_action?.status ?? ""),
+    comptabiliseeDansConversions: Boolean(ligne.conversion_action?.include_in_conversions_metric),
+    dureeMinimaleAppel: ligne.conversion_action?.phone_call_duration_seconds ?? null,
+  }));
+}
