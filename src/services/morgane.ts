@@ -643,12 +643,15 @@ export async function repondreMorgane(prisma: PrismaClient, historique: MessageM
   for (let tour = 0; tour < MAX_TOURS_OUTILS; tour++) {
     const reponse = await client.messages.create({
       model: MODELE,
-      // 1024 etait trop court des que les outils renvoient beaucoup de
-      // donnees a resumer (ex. obtenir_campagnes_ads sur un compte avec des
-      // dizaines de campagnes) : la reponse etait tronquee avant meme le
-      // premier bloc de texte, Morgane semblait "ne pas repondre" (bug reel
-      // signale par l'utilisateur en production).
-      max_tokens: 4096,
+      // 1024 puis 4096 se sont reveles trop courts des que les outils
+      // renvoient beaucoup de donnees a resumer (ex. obtenir_campagnes_ads
+      // sur un compte avec des dizaines de campagnes, puis a nouveau avec
+      // obtenir_mots_cles_ads/obtenir_termes_recherche_ads qui peuvent
+      // renvoyer jusqu'a 300 lignes chacun) : la reponse etait tronquee -
+      // parfois avant meme le premier bloc de texte - Morgane semblait "ne
+      // pas repondre" (bug reel signale par l'utilisateur en production,
+      // deux fois).
+      max_tokens: 8192,
       system: PROMPT_SYSTEME,
       tools: OUTILS,
       messages,
