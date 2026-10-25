@@ -18,10 +18,11 @@ import { buildOAuthClient, ADS_SCOPE } from "./googleAuth";
  * d'application (comme STRIPE_API_KEY ou les identifiants Synec), pas lies
  * a un utilisateur precis.
  *
- * Compte gestionnaire (MCC) necessaire : le centre API de Google Ads n'est
- * accessible que depuis un compte gestionnaire (confirme en pratique avec
- * l'utilisateur, le compte Ads existant etant autonome) - d'ou
- * GOOGLE_ADS_LOGIN_CUSTOMER_ID distinct de GOOGLE_ADS_CUSTOMER_ID.
+ * Compte gestionnaire (MCC) : ATELIER BROCHANT GESTION (962-510-7482) gere
+ * le compte client Help-Services (415-772-4879) - d'ou
+ * GOOGLE_ADS_LOGIN_CUSTOMER_ID distinct de GOOGLE_ADS_CUSTOMER_ID. L'acces
+ * utilisateur doit etre accorde sur le compte GESTIONNAIRE lui-meme (pas
+ * seulement sur le client) pour que l'API fonctionne.
  */
 
 export function googleAdsEstConfigure(): boolean {
@@ -150,15 +151,14 @@ async function obtenirClientAds(prisma: PrismaClient): Promise<Customer | null> 
 
   return client.Customer({
     customer_id: customerId,
-    // Echec reel ("authorization_error":2, "User doesn't have permission to
-    // access customer") : contrairement a l'hypothese de depart ("compte
-    // gestionnaire necessaire pour le Centre API"), confirme par
-    // l'utilisateur qu'il n'existe en realite QU'UN SEUL compte Google Ads
-    // (pas de structure gestionnaire+client separee - "Atelier Brochant" ne
-    // possede aucun compte propre). Envoyer un login_customer_id identique
-    // au customer_id cible n'a pas de sens pour l'API (l'en-tete sert a
-    // s'identifier comme un AUTRE compte gestionnaire) - ne l'envoie que
-    // s'il differe reellement.
+    // Structure gestionnaire+client confirmee reelle (ATELIER BROCHANT
+    // GESTION, 962-510-7482, gere Help-Services, 415-772-4879). Le long
+    // blocage ("authorization_error":2) ne venait pas du routage mais de
+    // l'absence d'acces utilisateur du compte connecte sur le compte
+    // GESTIONNAIRE lui-meme (seul un acces sur le client avait ete
+    // accorde) - voir journal des evenements google_ads_api_erreur pour
+    // le detail du diagnostic. N'envoyer login_customer_id que s'il differe
+    // du customer_id cible reste correct dans tous les cas.
     login_customer_id: loginCustomerId && loginCustomerId !== customerId ? loginCustomerId : undefined,
     refresh_token: dechiffrer(connexion.refreshTokenChiffre),
   });
