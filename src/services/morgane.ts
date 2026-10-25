@@ -18,6 +18,7 @@ import {
   listerActionsConversion,
   listerExtensionsAppel,
   obtenirSnippetConversion,
+  listerPerformanceAnnonces,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
@@ -25,7 +26,7 @@ import {
 } from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
 import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
-import { SitelinkAds, StructuredSnippetAds } from "./googleAds";
+import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds } from "./googleAds";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -241,6 +242,19 @@ const OUTILS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "obtenir_performance_annonces_ads",
+    description:
+      "Retourne la performance de CHAQUE ANNONCE individuelle d'un groupe d'annonces (titres, descriptions, statut, impressions, clics, cout, conversions, CTR). Indispensable pour comparer des variantes de test A/B (voir proposer_action_ads, type ajouter_annonce_test) - sans ca, impossible de dire laquelle fonctionne mieux. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        groupeId: { type: "string", description: "Identifiant du groupe d'annonces (ad_group.id, voir obtenir_mots_cles_ads)." },
+        jours: { type: "number", description: "Nombre de jours a analyser en arriere (30 par defaut)." },
+      },
+      required: ["groupeId"],
+    },
+  },
+  {
     name: "proposer_action_ads",
     description:
       "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
@@ -261,6 +275,10 @@ const OUTILS: Anthropic.Tool[] = [
             "modifier_budget_campagne",
             "ajouter_mots_cles_positifs",
             "ajouter_extensions_campagne",
+            "modifier_strategie_encheres",
+            "definir_horaires_campagne",
+            "ajouter_audiences_campagne",
+            "ajouter_annonce_test",
           ],
           description: "Action proposee.",
         },
@@ -273,7 +291,7 @@ const OUTILS: Anthropic.Tool[] = [
         campagneId: {
           type: "string",
           description:
-            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus/modifier_budget_campagne/ajouter_mots_cles_positifs/ajouter_extensions_campagne. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus/modifier_budget_campagne/ajouter_mots_cles_positifs/ajouter_extensions_campagne/modifier_strategie_encheres/definir_horaires_campagne/ajouter_audiences_campagne. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle/ajouter_annonce_test (groupeId suffit), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
         },
         conversionActionId: {
           type: "string",
@@ -281,7 +299,7 @@ const OUTILS: Anthropic.Tool[] = [
         },
         groupeId: {
           type: "string",
-          description: "Identifiant du groupe d'annonces (ad_group.id, voir obtenir_mots_cles_ads). REQUIS pour pause_mot_cle/reactiver_mot_cle/ajouter_mots_cles_positifs.",
+          description: "Identifiant du groupe d'annonces (ad_group.id, voir obtenir_mots_cles_ads). REQUIS pour pause_mot_cle/reactiver_mot_cle/ajouter_mots_cles_positifs/ajouter_annonce_test.",
         },
         criterionId: {
           type: "string",
@@ -305,16 +323,16 @@ const OUTILS: Anthropic.Tool[] = [
           description:
             "Budget quotidien en euros, decide avec l'utilisateur dans la conversation. REQUIS pour creer_campagne (budget initial) et modifier_budget_campagne (nouveau budget).",
         },
-        urlFinale: { type: "string", description: "Page de destination des annonces (URL complete). Uniquement pour creer_campagne." },
+        urlFinale: { type: "string", description: "Page de destination des annonces (URL complete). Pour creer_campagne et ajouter_annonce_test (REQUIS dans ce dernier cas)." },
         titres: {
           type: "array",
           items: { type: "string" },
-          description: "Entre 3 et 15 titres d'annonce (30 caracteres max chacun, contrainte Google Ads). Uniquement pour creer_campagne.",
+          description: "Entre 3 et 15 titres d'annonce (30 caracteres max chacun, contrainte Google Ads). Pour creer_campagne et ajouter_annonce_test.",
         },
         descriptions: {
           type: "array",
           items: { type: "string" },
-          description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Uniquement pour creer_campagne.",
+          description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Pour creer_campagne et ajouter_annonce_test.",
         },
         motsCles: {
           type: "array",
@@ -374,6 +392,38 @@ const OUTILS: Anthropic.Tool[] = [
             required: ["header", "valeurs"],
           },
           description: "Extraits structures (structured snippets) a creer et lier. Optionnel pour creer_campagne et ajouter_extensions_campagne.",
+        },
+        strategieEncheres: {
+          type: "string",
+          enum: ["MAXIMIZE_CONVERSIONS", "TARGET_CPA", "MANUAL_CPC"],
+          description:
+            "Strategie d'encheres. MAXIMIZE_CONVERSIONS (defaut) : Google optimise automatiquement pour le nombre de conversions. TARGET_CPA : vise un cout par acquisition precis (necessite cpaCibleEuros). MANUAL_CPC : CPC optimise (enhanced), moins automatise. Optionnel pour creer_campagne, REQUIS pour modifier_strategie_encheres.",
+        },
+        cpaCibleEuros: {
+          type: "number",
+          description: "Cout par acquisition cible en euros. REQUIS si strategieEncheres = TARGET_CPA, ignore sinon.",
+        },
+        horaires: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              jour: { type: "string", enum: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] },
+              heureDebut: { type: "number", description: "0 a 23." },
+              minuteDebut: { type: "number", enum: [0, 15, 30, 45], description: "Optionnel, defaut 0. Google n'accepte que 0/15/30/45." },
+              heureFin: { type: "number", description: "1 a 24 (24 = minuit)." },
+              minuteFin: { type: "number", enum: [0, 15, 30, 45], description: "Optionnel, defaut 0." },
+            },
+            required: ["jour", "heureDebut", "heureFin"],
+          },
+          description:
+            "Plages horaires de diffusion (dayparting). Sans ceci, la campagne diffuse sans restriction horaire (24h/24, 7j/7). Optionnel pour creer_campagne, REQUIS (au moins une plage) pour definir_horaires_campagne.",
+        },
+        audiences: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Noms de centres d'interet Google (ex. \"Bricolage et jardinage\", \"Propriétaires de maison\") a resoudre puis attacher en SIGNAL D'OBSERVATION (n'exclut ni ne restreint qui voit l'annonce sur une campagne Search - sert a ajuster les encheres et analyser la performance par segment). Ce n'est PAS du remarketing (reciblage des visiteurs du site) : ca necessiterait une balise sur le site, absente aujourd'hui - ne jamais presenter ceci comme du remarketing a l'utilisateur. Optionnel pour creer_campagne, REQUIS (au moins un) pour ajouter_audiences_campagne.",
         },
       },
       required: ["type", "campagneNom", "justification"],
@@ -591,6 +641,17 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "obtenir_performance_annonces_ads": {
+      const groupeId = typeof params.groupeId === "string" ? params.groupeId : "";
+      if (!groupeId) return { erreur: "groupeId manquant" };
+      const jours = typeof params.jours === "number" ? params.jours : 30;
+      try {
+        return { annonces: await listerPerformanceAnnonces(prisma, groupeId, jours) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
     case "obtenir_snippet_conversion_ads": {
       const conversionActionId = typeof params.conversionActionId === "string" ? params.conversionActionId : "";
       if (!conversionActionId) return { erreur: "conversionActionId manquant" };
@@ -624,6 +685,10 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         sitelinks,
         callouts,
         structuredSnippets,
+        strategieEncheres,
+        cpaCibleEuros,
+        horaires,
+        audiences,
       } = params as Record<string, unknown>;
       const typesValides: TypePropositionAds[] = [
         "pause_campagne",
@@ -637,6 +702,10 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         "modifier_budget_campagne",
         "ajouter_mots_cles_positifs",
         "ajouter_extensions_campagne",
+        "modifier_strategie_encheres",
+        "definir_horaires_campagne",
+        "ajouter_audiences_campagne",
+        "ajouter_annonce_test",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
@@ -646,7 +715,8 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         type !== "pause_mot_cle" &&
         type !== "reactiver_mot_cle" &&
         type !== "exclure_action_conversion" &&
-        type !== "creer_action_conversion_site";
+        type !== "creer_action_conversion_site" &&
+        type !== "ajouter_annonce_test";
       if (exigeCampagneId && (typeof campagneId !== "string" || !campagneId)) return { erreur: "campagneId manquant" };
       if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
       if (typeof justification !== "string" || !justification) return { erreur: "justification manquante" };
@@ -670,6 +740,22 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
               !!x && typeof x === "object" && typeof (x as Record<string, unknown>).header === "string" && Array.isArray((x as Record<string, unknown>).valeurs)
           )
           .map((x) => ({ header: x.header as string, valeurs: (x.valeurs as unknown[]).filter((v2): v2 is string => typeof v2 === "string") }));
+      };
+      const toHoraires = (v: unknown): HoraireAds[] | undefined => {
+        if (!Array.isArray(v)) return undefined;
+        const joursValides = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+        return v
+          .filter((x): x is Record<string, unknown> => {
+            const o = x as Record<string, unknown>;
+            return !!o && typeof o === "object" && joursValides.includes(o.jour as string) && typeof o.heureDebut === "number" && typeof o.heureFin === "number";
+          })
+          .map((x) => ({
+            jour: x.jour as HoraireAds["jour"],
+            heureDebut: x.heureDebut as number,
+            minuteDebut: [0, 15, 30, 45].includes(x.minuteDebut as number) ? (x.minuteDebut as 0 | 15 | 30 | 45) : undefined,
+            heureFin: x.heureFin as number,
+            minuteFin: [0, 15, 30, 45].includes(x.minuteFin as number) ? (x.minuteFin as 0 | 15 | 30 | 45) : undefined,
+          }));
       };
       try {
         const proposition = await creerPropositionAds(prisma, {
@@ -695,6 +781,13 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           sitelinks: toSitelinks(sitelinks),
           callouts: toTableauString(callouts),
           structuredSnippets: toStructuredSnippets(structuredSnippets),
+          strategieEncheres:
+            strategieEncheres === "MAXIMIZE_CONVERSIONS" || strategieEncheres === "TARGET_CPA" || strategieEncheres === "MANUAL_CPC"
+              ? (strategieEncheres as StrategieEncheres)
+              : undefined,
+          cpaCibleEuros: typeof cpaCibleEuros === "number" ? cpaCibleEuros : undefined,
+          horaires: toHoraires(horaires),
+          audiences: toTableauString(audiences),
         });
         return {
           ok: true,
@@ -707,7 +800,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           avertissement:
             ciblesGeographiques && Array.isArray(ciblesGeographiques) && ciblesGeographiques.length > 0
               ? "Les noms de lieux donnes seront resolus par Google au moment de l'acceptation. Si l'un d'eux ne correspond a aucun lieu connu, toute la creation echouera avec un message clair (statut 'echec') - rien ne sera cree a moitie."
-              : undefined,
+              : audiences && Array.isArray(audiences) && audiences.length > 0
+                ? "Les noms de centres d'interet seront resolus par Google au moment de l'acceptation (meme principe que le ciblage geographique : tout echoue proprement si l'un d'eux ne correspond a rien). Rappel : c'est un signal d'observation, pas du remarketing - rien n'exclut qui voit l'annonce."
+                : undefined,
           propositionId: proposition.id,
         };
       } catch (err) {
@@ -939,13 +1034,46 @@ habituel meme si rien ne l'impose techniquement ici.
 Google (ex. "Services", "Types", "Marques" - jamais une categorie \
 inventee, Google rejettera le reste sinon), valeurs : 3 a 10 par header, \
 1-25 caracteres chacune.
+  Strategie d'encheres (strategieEncheres, optionnel a la creation, \
+REQUIS pour modifier_strategie_encheres) : MAXIMIZE_CONVERSIONS par \
+defaut (Google optimise automatiquement). TARGET_CPA : vise un cout par \
+acquisition precis, demande cpaCibleEuros (discute-le avec l'utilisateur, \
+jamais invente - appuie-toi sur le CPA historique observe via \
+obtenir_mots_cles_ads/obtenir_campagnes_ads). MANUAL_CPC : CPC optimise \
+(enhanced), moins automatise, utile si l'utilisateur veut garder la main. \
+Avec TARGET_CPA/MANUAL_CPC, pas de gestion d'enchere individuelle par \
+mot-cle ici (meme limite qu'avant) - seulement le choix de la strategie \
+globale de la campagne.
+  Programmation horaire (horaires, optionnel a la creation, REQUIS pour \
+definir_horaires_campagne) : jour (lundi-dimanche), heureDebut/heureFin \
+(0-23, 24=minuit), minuteDebut/minuteFin optionnels (uniquement 0/15/30/45, \
+Google n'accepte pas d'autres valeurs). Sans ca, diffusion 24h/24 7j/7. \
+Utile pour une activite avec des horaires d'intervention reels - \
+mets-toi d'accord sur les horaires exacts avec l'utilisateur, ne les \
+devine pas.
+  Audiences (audiences, optionnel a la creation, REQUIS pour \
+ajouter_audiences_campagne) : noms de centres d'interet Google (ex. \
+"Propriétaires de maison") resolus puis attaches en SIGNAL \
+D'OBSERVATION sur une campagne Search - n'exclut ni ne restreint qui \
+voit l'annonce, sert a ajuster les encheres et analyser la performance \
+par segment. Ce n'est JAMAIS du remarketing (reciblage des visiteurs du \
+site) : le remarketing exigerait une balise de suivi sur le site, \
+absente aujourd'hui - ne dis jamais a l'utilisateur que tu peux faire du \
+remarketing, precise la difference s'il en parle.
+  Annonce de test A/B (ajouter_annonce_test) : ajoute une annonce \
+supplementaire a un groupe d'annonces EXISTANT (groupeId, titres, \
+descriptions, urlFinale - memes contraintes que creer_campagne), creee \
+EN PAUSE comme toute creation. Une fois les deux annonces actives, \
+compare leur performance avec obtenir_performance_annonces_ads (jamais \
+avant d'avoir assez de donnees - quelques clics ne suffisent pas a \
+conclure).
   Ce qui n'existe PAS encore : l'ajustement d'enchere individuel par \
 mot-cle, et le reglage du type de correspondance mot-cle par mot-cle \
-(aujourd'hui un seul type pour toute la campagne/le lot ajoute) - la \
-campagne utilise de toute facon une strategie d'enchere automatique \
-(maximiser les conversions), qui ignore en general les encheres manuelles \
-par mot-cle, donc ce n'est pas qu'une limitation technique a lever mais \
-aussi une question de pertinence. Dis-le clairement si l'utilisateur les \
+(aujourd'hui un seul type pour toute la campagne/le lot ajoute). Le \
+remarketing proprement dit (balise de suivi des visiteurs du site, \
+listes de reciblage) n'existe pas non plus - voir audiences ci-dessus, \
+qui n'est qu'un signal d'observation sur l'intention de recherche, pas \
+un reciblage de visiteurs. Dis-le clairement si l'utilisateur les \
 demande plutot que de pretendre les avoir faites.`;
 
 /**

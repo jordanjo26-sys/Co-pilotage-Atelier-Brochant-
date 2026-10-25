@@ -385,6 +385,145 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (modifier_strategie_encheres) : rejette une entree incomplete", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "modifier_strategie_encheres",
+        campagneId: "",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Viser un CPA precis plutot que maximiser les conversions sans limite.",
+        strategieEncheres: "TARGET_CPA",
+        cpaCibleEuros: 40,
+      }),
+      /campagneId/
+    );
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "modifier_strategie_encheres",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Viser un CPA precis plutot que maximiser les conversions sans limite.",
+      }),
+      /strategieEncheres/
+    );
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "modifier_strategie_encheres",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Viser un CPA precis plutot que maximiser les conversions sans limite.",
+        strategieEncheres: "TARGET_CPA",
+      }),
+      /cpaCibleEuros/
+    );
+  });
+
+  await t.test("creerPropositionAds (modifier_strategie_encheres) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "modifier_strategie_encheres",
+      campagneId: "123456",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Viser un CPA precis plutot que maximiser les conversions sans limite.",
+      strategieEncheres: "TARGET_CPA",
+      cpaCibleEuros: 40,
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.strategieEncheres, "TARGET_CPA");
+    assert.equal(proposition.cpaCibleEuros, 40);
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
+  await t.test("creerPropositionAds (definir_horaires_campagne) : rejette une entree sans horaires", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "definir_horaires_campagne",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Ne diffuser que pendant les horaires d'intervention reels.",
+      }),
+      /horaires/
+    );
+  });
+
+  await t.test("creerPropositionAds (definir_horaires_campagne) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "definir_horaires_campagne",
+      campagneId: "123456",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Ne diffuser que pendant les horaires d'intervention reels.",
+      horaires: [{ jour: "MONDAY", heureDebut: 8, heureFin: 19 }],
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.deepEqual(proposition.horaires, [{ jour: "MONDAY", heureDebut: 8, heureFin: 19 }]);
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
+  await t.test("creerPropositionAds (ajouter_audiences_campagne) : rejette une entree sans audiences", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "ajouter_audiences_campagne",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Signal d'observation sur les proprietaires de maison.",
+      }),
+      /audiences/
+    );
+  });
+
+  await t.test("creerPropositionAds (ajouter_audiences_campagne) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "ajouter_audiences_campagne",
+      campagneId: "123456",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Signal d'observation sur les proprietaires de maison.",
+      audiences: ["Propriétaires de maison"],
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.deepEqual(proposition.audiences, ["Propriétaires de maison"]);
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
+  await t.test("creerPropositionAds (ajouter_annonce_test) : rejette une entree incomplete", async () => {
+    const base = {
+      type: "ajouter_annonce_test" as const,
+      campagneId: "",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Comparer une variante d'annonce plus directe.",
+      groupeId: "456",
+      urlFinale: "https://fichet-depannage.fr",
+      titres: ["Serrurier Fichet", "Intervention Rapide", "Appelez-nous"],
+      descriptions: ["Serrurier pour serrures Fichet.", "Intervention rapide en Île-de-France."],
+    };
+    await assert.rejects(creerPropositionAds(prisma, { ...base, groupeId: undefined }), /groupeId/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, urlFinale: undefined }), /urlFinale/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, titres: ["Un seul titre"] }), /titres/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, descriptions: ["Une seule description"] }), /descriptions/);
+  });
+
+  await t.test("creerPropositionAds (ajouter_annonce_test) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "ajouter_annonce_test",
+      campagneId: "",
+      campagneNom: "Serrurerie Fichet – Search",
+      justification: "Comparer une variante d'annonce plus directe.",
+      groupeId: "456",
+      urlFinale: "https://fichet-depannage.fr",
+      titres: ["Serrurier Fichet", "Intervention Rapide", "Appelez-nous"],
+      descriptions: ["Serrurier pour serrures Fichet.", "Intervention rapide en Île-de-France."],
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.groupeId, "456");
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -513,6 +652,58 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultatExtensions = await accepterPropositionAds(prisma, propositionExtensions.id);
       assert.equal(resultatExtensions.statut, "echec");
       assert.match(resultatExtensions.erreur || "", /non configure/);
+
+      // Meme verification pour modifier_strategie_encheres.
+      const propositionStrategie = await creerPropositionAds(prisma, {
+        type: "modifier_strategie_encheres",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Viser un CPA precis.",
+        strategieEncheres: "TARGET_CPA",
+        cpaCibleEuros: 40,
+      });
+      const resultatStrategie = await accepterPropositionAds(prisma, propositionStrategie.id);
+      assert.equal(resultatStrategie.statut, "echec");
+      assert.match(resultatStrategie.erreur || "", /non configure/);
+
+      // Meme verification pour definir_horaires_campagne.
+      const propositionHoraires = await creerPropositionAds(prisma, {
+        type: "definir_horaires_campagne",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Ne diffuser que pendant les horaires d'intervention reels.",
+        horaires: [{ jour: "MONDAY", heureDebut: 8, heureFin: 19 }],
+      });
+      const resultatHoraires = await accepterPropositionAds(prisma, propositionHoraires.id);
+      assert.equal(resultatHoraires.statut, "echec");
+      assert.match(resultatHoraires.erreur || "", /non configure/);
+
+      // Meme verification pour ajouter_audiences_campagne.
+      const propositionAudiences = await creerPropositionAds(prisma, {
+        type: "ajouter_audiences_campagne",
+        campagneId: "123456",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Signal d'observation sur les proprietaires de maison.",
+        audiences: ["Propriétaires de maison"],
+      });
+      const resultatAudiences = await accepterPropositionAds(prisma, propositionAudiences.id);
+      assert.equal(resultatAudiences.statut, "echec");
+      assert.match(resultatAudiences.erreur || "", /non configure/);
+
+      // Meme verification pour ajouter_annonce_test.
+      const propositionAnnonceTest = await creerPropositionAds(prisma, {
+        type: "ajouter_annonce_test",
+        campagneId: "",
+        campagneNom: "Serrurerie Fichet – Search",
+        justification: "Comparer une variante d'annonce plus directe.",
+        groupeId: "456",
+        urlFinale: "https://fichet-depannage.fr",
+        titres: ["Serrurier Fichet", "Intervention Rapide", "Appelez-nous"],
+        descriptions: ["Serrurier pour serrures Fichet.", "Intervention rapide en Île-de-France."],
+      });
+      const resultatAnnonceTest = await accepterPropositionAds(prisma, propositionAnnonceTest.id);
+      assert.equal(resultatAnnonceTest.statut, "echec");
+      assert.match(resultatAnnonceTest.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

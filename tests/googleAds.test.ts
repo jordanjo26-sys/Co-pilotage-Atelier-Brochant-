@@ -84,7 +84,18 @@ test("listerCampagnesAds : non configure -> erreur explicite", async (t) => {
 // configuration, jamais un vrai appel API dans un test automatique.
 test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPositifs : non configure -> erreur explicite", async (t) => {
   const { PrismaClient } = await import("@prisma/client");
-  const { rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPositifs, ajouterExtensionsCampagne } = await import("../src/services/googleAds");
+  const {
+    rechercherCiblesGeographiques,
+    changerBudgetCampagne,
+    ajouterMotsClesPositifs,
+    ajouterExtensionsCampagne,
+    changerStrategieEncheres,
+    definirHorairesCampagne,
+    rechercherAudiences,
+    ajouterAudiencesCampagne,
+    ajouterAnnonceTest,
+    listerPerformanceAnnonces,
+  } = await import("../src/services/googleAds");
   const prisma = new PrismaClient();
 
   const sauvegarde = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
@@ -104,6 +115,33 @@ test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPosit
 
     await t.test("ajouterExtensionsCampagne rejette avec un message explicite", async () => {
       await assert.rejects(ajouterExtensionsCampagne(prisma, "123456", { callouts: ["Intervention rapide"] }), /Google Ads non configure/);
+    });
+
+    await t.test("changerStrategieEncheres rejette avec un message explicite", async () => {
+      await assert.rejects(changerStrategieEncheres(prisma, "123456", "TARGET_CPA", 40), /Google Ads non configure/);
+    });
+
+    await t.test("definirHorairesCampagne rejette avec un message explicite", async () => {
+      await assert.rejects(definirHorairesCampagne(prisma, "123456", [{ jour: "MONDAY", heureDebut: 8, heureFin: 19 }]), /Google Ads non configure/);
+    });
+
+    await t.test("rechercherAudiences rejette avec un message explicite", async () => {
+      await assert.rejects(rechercherAudiences(prisma, ["Propriétaires de maison"]), /Google Ads non configure/);
+    });
+
+    await t.test("ajouterAudiencesCampagne rejette avec un message explicite", async () => {
+      await assert.rejects(ajouterAudiencesCampagne(prisma, "123456", ["Propriétaires de maison"]), /Google Ads non configure/);
+    });
+
+    await t.test("ajouterAnnonceTest rejette avec un message explicite", async () => {
+      await assert.rejects(
+        ajouterAnnonceTest(prisma, "456", ["Serrurier Fichet", "Intervention Rapide", "Appelez-nous"], ["Serrurier pour serrures Fichet.", "Intervention rapide."], "https://fichet-depannage.fr"),
+        /Google Ads non configure/
+      );
+    });
+
+    await t.test("listerPerformanceAnnonces rejette avec un message explicite", async () => {
+      await assert.rejects(listerPerformanceAnnonces(prisma, "456"), /Google Ads non configure/);
     });
   } finally {
     if (sauvegarde !== undefined) process.env.GOOGLE_ADS_DEVELOPER_TOKEN = sauvegarde;

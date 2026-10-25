@@ -602,6 +602,10 @@ const LIBELLE_TYPE_PROPOSITION_ADS = {
   modifier_budget_campagne: "Modifier le budget",
   ajouter_mots_cles_positifs: "Ajouter des mots-clés",
   ajouter_extensions_campagne: "Ajouter des extensions",
+  modifier_strategie_encheres: "Changer la stratégie d'enchères",
+  definir_horaires_campagne: "Programmer les horaires",
+  ajouter_audiences_campagne: "Ajouter des audiences",
+  ajouter_annonce_test: "Ajouter une annonce de test",
 };
 const BADGE_STATUT_PROPOSITION_ADS = {
   en_attente: "badge-partiel",
@@ -641,6 +645,31 @@ function rendreExtensionsPropositionAds(p) {
     );
   }
   return morceaux.join("\n");
+}
+
+const LIBELLE_JOUR_HORAIRE = {
+  MONDAY: "Lun",
+  TUESDAY: "Mar",
+  WEDNESDAY: "Mer",
+  THURSDAY: "Jeu",
+  FRIDAY: "Ven",
+  SATURDAY: "Sam",
+  SUNDAY: "Dim",
+};
+
+function rendreHorairesPropositionAds(p) {
+  const horaires = p.horaires || [];
+  if (horaires.length === 0) return "";
+  const fmt = (h, m) => `${String(h).padStart(2, "0")}h${m ? String(m).padStart(2, "0") : ""}`;
+  return `<div class="anomalie-meta"><strong>Horaires de diffusion</strong> : ${horaires
+    .map((h) => `${LIBELLE_JOUR_HORAIRE[h.jour] || h.jour} ${fmt(h.heureDebut, h.minuteDebut)}-${fmt(h.heureFin, h.minuteFin)}`)
+    .join(" · ")}</div>`;
+}
+
+function rendreStrategieEncheresPropositionAds(p) {
+  if (!p.strategieEncheres || p.strategieEncheres === "MAXIMIZE_CONVERSIONS") return "";
+  const libelle = p.strategieEncheres === "TARGET_CPA" ? `CPA cible${p.cpaCibleEuros != null ? ` (${p.cpaCibleEuros} €)` : ""}` : "CPC optimisé (manuel)";
+  return `<div class="anomalie-meta"><strong>Stratégie d'enchères</strong> : ${echapper(libelle)}</div>`;
 }
 
 async function accepterPropositionAds(id, bouton) {
@@ -708,6 +737,9 @@ async function chargerPropositionsAds() {
              ${(p.ciblesGeographiques || []).length > 0 ? `<div class="anomalie-meta"><strong>Ciblage géographique</strong> : ${p.ciblesGeographiques.map(echapper).join(", ")}</div>` : ""}
              ${p.numeroTelephone ? `<div class="anomalie-meta"><strong>Extension d'appel</strong> : ${echapper(p.numeroTelephone)}, créée avec la campagne</div>` : ""}
              ${rendreExtensionsPropositionAds(p)}
+             ${rendreStrategieEncheresPropositionAds(p)}
+             ${rendreHorairesPropositionAds(p)}
+             ${(p.audiences || []).length > 0 ? `<div class="anomalie-meta"><strong>Audiences (observation)</strong> : ${p.audiences.map(echapper).join(", ")}</div>` : ""}
              <div class="anomalie-meta">Sera créée <strong>en pause</strong> : aucune dépense tant que tu ne l'actives pas toi-même dans Google Ads.</div>`
           : p.type === "ajouter_mots_cles_exclus"
             ? `<div class="anomalie-meta"><strong>Mots-clés exclus à ajouter</strong> : ${(p.motsClesExclus || []).map(echapper).join(", ") || "—"}</div>`
@@ -723,7 +755,18 @@ async function chargerPropositionsAds() {
                       ? `<div class="anomalie-meta"><strong>Mots-clés à ajouter</strong> : ${(p.motsCles || []).map(echapper).join(", ") || "—"}${p.typeCorrespondance ? ` (${echapper(p.typeCorrespondance)})` : ""}</div>`
                       : p.type === "ajouter_extensions_campagne"
                         ? rendreExtensionsPropositionAds(p)
-                        : "";
+                        : p.type === "modifier_strategie_encheres"
+                          ? `<div class="anomalie-meta"><strong>Nouvelle stratégie</strong> : ${p.strategieEncheres === "TARGET_CPA" ? `CPA cible (${p.cpaCibleEuros} €)` : p.strategieEncheres === "MANUAL_CPC" ? "CPC optimisé (manuel)" : "Maximiser les conversions"}</div>`
+                          : p.type === "definir_horaires_campagne"
+                            ? rendreHorairesPropositionAds(p)
+                            : p.type === "ajouter_audiences_campagne"
+                              ? `<div class="anomalie-meta"><strong>Audiences (observation)</strong> : ${(p.audiences || []).map(echapper).join(", ") || "—"}</div>`
+                              : p.type === "ajouter_annonce_test"
+                                ? `<div class="anomalie-meta">Groupe ${echapper(p.groupeId || "—")}</div>
+                                   <div class="anomalie-meta"><strong>Titres</strong> : ${(p.titres || []).map(echapper).join(" · ")}</div>
+                                   <div class="anomalie-meta"><strong>Descriptions</strong> : ${(p.descriptions || []).map(echapper).join(" · ")}</div>
+                                   <div class="anomalie-meta">Sera créée <strong>en pause</strong> : à activer toi-même pour démarrer la comparaison.</div>`
+                                : "";
       return `
     <div class="decision-carte">
       <div class="relance-entete">

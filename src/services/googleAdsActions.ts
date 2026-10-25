@@ -12,6 +12,12 @@ import {
   ajouterExtensionsCampagne,
   SitelinkAds,
   StructuredSnippetAds,
+  changerStrategieEncheres,
+  definirHorairesCampagne,
+  ajouterAudiencesCampagne,
+  ajouterAnnonceTest,
+  StrategieEncheres,
+  HoraireAds,
   messageErreurGoogleAds,
 } from "./googleAds";
 import { logEvenement } from "./journalService";
@@ -36,7 +42,11 @@ export type TypePropositionAds =
   | "creer_action_conversion_site"
   | "modifier_budget_campagne"
   | "ajouter_mots_cles_positifs"
-  | "ajouter_extensions_campagne";
+  | "ajouter_extensions_campagne"
+  | "modifier_strategie_encheres"
+  | "definir_horaires_campagne"
+  | "ajouter_audiences_campagne"
+  | "ajouter_annonce_test";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -60,6 +70,10 @@ export interface PropositionAdsEntree {
   sitelinks?: SitelinkAds[]; // optionnel pour creer_campagne et ajouter_extensions_campagne
   callouts?: string[]; // optionnel pour creer_campagne et ajouter_extensions_campagne
   structuredSnippets?: StructuredSnippetAds[]; // optionnel pour creer_campagne et ajouter_extensions_campagne
+  strategieEncheres?: StrategieEncheres; // optionnel pour creer_campagne (defaut MAXIMIZE_CONVERSIONS) ; requis pour modifier_strategie_encheres
+  cpaCibleEuros?: number; // requis si strategieEncheres = "TARGET_CPA"
+  horaires?: HoraireAds[]; // optionnel pour creer_campagne ; requis (au moins un) pour definir_horaires_campagne
+  audiences?: string[]; // optionnel pour creer_campagne ; requis (au moins un) pour ajouter_audiences_campagne
 }
 
 /**
@@ -110,6 +124,29 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
     if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_extensions_campagne).");
     const nbExtensions = (entree.sitelinks?.length ?? 0) + (entree.callouts?.length ?? 0) + (entree.structuredSnippets?.length ?? 0);
     if (nbExtensions === 0) throw new Error("Au moins un sitelink, une accroche (callout) ou un extrait structure est requis.");
+  }
+  if (entree.type === "modifier_strategie_encheres") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour modifier_strategie_encheres).");
+    if (!entree.strategieEncheres) throw new Error("strategieEncheres manquante (requis pour modifier_strategie_encheres).");
+    if (entree.strategieEncheres === "TARGET_CPA" && (!entree.cpaCibleEuros || entree.cpaCibleEuros <= 0)) {
+      throw new Error("cpaCibleEuros doit etre un nombre positif pour la strategie TARGET_CPA.");
+    }
+  }
+  if (entree.type === "definir_horaires_campagne") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour definir_horaires_campagne).");
+    if (!entree.horaires || entree.horaires.length === 0) throw new Error("horaires : au moins une plage horaire est requise.");
+  }
+  if (entree.type === "ajouter_audiences_campagne") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_audiences_campagne).");
+    if (!entree.audiences || entree.audiences.length === 0) throw new Error("audiences : au moins un centre d'interet est requis.");
+  }
+  if (entree.type === "ajouter_annonce_test") {
+    if (!entree.groupeId) throw new Error("groupeId manquant (requis pour ajouter_annonce_test).");
+    if (!entree.urlFinale) throw new Error("urlFinale manquante (requis pour ajouter_annonce_test).");
+    const nbTitres = entree.titres?.length ?? 0;
+    if (nbTitres < 3 || nbTitres > 15) throw new Error(`titres : ${nbTitres} fourni(s), il en faut entre 3 et 15.`);
+    const nbDescriptions = entree.descriptions?.length ?? 0;
+    if (nbDescriptions < 2 || nbDescriptions > 4) throw new Error(`descriptions : ${nbDescriptions} fournie(s), il en faut entre 2 et 4.`);
   }
 
   // sitelinks/structuredSnippets sont des tableaux d'objets structures,
@@ -174,6 +211,10 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
           sitelinks: (proposition.sitelinks as unknown as SitelinkAds[] | null) ?? undefined,
           callouts: proposition.callouts.length > 0 ? proposition.callouts : undefined,
           structuredSnippets: (proposition.structuredSnippets as unknown as StructuredSnippetAds[] | null) ?? undefined,
+          strategieEncheres: (proposition.strategieEncheres as StrategieEncheres | null) ?? undefined,
+          cpaCibleEuros: proposition.cpaCibleEuros ?? undefined,
+          horaires: (proposition.horaires as unknown as HoraireAds[] | null) ?? undefined,
+          audiences: proposition.audiences.length > 0 ? proposition.audiences : undefined,
         });
         campagneIdCreee = resultat.campagneId;
         break;
@@ -213,6 +254,23 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
           structuredSnippets: (proposition.structuredSnippets as unknown as StructuredSnippetAds[] | null) ?? undefined,
         });
         break;
+      case "modifier_strategie_encheres":
+        await changerStrategieEncheres(
+          prisma,
+          proposition.campagneId,
+          (proposition.strategieEncheres as StrategieEncheres | null) ?? "MAXIMIZE_CONVERSIONS",
+          proposition.cpaCibleEuros ?? undefined
+        );
+        break;
+      case "definir_horaires_campagne":
+        await definirHorairesCampagne(prisma, proposition.campagneId, (proposition.horaires as unknown as HoraireAds[] | null) ?? []);
+        break;
+      case "ajouter_audiences_campagne":
+        await ajouterAudiencesCampagne(prisma, proposition.campagneId, proposition.audiences);
+        break;
+      case "ajouter_annonce_test":
+        await ajouterAnnonceTest(prisma, proposition.groupeId ?? "", proposition.titres, proposition.descriptions, proposition.urlFinale ?? "");
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -245,7 +303,15 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
                       ? `${proposition.motsCles.length} mot(s)-cle(s) positif(s) ajoute(s) : ${proposition.motsCles.join(", ")}.`
                       : proposition.type === "ajouter_extensions_campagne"
                         ? `Extensions ajoutees a "${proposition.campagneNom}" : ${(proposition.sitelinks as unknown as SitelinkAds[] | null)?.length ?? 0} sitelink(s), ${proposition.callouts.length} accroche(s), ${(proposition.structuredSnippets as unknown as StructuredSnippetAds[] | null)?.length ?? 0} extrait(s) structure(s).`
-                        : "Applique avec succes sur Google Ads.",
+                        : proposition.type === "modifier_strategie_encheres"
+                          ? `Strategie d'encheres de "${proposition.campagneNom}" changee pour ${proposition.strategieEncheres}${proposition.cpaCibleEuros ? ` (CPA cible ${proposition.cpaCibleEuros} EUR)` : ""}.`
+                          : proposition.type === "definir_horaires_campagne"
+                            ? `${((proposition.horaires as unknown as HoraireAds[] | null) ?? []).length} plage(s) horaire(s) ajoutee(s) a "${proposition.campagneNom}".`
+                            : proposition.type === "ajouter_audiences_campagne"
+                              ? `Audience(s) ajoutee(s) en observation sur "${proposition.campagneNom}" : ${proposition.audiences.join(", ")}.`
+                              : proposition.type === "ajouter_annonce_test"
+                                ? `Annonce de test ajoutee au groupe ${proposition.groupeId}, creee EN PAUSE - a activer manuellement pour demarrer la comparaison.`
+                                : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {

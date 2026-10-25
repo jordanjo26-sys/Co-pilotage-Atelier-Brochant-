@@ -486,6 +486,250 @@ export async function ajouterExtensionsCampagne(prisma: PrismaClient, campagneId
   await creerEtLierExtensions(customer, campagneResourceName, urlParDefaut, extensions);
 }
 
+export type StrategieEncheres = "MAXIMIZE_CONVERSIONS" | "TARGET_CPA" | "MANUAL_CPC";
+
+export interface HoraireAds {
+  jour: "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY" | "SUNDAY";
+  heureDebut: number; // 0 a 23
+  minuteDebut?: 0 | 15 | 30 | 45; // defaut 0 - Google n'accepte que ces 4 valeurs
+  heureFin: number; // 1 a 24 (24 = minuit, fin de journee)
+  minuteFin?: 0 | 15 | 30 | 45; // defaut 0
+}
+
+const MINUTE_VERS_ENUM: Record<number, number> = {
+  0: enums.MinuteOfHour.ZERO,
+  15: enums.MinuteOfHour.FIFTEEN,
+  30: enums.MinuteOfHour.THIRTY,
+  45: enums.MinuteOfHour.FORTY_FIVE,
+};
+
+function construireChampHoraire(h: HoraireAds): Record<string, unknown> {
+  const minuteDebut = MINUTE_VERS_ENUM[h.minuteDebut ?? 0];
+  const minuteFin = MINUTE_VERS_ENUM[h.minuteFin ?? 0];
+  if (minuteDebut === undefined || minuteFin === undefined) {
+    throw new Error(`Horaire invalide pour ${h.jour} : minutes acceptees uniquement 0, 15, 30 ou 45.`);
+  }
+  return {
+    status: enums.CampaignCriterionStatus.ENABLED,
+    ad_schedule: {
+      day_of_week: enums.DayOfWeek[h.jour],
+      start_hour: h.heureDebut,
+      start_minute: minuteDebut,
+      end_hour: h.heureFin,
+      end_minute: minuteFin,
+    },
+  };
+}
+
+/**
+ * Construit le champ d'enchere (oneof campaign_bidding_strategy) a appliquer
+ * a la creation ou lors d'une modification. MAXIMIZE_CONVERSIONS par defaut
+ * (deja le comportement historique). MANUAL_CPC active l'optimisation du
+ * CPC (enhanced_cpc) plutot qu'un CPC totalement manuel, plus sur sans
+ * gestion fine des encheres par mot-cle (non geree ici).
+ */
+function construireStrategieEncheres(strategie: StrategieEncheres | undefined, cpaCibleEuros: number | undefined): Record<string, unknown> {
+  const s = strategie ?? "MAXIMIZE_CONVERSIONS";
+  if (s === "TARGET_CPA") {
+    if (!cpaCibleEuros || cpaCibleEuros <= 0) throw new Error("cpaCibleEuros doit etre un nombre positif pour la strategie TARGET_CPA.");
+    return { target_cpa: { target_cpa_micros: toMicros(cpaCibleEuros) } };
+  }
+  if (s === "MANUAL_CPC") {
+    return { manual_cpc: { enhanced_cpc_enabled: true } };
+  }
+  return { maximize_conversions: {} };
+}
+
+/**
+ * Resout des noms de centres d'interet (ex. "Bricolage et jardinage",
+ * "Proprietaires de maison") en criteres Google Ads (user_interest), via
+ * une recherche textuelle GAQL plutot que des identifiants devines. Usage :
+ * signal d'audience en OBSERVATION sur une campagne Search (n'exclut ni ne
+ * restreint qui voit l'annonce - sert a ajuster les encheres et analyser la
+ * performance par segment). Ce n'est PAS du remarketing (reciblage des
+ * visiteurs du site) : cela necessiterait une balise de suivi sur le site,
+ * absente aujourd'hui.
+ */
+export interface AudienceAds {
+  nomRecherche: string;
+  resourceName: string;
+  nomTrouve: string;
+}
+
+export async function rechercherAudiences(prisma: PrismaClient, termes: string[]): Promise<AudienceAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (termes.length === 0) return [];
+
+  const resultats: AudienceAds[] = [];
+  for (const terme of termes) {
+    const termeEchappe = terme.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const lignes = await customer.query(`
+      SELECT user_interest.resource_name, user_interest.name
+      FROM user_interest
+      WHERE user_interest.name LIKE '%${termeEchappe}%'
+      LIMIT 1
+    `);
+    const resourceName = lignes[0]?.user_interest?.resource_name;
+    if (resourceName) {
+      resultats.push({ nomRecherche: terme, resourceName, nomTrouve: lignes[0].user_interest?.name ?? "" });
+    }
+  }
+  return resultats;
+}
+
+/** Ajoute des audiences (signal d'observation) a une campagne EXISTANTE. */
+export async function ajouterAudiencesCampagne(prisma: PrismaClient, campagneId: string, audiences: string[]): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+  if (audiences.length === 0) return;
+
+  const cibles = await rechercherAudiences(prisma, audiences);
+  const manquantes = audiences.filter((nom) => !cibles.some((c) => c.nomRecherche === nom));
+  if (manquantes.length > 0) {
+    throw new Error(`Aucune correspondance Google pour les centres d'interet : "${manquantes.join('", "')}". Rien n'a ete ajoute.`);
+  }
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.campaignCriteria.create(
+    cibles.map((c) => ({
+      campaign: ResourceNames.campaign(customerId, campagneId),
+      status: enums.CampaignCriterionStatus.ENABLED,
+      user_interest: { user_interest_category: c.resourceName },
+    }))
+  );
+}
+
+/**
+ * Change la strategie d'encheres d'une campagne EXISTANTE (par opposition
+ * au choix fait a la creation dans creerCampagne).
+ */
+export async function changerStrategieEncheres(
+  prisma: PrismaClient,
+  campagneId: string,
+  strategie: StrategieEncheres,
+  cpaCibleEuros?: number
+): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+
+  await customer.campaigns.update([
+    {
+      resource_name: ResourceNames.campaign(customerId, campagneId),
+      ...construireStrategieEncheres(strategie, cpaCibleEuros),
+    },
+  ]);
+}
+
+/** Ajoute des plages horaires de diffusion a une campagne EXISTANTE. */
+export async function definirHorairesCampagne(prisma: PrismaClient, campagneId: string, horaires: HoraireAds[]): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+  if (horaires.length === 0) return;
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  const campagneResourceName = ResourceNames.campaign(customerId, campagneId);
+  await customer.campaignCriteria.create(horaires.map((h) => ({ campaign: campagneResourceName, ...construireChampHoraire(h) })));
+}
+
+/**
+ * Ajoute une annonce supplementaire (variante de test A/B) a un groupe
+ * d'annonces EXISTANT - creee EN PAUSE (meme principe de securite que
+ * creerCampagne : rien ne diffuse avant activation manuelle). Permet de
+ * comparer plusieurs versions d'annonces dans le meme groupe (voir
+ * listerPerformanceAnnonces pour la comparaison).
+ */
+export async function ajouterAnnonceTest(prisma: PrismaClient, groupeId: string, titres: string[], descriptions: string[], urlFinale: string): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.adGroupAds.create([
+    {
+      ad_group: ResourceNames.adGroup(customerId, groupeId),
+      status: enums.AdGroupAdStatus.PAUSED,
+      ad: {
+        final_urls: [urlFinale],
+        responsive_search_ad: {
+          headlines: titres.map((texte) => ({ text: texte })),
+          descriptions: descriptions.map((texte) => ({ text: texte })),
+        },
+      },
+    },
+  ]);
+}
+
+export interface PerformanceAnnonceAds {
+  groupeId: string;
+  adId: string;
+  titres: string[];
+  descriptions: string[];
+  statut: string;
+  impressions: number;
+  clics: number;
+  cout: number;
+  conversions: number;
+  ctr: number;
+}
+
+/**
+ * Performance par annonce individuelle au sein d'un groupe (par opposition
+ * a listerCampagnesAds, agrege par campagne) - indispensable pour comparer
+ * des variantes de test A/B creees via ajouterAnnonceTest. Lecture seule.
+ */
+export async function listerPerformanceAnnonces(prisma: PrismaClient, groupeId: string, jours = 30): Promise<PerformanceAnnonceAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+  if (!/^\d+$/.test(groupeId)) throw new Error(`groupeId invalide : "${groupeId}" (attendu : uniquement des chiffres).`);
+
+  const lignes = await customer.query(`
+    SELECT
+      ad_group.id,
+      ad_group_ad.ad.id,
+      ad_group_ad.ad.responsive_search_ad.headlines,
+      ad_group_ad.ad.responsive_search_ad.descriptions,
+      ad_group_ad.status,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.ctr
+    FROM ad_group_ad
+    WHERE ad_group.id = ${groupeId}
+      AND segments.date ${clauseFenetreDate(jours)}
+      AND ad_group_ad.status != 'REMOVED'
+    ORDER BY metrics.cost_micros DESC
+  `);
+
+  return lignes.map((ligne) => ({
+    groupeId: String(ligne.ad_group?.id ?? ""),
+    adId: String(ligne.ad_group_ad?.ad?.id ?? ""),
+    titres: (ligne.ad_group_ad?.ad?.responsive_search_ad?.headlines ?? []).map((h) => h.text ?? ""),
+    descriptions: (ligne.ad_group_ad?.ad?.responsive_search_ad?.descriptions ?? []).map((d) => d.text ?? ""),
+    statut: String(ligne.ad_group_ad?.status ?? ""),
+    impressions: Number(ligne.metrics?.impressions ?? 0),
+    clics: Number(ligne.metrics?.clicks ?? 0),
+    cout: fromMicros(Number(ligne.metrics?.cost_micros ?? 0)),
+    conversions: Number(ligne.metrics?.conversions ?? 0),
+    ctr: Number(ligne.metrics?.ctr ?? 0),
+  }));
+}
+
 export interface ParametresCreationCampagne {
   nom: string;
   budgetQuotidien: number; // euros/jour
@@ -500,6 +744,10 @@ export interface ParametresCreationCampagne {
   sitelinks?: SitelinkAds[];
   callouts?: string[];
   structuredSnippets?: StructuredSnippetAds[];
+  strategieEncheres?: StrategieEncheres; // defaut MAXIMIZE_CONVERSIONS
+  cpaCibleEuros?: number; // requis si strategieEncheres = "TARGET_CPA"
+  horaires?: HoraireAds[]; // aucun = diffusion sans restriction horaire
+  audiences?: string[]; // noms de centres d'interet a resoudre puis attacher en observation
 }
 
 /**
@@ -536,7 +784,7 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
       status: enums.CampaignStatus.PAUSED,
       advertising_channel_type: enums.AdvertisingChannelType.SEARCH,
       campaign_budget: budgetResourceName,
-      maximize_conversions: {},
+      ...construireStrategieEncheres(params.strategieEncheres, params.cpaCibleEuros),
       network_settings: {
         target_google_search: true,
         target_search_network: true,
@@ -640,6 +888,33 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
       });
     } catch (err) {
       throw new Error(`Campagne creee (id ${campagneId}) mais echec de la creation des extensions (liens d'accroche/accroches/extraits) : ${messageErreurGoogleAds(err)}`);
+    }
+  }
+
+  if (params.horaires && params.horaires.length > 0) {
+    try {
+      await customer.campaignCriteria.create(params.horaires.map((h) => ({ campaign: campagneResourceName, ...construireChampHoraire(h) })));
+    } catch (err) {
+      throw new Error(`Campagne creee (id ${campagneId}) mais echec de la configuration des horaires : ${messageErreurGoogleAds(err)}`);
+    }
+  }
+
+  if (params.audiences && params.audiences.length > 0) {
+    try {
+      const cibles = await rechercherAudiences(prisma, params.audiences);
+      const manquantes = params.audiences.filter((nom) => !cibles.some((c) => c.nomRecherche === nom));
+      if (manquantes.length > 0) {
+        throw new Error(`aucune correspondance Google pour "${manquantes.join('", "')}"`);
+      }
+      await customer.campaignCriteria.create(
+        cibles.map((c) => ({
+          campaign: campagneResourceName,
+          status: enums.CampaignCriterionStatus.ENABLED,
+          user_interest: { user_interest_category: c.resourceName },
+        }))
+      );
+    } catch (err) {
+      throw new Error(`Campagne creee (id ${campagneId}) mais echec de l'ajout des audiences : ${messageErreurGoogleAds(err)}`);
     }
   }
 
