@@ -298,7 +298,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "verifier_politique_assets_ads",
     description:
-      "Retourne le statut d'approbation reel et les sujets de politique des ASSETS (sitelinks, accroches/callouts, extensions d'appel...), avec leur texte/numero exact - par opposition a verifier_politique_annonces_ads, qui ne couvre QUE les annonces. Indispensable si l'utilisateur recoit un e-mail Google Ads signalant un 'composant' refuse (ex. politique 'Numero de telephone dans un texte d'annonce' ou 'Services locaux') : ce refus porte souvent sur un sitelink/accroche, pas sur l'annonce elle-meme, et verifier_politique_annonces_ads ne le detecte pas. Compte entier, pas de filtre par campagne (un asset peut etre partage). Lecture seule.",
+      "Retourne le statut d'approbation reel et les sujets de politique des ASSETS (sitelinks, accroches/callouts, extensions d'appel...), avec leur texte ET leur description exacts (y compris les descriptions de sitelinks, souvent oubliees) - par opposition a verifier_politique_annonces_ads, qui ne couvre QUE les annonces. Chaque asset porte aussi contientNumeroTelephone (detection automatique d'une sequence de chiffres dans le texte ou la description) - verifie ce champ en PRIORITE si l'utilisateur signale un refus Google Ads pour politique 'Numero de telephone dans un texte d'annonce' : ca identifie directement le bon asset sans relire chaque ligne a la main. Indispensable aussi pour 'Services locaux' : ce refus porte souvent sur un sitelink/accroche, pas sur l'annonce elle-meme, et verifier_politique_annonces_ads ne le detecte pas. Compte entier, pas de filtre par campagne (un asset peut etre partage). Lecture seule.",
     input_schema: { type: "object", properties: {} },
   },
   {

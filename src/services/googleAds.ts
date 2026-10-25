@@ -1427,8 +1427,10 @@ export interface AssetPolitiqueAds {
   assetId: string;
   type: string; // SITELINK | CALLOUT | CALL | TEXT | ...
   contenu: string; // texte du lien/accroche, ou numero pour une extension d'appel - permet d'identifier LEQUEL est en cause
+  description: string; // description1+description2 d'un sitelink (vide sinon) - souvent oublie, peut cacher un numero de telephone
   statutApprobation: string;
   sujetsPolitique: string[];
+  contientNumeroTelephone: boolean; // heuristique (8 chiffres ou plus) sur contenu+description - repere "Numero de telephone dans un texte d'annonce" sans relecture manuelle
 }
 
 /**
@@ -1440,6 +1442,11 @@ export interface AssetPolitiqueAds {
  * probleme - c'etait invisible jusqu'ici. Lecture seule, pas de filtre par
  * campagne (un asset peut etre partage entre plusieurs campagnes).
  */
+/** Sequence de 8 chiffres ou plus (espaces/points/tirets ignores) - repere un numero de telephone cache dans un texte libre. */
+function contientNumeroTelephone(texte: string): boolean {
+  return /(?:\d[\s.-]?){8,}/.test(texte);
+}
+
 export async function verifierPolitiqueAssets(prisma: PrismaClient): Promise<AssetPolitiqueAds[]> {
   const customer = await obtenirClientAds(prisma);
   if (!customer) {
@@ -1451,21 +1458,30 @@ export async function verifierPolitiqueAssets(prisma: PrismaClient): Promise<Ass
       asset.id,
       asset.type,
       asset.sitelink_asset.link_text,
+      asset.sitelink_asset.description1,
+      asset.sitelink_asset.description2,
       asset.callout_asset.callout_text,
       asset.call_asset.phone_number,
+      asset.text_asset.text,
       asset.policy_summary.approval_status,
       asset.policy_summary.policy_topic_entries
     FROM asset
     LIMIT 1000
   `);
 
-  return lignes.map((ligne) => ({
-    assetId: String(ligne.asset?.id ?? ""),
-    type: decoderEnum(enums.AssetType as unknown as Record<string, string | number>, ligne.asset?.type),
-    contenu: ligne.asset?.sitelink_asset?.link_text || ligne.asset?.callout_asset?.callout_text || ligne.asset?.call_asset?.phone_number || "",
-    statutApprobation: decoderEnum(enums.PolicyApprovalStatus as unknown as Record<string, string | number>, ligne.asset?.policy_summary?.approval_status),
-    sujetsPolitique: (ligne.asset?.policy_summary?.policy_topic_entries ?? []).map((e) => e.topic ?? "").filter(Boolean),
-  }));
+  return lignes.map((ligne) => {
+    const contenu = ligne.asset?.sitelink_asset?.link_text || ligne.asset?.callout_asset?.callout_text || ligne.asset?.call_asset?.phone_number || ligne.asset?.text_asset?.text || "";
+    const description = [ligne.asset?.sitelink_asset?.description1, ligne.asset?.sitelink_asset?.description2].filter(Boolean).join(" ");
+    return {
+      assetId: String(ligne.asset?.id ?? ""),
+      type: decoderEnum(enums.AssetType as unknown as Record<string, string | number>, ligne.asset?.type),
+      contenu,
+      description,
+      statutApprobation: decoderEnum(enums.PolicyApprovalStatus as unknown as Record<string, string | number>, ligne.asset?.policy_summary?.approval_status),
+      sujetsPolitique: (ligne.asset?.policy_summary?.policy_topic_entries ?? []).map((e) => e.topic ?? "").filter(Boolean),
+      contientNumeroTelephone: contientNumeroTelephone(`${contenu} ${description}`),
+    };
+  });
 }
 
 export interface MotCleAds {
