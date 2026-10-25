@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import dotenv from "dotenv";
-import { clauseFenetreDate, googleAdsEstConfigure } from "../src/services/googleAds";
+import { clauseFenetreDate, googleAdsEstConfigure, extraireExemptionsPolitique } from "../src/services/googleAds";
 
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
@@ -148,4 +148,67 @@ test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPosit
   }
 
   await prisma.$disconnect();
+});
+
+test("extraireExemptionsPolitique", async (t) => {
+  await t.test("extrait la cle d'exemption quand toutes les erreurs du lot sont des violations exemptibles", () => {
+    const err = {
+      errors: [
+        {
+          location: { field_path_elements: [{ field_name: "operations", index: 0 }, { field_name: "create" }, { field_name: "keyword" }, { field_name: "text" }] },
+          details: { policy_violation_details: { is_exemptible: true, key: { policy_name: "LOCAL_SERVICES_POLICY_ABC123", violating_text: "serrurier paris" } } },
+        },
+      ],
+    };
+    const exemptions = extraireExemptionsPolitique(err, 5);
+    assert.ok(exemptions);
+    assert.deepEqual(exemptions!.get(0), { policyName: "LOCAL_SERVICES_POLICY_ABC123", violatingText: "serrurier paris" });
+  });
+
+  await t.test("gere plusieurs operations en echec dans le meme lot", () => {
+    const erreurPour = (index: number, policyName: string) => ({
+      location: { field_path_elements: [{ field_name: "operations", index }] },
+      details: { policy_violation_details: { is_exemptible: true, key: { policy_name: policyName } } },
+    });
+    const err = { errors: [erreurPour(0, "POLICY_A"), erreurPour(3, "POLICY_B")] };
+    const exemptions = extraireExemptionsPolitique(err, 5);
+    assert.ok(exemptions);
+    assert.equal(exemptions!.size, 2);
+    assert.equal(exemptions!.get(0)?.policyName, "POLICY_A");
+    assert.equal(exemptions!.get(3)?.policyName, "POLICY_B");
+  });
+
+  await t.test("retourne null si une seule erreur du lot n'est pas exemptible", () => {
+    const err = {
+      errors: [
+        {
+          location: { field_path_elements: [{ field_name: "operations", index: 0 }] },
+          details: { policy_violation_details: { is_exemptible: true, key: { policy_name: "POLICY_A" } } },
+        },
+        {
+          location: { field_path_elements: [{ field_name: "operations", index: 1 }] },
+          details: { policy_violation_details: { is_exemptible: false, key: { policy_name: "POLICY_B" } } },
+        },
+      ],
+    };
+    assert.equal(extraireExemptionsPolitique(err, 5), null);
+  });
+
+  await t.test("retourne null pour une erreur qui n'est pas une violation de politique (ex. champ manquant)", () => {
+    const err = { errors: [{ message: "The required field was not present.", error_code: { required_error: "REQUIRED" } }] };
+    assert.equal(extraireExemptionsPolitique(err, 5), null);
+  });
+
+  await t.test("retourne null si l'index d'operation est hors bornes ou absent", () => {
+    const err = {
+      errors: [{ location: { field_path_elements: [{ field_name: "create" }] }, details: { policy_violation_details: { is_exemptible: true, key: { policy_name: "POLICY_A" } } } }],
+    };
+    assert.equal(extraireExemptionsPolitique(err, 5), null);
+  });
+
+  await t.test("retourne null si err.errors est absent ou vide", () => {
+    assert.equal(extraireExemptionsPolitique({}, 5), null);
+    assert.equal(extraireExemptionsPolitique({ errors: [] }, 5), null);
+    assert.equal(extraireExemptionsPolitique(new Error("autre chose"), 5), null);
+  });
 });

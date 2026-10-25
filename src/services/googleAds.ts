@@ -219,6 +219,92 @@ export function messageErreurGoogleAds(err: unknown): string {
   }
 }
 
+interface CleExemptionPolitique {
+  policyName: string;
+  violatingText?: string;
+}
+
+/**
+ * Extrait, pour une erreur Google Ads survenue sur un lot d'operations
+ * "create" (ex. plusieurs mots-cles envoyes en un seul appel), la cle
+ * d'exemption de chaque operation en echec - UNIQUEMENT si TOUTES les
+ * erreurs du lot sont des violations de politique explicitement marquees
+ * exemptible (is_exemptible). Si une seule erreur du lot n'est pas de ce
+ * type (ex. un champ manquant, une politique non exemptible), retourne
+ * null : on ne doit pas reessayer a l'aveugle, l'erreur d'origine doit
+ * remonter telle quelle.
+ *
+ * Principe du mecanisme Google Ads : pour une violation "is_exemptible",
+ * rejouer la MEME operation avec exempt_policy_violation_keys renseigne
+ * (meme "key" que celle renvoyee par l'erreur) sauvegarde la ressource
+ * malgre la violation - elle ne diffusera pas tant qu'un reviewer Google
+ * (ou un changement de politique/certification) ne l'autorise pas, mais
+ * elle n'est plus bloquee a la creation. C'est l'equivalent programmatique
+ * du bouton "Demander une exception" de l'interface Google Ads - pas un
+ * contournement, une demande d'exception en bonne et due forme.
+ */
+export function extraireExemptionsPolitique(err: unknown, nombreOperations: number): Map<number, CleExemptionPolitique> | null {
+  if (!err || typeof err !== "object") return null;
+  const e = err as { errors?: unknown };
+  if (!Array.isArray(e.errors) || e.errors.length === 0) return null;
+
+  const exemptions = new Map<number, CleExemptionPolitique>();
+  for (const erreurBrute of e.errors) {
+    const erreur = erreurBrute as {
+      location?: { field_path_elements?: Array<{ field_name?: unknown; index?: unknown }> };
+      details?: {
+        policy_violation_details?: {
+          is_exemptible?: unknown;
+          key?: { policy_name?: unknown; violating_text?: unknown };
+        };
+      };
+    };
+    const politique = erreur.details?.policy_violation_details;
+    const cle = politique?.key;
+    if (!politique?.is_exemptible || typeof cle?.policy_name !== "string" || !cle.policy_name) return null;
+
+    const indexOperation = (erreur.location?.field_path_elements ?? []).find((el) => el?.field_name === "operations")?.index;
+    if (typeof indexOperation !== "number" || indexOperation < 0 || indexOperation >= nombreOperations) return null;
+
+    exemptions.set(indexOperation, {
+      policyName: cle.policy_name,
+      violatingText: typeof cle.violating_text === "string" ? cle.violating_text : undefined,
+    });
+  }
+  return exemptions.size > 0 ? exemptions : null;
+}
+
+interface OperationMotCle {
+  ad_group: string;
+  status: (typeof enums.AdGroupCriterionStatus)[keyof typeof enums.AdGroupCriterionStatus];
+  keyword: { text: string; match_type: (typeof enums.KeywordMatchType)[keyof typeof enums.KeywordMatchType] };
+}
+
+/**
+ * Cree des mots-cles (ad_group_criteria) en demandant automatiquement une
+ * exemption de politique pour ceux qui echouent avec une violation
+ * EXEMPTIBLE (ex. "Local services" sur un mot-cle de serrurerie - voir
+ * extraireExemptionsPolitique). Si l'echec n'est pas de ce type, ou
+ * persiste malgre la demande d'exemption, l'erreur remonte normalement.
+ */
+async function creerMotsClesAvecExemption(customer: Customer, operations: OperationMotCle[]): Promise<void> {
+  try {
+    await customer.adGroupCriteria.create(operations);
+  } catch (err) {
+    const exemptions = extraireExemptionsPolitique(err, operations.length);
+    if (!exemptions) throw err;
+    const operationsAvecExemption = operations.map((op, index) => {
+      const exemption = exemptions.get(index);
+      if (!exemption) return op;
+      return {
+        ...op,
+        exempt_policy_violation_keys: [{ policy_name: exemption.policyName, violating_text: exemption.violatingText }],
+      };
+    });
+    await customer.adGroupCriteria.create(operationsAvecExemption);
+  }
+}
+
 export interface CampagneAds {
   id: string;
   nom: string;
@@ -839,7 +925,8 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
 
   const typeCorrespondance = enums.KeywordMatchType[params.typeCorrespondance ?? "PHRASE"];
   if (params.motsCles.length > 0) {
-    await customer.adGroupCriteria.create(
+    await creerMotsClesAvecExemption(
+      customer,
       params.motsCles.map((texte) => ({
         ad_group: groupeResourceName,
         status: enums.AdGroupCriterionStatus.ENABLED,
@@ -1028,7 +1115,8 @@ export async function ajouterMotsClesPositifs(
   }
   if (motsCles.length === 0) return;
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
-  await customer.adGroupCriteria.create(
+  await creerMotsClesAvecExemption(
+    customer,
     motsCles.map((texte) => ({
       ad_group: ResourceNames.adGroup(customerId, groupeId),
       status: enums.AdGroupCriterionStatus.ENABLED,
