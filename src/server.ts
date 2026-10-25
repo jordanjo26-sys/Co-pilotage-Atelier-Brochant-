@@ -10,6 +10,7 @@ import { installerRelaisVocal } from "./services/relaisVocal";
 import {
   demarrerSurveillanceGmail,
   demarrerRecapQuotidien,
+  demarrerAnalyseQuotidienneAds,
   demarrerSurveillanceStripe,
   demarrerSurveillanceSynec,
   demarrerDetectionReponsesProspection,
@@ -52,6 +53,7 @@ installerRelaisVocal(server, prisma);
 if (process.env.PLANIFICATEURS_DESACTIVES !== "true") {
   demarrerSurveillanceGmail(prisma);
   demarrerRecapQuotidien(prisma);
+  demarrerAnalyseQuotidienneAds(prisma);
   demarrerSurveillanceStripe(prisma);
   demarrerSurveillanceSynec(prisma);
   demarrerDetectionReponsesProspection(prisma);

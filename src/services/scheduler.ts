@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { synchroniserGmail, resumerErreurs } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
+import { envoyerAnalyseQuotidienneAds } from "./googleAdsRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
@@ -11,6 +12,10 @@ import { verifierMailsImportants } from "./mailsImportants";
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVALLE_VERIF_RECAP_MS = 5 * 60 * 1000; // 5 minutes
 const HEURE_RECAP_PAR_DEFAUT = 19; // 19h, heure locale du serveur
+// Matin plutot que soir (contrairement au recapitulatif general) : utile de
+// lire les recommandations Google Ads en debut de journee, avant d'eventuellement
+// agir dessus avec Morgane dans la journee.
+const HEURE_ANALYSE_ADS_PAR_DEFAUT = 8; // 8h, heure locale du serveur
 // Les payouts Stripe arrivent typiquement une fois par jour au plus, jamais
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
@@ -112,6 +117,42 @@ export function demarrerRecapQuotidien(prisma: PrismaClient): void {
       await logEvenement(prisma, {
         evenement: "recap_quotidien_erreur",
         action: "Envoi du recapitulatif quotidien",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
+    }
+  }, INTERVALLE_VERIF_RECAP_MS);
+}
+
+/**
+ * Envoie l'analyse quotidienne des campagnes Google Ads (recommandations :
+ * mots-cles a exclure/ajouter, points d'amelioration) une fois par jour, a
+ * l'heure configuree via ANALYSE_ADS_HOUR (8h par defaut). Meme principe
+ * d'idempotence que demarrerRecapQuotidien (verification periodique +
+ * journal d'evenements, pas d'etat supplementaire).
+ */
+export function demarrerAnalyseQuotidienneAds(prisma: PrismaClient): void {
+  const heureCible = Number(process.env.ANALYSE_ADS_HOUR);
+  const heure = Number.isInteger(heureCible) && heureCible >= 0 && heureCible <= 23 ? heureCible : HEURE_ANALYSE_ADS_PAR_DEFAUT;
+
+  setInterval(async () => {
+    try {
+      const maintenant = new Date();
+      if (maintenant.getHours() !== heure) return;
+
+      const debutJour = new Date(maintenant);
+      debutJour.setHours(0, 0, 0, 0);
+      const dejaEnvoyeeAujourdhui = await prisma.journalEvenement.findFirst({
+        where: { evenement: "analyse_ads_envoyee", horodatage: { gte: debutJour } },
+      });
+      if (dejaEnvoyeeAujourdhui) return;
+
+      await envoyerAnalyseQuotidienneAds(prisma, maintenant);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Analyse quotidienne Google Ads en echec :", (err as Error).message);
+      await logEvenement(prisma, {
+        evenement: "analyse_ads_erreur",
+        action: "Analyse quotidienne Google Ads",
         resultat: `Echec : ${(err as Error).message}`,
       }).catch(() => {});
     }
