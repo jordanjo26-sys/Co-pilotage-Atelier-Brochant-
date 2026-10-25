@@ -139,6 +139,13 @@ export function buildTelephonieRouter(prisma: PrismaClient): Router {
       fin = {};
     }
 
+    // Trace de chaque fin de relais (qui a coupe, et pourquoi) pour le diagnostic.
+    await logEvenement(prisma, {
+      evenement: "appel_relais_fin",
+      action: `Appel ${callSid}`,
+      resultat: `raison=${fin.raison ?? ""} statut=${String(req.body.SessionStatus ?? "")} duree=${String(req.body.SessionDuration ?? "")} code=${String(req.body.ErrorCode ?? "")} ${String(req.body.ErrorMessage ?? "").slice(0, 200)}`,
+    }).catch(() => {});
+
     if (fin.raison === "fin") {
       envoyerTwiml(res, direEtRaccrocher(fin.messageFinal || "Merci pour votre appel, au revoir."));
       finaliserAppel(prisma, callSid).catch(() => {});

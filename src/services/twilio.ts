@@ -162,7 +162,7 @@ export function relaisVocal(urlWss: string, accueil: string, actionUrl: string):
   const voixRelais = process.env.TELEPHONE_RELAIS_VOIX || "Lea-Neural";
   return twiml(
     `<Connect action="${echapperXml(actionUrl)}">` +
-      `<ConversationRelay url="${echapperXml(urlWss)}" language="fr-FR" ttsProvider="${echapperXml(fournisseur)}" voice="${echapperXml(voixRelais)}" welcomeGreeting="${echapperXml(accueil)}" interruptible="any"/>` +
+      `<ConversationRelay url="${echapperXml(urlWss)}" language="fr-FR" ttsProvider="${echapperXml(fournisseur)}" voice="${echapperXml(voixRelais)}" welcomeGreeting="${echapperXml(accueil)}" welcomeGreetingInterruptible="none" interruptible="speech" interruptSensitivity="low"/>` +
       `</Connect>`
   );
 }
