@@ -1046,9 +1046,8 @@ function clauseCampagne(campagneId?: string): string {
 export interface PolitiqueAnnonceAds {
   campagneId: string;
   campagneNom: string;
-  adId: string;
+  nombreAnnonces: number; // nombre d'annonces actives partageant ce statut + ces sujets dans la campagne
   statutApprobation: string; // APPROVED | APPROVED_LIMITED | DISAPPROVED | AREA_OF_INTEREST_ONLY...
-  statutRevue: string;
   sujetsPolitique: string[]; // ex. "TRADEMARKS_IN_AD_TEXT", "LOCAL_SERVICES_AD" - vide si aucun souci
 }
 
@@ -1059,6 +1058,13 @@ export interface PolitiqueAnnonceAds {
  * a une nouvelle campagne bloquee a la creation, et voir si le compte
  * lui-meme porte une restriction visible sur des annonces existantes.
  * Lecture seule.
+ *
+ * Regroupe par (campagne, statut, sujets) plutot que de lister chaque
+ * annonce individuellement : un compte avec des dizaines de campagnes et
+ * des centaines d'annonces renverrait sinon une reponse trop volumineuse
+ * (timeout cote client) sans rien apporter de plus utile - ce qui compte
+ * ici est de savoir SI une campagne porte un statut/sujet donne, pas la
+ * liste exhaustive de ses annonces.
  */
 export async function verifierPolitiqueAnnonces(prisma: PrismaClient, campagneId?: string): Promise<PolitiqueAnnonceAds[]> {
   const customer = await obtenirClientAds(prisma);
@@ -1070,21 +1076,37 @@ export async function verifierPolitiqueAnnonces(prisma: PrismaClient, campagneId
     SELECT
       campaign.id,
       campaign.name,
-      ad_group_ad.ad.id,
       ad_group_ad.policy_summary.approval_status,
-      ad_group_ad.policy_summary.review_status,
       ad_group_ad.policy_summary.policy_topic_entries
     FROM ad_group_ad
     WHERE ad_group_ad.status != 'REMOVED'${clauseCampagne(campagneId)}
+    LIMIT 5000
   `);
 
-  return lignes.map((ligne) => ({
-    campagneId: String(ligne.campaign?.id ?? ""),
-    campagneNom: ligne.campaign?.name ?? "",
-    adId: String(ligne.ad_group_ad?.ad?.id ?? ""),
-    statutApprobation: decoderEnum(enums.PolicyApprovalStatus as unknown as Record<string, string | number>, ligne.ad_group_ad?.policy_summary?.approval_status),
-    statutRevue: String(ligne.ad_group_ad?.policy_summary?.review_status ?? ""),
-    sujetsPolitique: (ligne.ad_group_ad?.policy_summary?.policy_topic_entries ?? []).map((e) => e.topic ?? "").filter(Boolean),
+  const groupes = new Map<string, { campagneId: string; campagneNom: string; statutApprobation: string; nombreAnnonces: number; sujetsPolitique: Set<string> }>();
+  for (const ligne of lignes) {
+    const campagneIdLigne = String(ligne.campaign?.id ?? "");
+    const statutApprobation = decoderEnum(enums.PolicyApprovalStatus as unknown as Record<string, string | number>, ligne.ad_group_ad?.policy_summary?.approval_status);
+    const sujets = (ligne.ad_group_ad?.policy_summary?.policy_topic_entries ?? []).map((e) => e.topic ?? "").filter(Boolean);
+    const cle = `${campagneIdLigne}::${statutApprobation}::${[...sujets].sort().join(",")}`;
+    const groupe = groupes.get(cle) ?? {
+      campagneId: campagneIdLigne,
+      campagneNom: ligne.campaign?.name ?? "",
+      statutApprobation,
+      nombreAnnonces: 0,
+      sujetsPolitique: new Set<string>(),
+    };
+    groupe.nombreAnnonces += 1;
+    for (const sujet of sujets) groupe.sujetsPolitique.add(sujet);
+    groupes.set(cle, groupe);
+  }
+
+  return [...groupes.values()].map((g) => ({
+    campagneId: g.campagneId,
+    campagneNom: g.campagneNom,
+    nombreAnnonces: g.nombreAnnonces,
+    statutApprobation: g.statutApprobation,
+    sujetsPolitique: [...g.sujetsPolitique],
   }));
 }
 

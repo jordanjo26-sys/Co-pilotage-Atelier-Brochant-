@@ -271,7 +271,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "verifier_politique_annonces_ads",
     description:
-      "Retourne le statut d'approbation reel (APPROVED/APPROVED_LIMITED/DISAPPROVED...) et les sujets de politique (ex. TRADEMARKS_IN_AD_TEXT, LOCAL_SERVICES_AD) des annonces EXISTANTES, par campagne. Utile pour comparer une campagne qui diffuse deja a une campagne bloquee a la creation (ex. erreur POLICY_ERROR sur un mot-cle) - permet de voir si le compte porte une restriction visible sur ses annonces deja actives, ou si le probleme est specifique a la nouvelle tentative. Precise campagneId pour te concentrer sur une campagne. Lecture seule.",
+      "Retourne le statut d'approbation reel (APPROVED/APPROVED_LIMITED/DISAPPROVED...) et les sujets de politique (ex. TRADEMARKS_IN_AD_TEXT, LOCAL_SERVICES_AD) des annonces EXISTANTES, regroupes par campagne (nombre d'annonces concernees, pas le detail annonce par annonce). Utile pour comparer une campagne qui diffuse deja a une campagne bloquee a la creation (ex. erreur POLICY_ERROR sur un mot-cle) - permet de voir si le compte porte une restriction visible sur ses annonces deja actives, ou si le probleme est specifique a la nouvelle tentative. IMPORTANT : si le compte a plus de quelques campagnes, precise TOUJOURS campagneId pour cibler la campagne pertinente (ex. celle qui diffuse deja) plutot que d'interroger tout le compte, qui peut etre tres volumineux. Lecture seule.",
     input_schema: {
       type: "object",
       properties: {
