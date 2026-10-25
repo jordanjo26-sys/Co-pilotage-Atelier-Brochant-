@@ -593,6 +593,7 @@ export async function listerTermesRecherche(prisma: PrismaClient, jours = 30, ca
 }
 
 export interface ActionConversionAds {
+  id: string;
   nom: string;
   type: string;
   categorie: string;
@@ -618,6 +619,7 @@ export async function listerActionsConversion(prisma: PrismaClient): Promise<Act
 
   const lignes = await customer.query(`
     SELECT
+      conversion_action.id,
       conversion_action.name,
       conversion_action.type,
       conversion_action.category,
@@ -629,11 +631,79 @@ export async function listerActionsConversion(prisma: PrismaClient): Promise<Act
   `);
 
   return lignes.map((ligne) => ({
+    id: String(ligne.conversion_action?.id ?? ""),
     nom: ligne.conversion_action?.name ?? "",
     type: String(ligne.conversion_action?.type ?? ""),
     categorie: String(ligne.conversion_action?.category ?? ""),
     statut: String(ligne.conversion_action?.status ?? ""),
     comptabiliseeDansConversions: Boolean(ligne.conversion_action?.include_in_conversions_metric),
     dureeMinimaleAppel: ligne.conversion_action?.phone_call_duration_seconds ?? null,
+  }));
+}
+
+/**
+ * Change si une action de conversion compte dans les conversions
+ * (include_in_conversions_metric). JAMAIS appelee directement par Morgane :
+ * uniquement par googleAdsActions.ts, lors de l'application d'une
+ * PropositionAds deja validee par l'utilisateur sur l'ecran dedie.
+ */
+export async function changerComptageActionConversion(prisma: PrismaClient, conversionActionId: string, inclure: boolean): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.conversionActions.update([
+    {
+      resource_name: ResourceNames.conversionAction(customerId, conversionActionId),
+      include_in_conversions_metric: inclure,
+    },
+  ]);
+}
+
+export interface ExtensionAppelAds {
+  campagneId: string;
+  campagneNom: string;
+  statutLien: string;
+  numero: string;
+  indicatifPays: string;
+  suiviConversionAppel: string; // "DISABLED" | "USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION" | "USE_RESOURCE_LEVEL_CALL_CONVERSION_ACTION"
+}
+
+/**
+ * Liste les extensions d'appel (CallAsset) liees a chaque campagne, avec le
+ * numero affiche et si le suivi de conversion d'appel y est active.
+ * Indispensable pour verifier qu'une campagne dispose bien d'un moyen de
+ * suivre les appels telephoniques independamment du site (demande
+ * explicite de l'utilisateur) - une campagne absente de ce resultat n'a
+ * PAS d'extension d'appel configuree. Lecture seule.
+ */
+export async function listerExtensionsAppel(prisma: PrismaClient, campagneId?: string): Promise<ExtensionAppelAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const lignes = await customer.query(`
+    SELECT
+      campaign.id,
+      campaign.name,
+      campaign_asset.status,
+      asset.call_asset.phone_number,
+      asset.call_asset.country_code,
+      asset.call_asset.call_conversion_reporting_state
+    FROM campaign_asset
+    WHERE campaign_asset.field_type = 'CALL'
+      AND campaign_asset.status != 'REMOVED'${clauseCampagne(campagneId)}
+    ORDER BY campaign.name
+  `);
+
+  return lignes.map((ligne) => ({
+    campagneId: String(ligne.campaign?.id ?? ""),
+    campagneNom: ligne.campaign?.name ?? "",
+    statutLien: String(ligne.campaign_asset?.status ?? ""),
+    numero: ligne.asset?.call_asset?.phone_number ?? "",
+    indicatifPays: ligne.asset?.call_asset?.country_code ?? "",
+    suiviConversionAppel: String(ligne.asset?.call_asset?.call_conversion_reporting_state ?? ""),
   }));
 }

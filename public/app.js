@@ -597,6 +597,7 @@ const LIBELLE_TYPE_PROPOSITION_ADS = {
   ajouter_mots_cles_exclus: "Mots-clés exclus",
   pause_mot_cle: "Pause mot-clé",
   reactiver_mot_cle: "Réactiver mot-clé",
+  exclure_action_conversion: "Exclure du comptage",
 };
 const BADGE_STATUT_PROPOSITION_ADS = {
   en_attente: "badge-partiel",
@@ -680,7 +681,9 @@ async function chargerPropositionsAds() {
             ? `<div class="anomalie-meta"><strong>Mots-clés exclus à ajouter</strong> : ${(p.motsClesExclus || []).map(echapper).join(", ") || "—"}</div>`
             : p.type === "pause_mot_cle" || p.type === "reactiver_mot_cle"
               ? `<div class="anomalie-meta"><strong>Mot-clé</strong> : ${echapper(p.motCleTexte || "—")}</div>`
-              : "";
+              : p.type === "exclure_action_conversion"
+                ? `<div class="anomalie-meta">Cette action de conversion ne comptera plus dans les conversions (elle n'est pas supprimée).</div>`
+                : "";
       return `
     <div class="decision-carte">
       <div class="relance-entete">

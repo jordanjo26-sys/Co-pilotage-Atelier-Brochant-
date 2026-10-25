@@ -16,6 +16,7 @@ import {
   listerMotsCles,
   listerTermesRecherche,
   listerActionsConversion,
+  listerExtensionsAppel,
   messageErreurGoogleAds,
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
@@ -215,21 +216,36 @@ const OUTILS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "obtenir_extensions_appel_ads",
+    description:
+      "Retourne les extensions d'appel (numero de telephone affiche dans l'annonce) liees a chaque campagne, avec le statut du suivi de conversion d'appel. Une campagne ABSENTE du resultat n'a PAS d'extension d'appel configuree. A utiliser pour verifier qu'une campagne dispose bien d'un moyen de suivre les appels telephoniques independamment du site. Precise campagneId pour te concentrer sur une seule campagne. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campagneId: { type: "string", description: "Limiter a une campagne precise (campaign.id, voir obtenir_campagnes_ads). Omis = toutes les campagnes." },
+      },
+    },
+  },
+  {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus, exclusion d'une action de conversion du comptage, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
     input_schema: {
       type: "object",
       properties: {
         type: {
           type: "string",
-          enum: ["pause_campagne", "reactiver_campagne", "creer_campagne", "ajouter_mots_cles_exclus", "pause_mot_cle", "reactiver_mot_cle"],
+          enum: ["pause_campagne", "reactiver_campagne", "creer_campagne", "ajouter_mots_cles_exclus", "pause_mot_cle", "reactiver_mot_cle", "exclure_action_conversion"],
           description: "Action proposee.",
         },
         campagneId: {
           type: "string",
           description:
-            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore) et optionnel pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent a cibler le mot-cle).",
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent) et pour exclure_action_conversion (action au niveau du compte, pas d'une campagne).",
+        },
+        conversionActionId: {
+          type: "string",
+          description: "Identifiant de l'action de conversion (id, voir obtenir_actions_conversion_ads). REQUIS pour exclure_action_conversion.",
         },
         groupeId: {
           type: "string",
@@ -243,7 +259,10 @@ const OUTILS: Anthropic.Tool[] = [
           type: "string",
           description: "Texte du mot-cle concerne, pour affichage sur l'ecran de validation. REQUIS pour pause_mot_cle/reactiver_mot_cle.",
         },
-        campagneNom: { type: "string", description: "Nom de la campagne (existante, ou nom propose pour une nouvelle campagne)." },
+        campagneNom: {
+          type: "string",
+          description: "Nom de la campagne (existante, ou nom propose pour une nouvelle campagne). Pour exclure_action_conversion : nom de l'action de conversion concernee (affichage).",
+        },
         justification: {
           type: "string",
           description: "Resume en langage clair de pourquoi cette action est proposee, affiche a l'utilisateur sur l'ecran de validation.",
@@ -474,9 +493,32 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "obtenir_extensions_appel_ads": {
+      const campagneId = typeof params.campagneId === "string" && params.campagneId ? params.campagneId : undefined;
+      try {
+        return { extensionsAppel: await listerExtensionsAppel(prisma, campagneId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
     case "proposer_action_ads": {
-      const { type, campagneId, campagneNom, justification, budgetQuotidien, urlFinale, titres, descriptions, motsCles, motsClesExclus, groupeId, criterionId, motCleTexte } =
-        params as Record<string, unknown>;
+      const {
+        type,
+        campagneId,
+        campagneNom,
+        justification,
+        budgetQuotidien,
+        urlFinale,
+        titres,
+        descriptions,
+        motsCles,
+        motsClesExclus,
+        groupeId,
+        criterionId,
+        motCleTexte,
+        conversionActionId,
+      } = params as Record<string, unknown>;
       const typesValides: TypePropositionAds[] = [
         "pause_campagne",
         "reactiver_campagne",
@@ -484,11 +526,12 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
         "ajouter_mots_cles_exclus",
         "pause_mot_cle",
         "reactiver_mot_cle",
+        "exclure_action_conversion",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
       }
-      const exigeCampagneId = type !== "creer_campagne" && type !== "pause_mot_cle" && type !== "reactiver_mot_cle";
+      const exigeCampagneId = type !== "creer_campagne" && type !== "pause_mot_cle" && type !== "reactiver_mot_cle" && type !== "exclure_action_conversion";
       if (exigeCampagneId && (typeof campagneId !== "string" || !campagneId)) return { erreur: "campagneId manquant" };
       if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
       if (typeof justification !== "string" || !justification) return { erreur: "justification manquante" };
@@ -508,6 +551,7 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           groupeId: typeof groupeId === "string" ? groupeId : undefined,
           criterionId: typeof criterionId === "string" ? criterionId : undefined,
           motCleTexte: typeof motCleTexte === "string" ? motCleTexte : undefined,
+          conversionActionId: typeof conversionActionId === "string" ? conversionActionId : undefined,
         });
         return {
           ok: true,
@@ -624,7 +668,16 @@ precisement ce qui est configure (type d'action, statut, \
 include_in_conversions_metric) plutot que de suggerer une verification \
 manuelle en aveugle - explique ensuite clairement ce que tu as trouve \
 (action absente, desactivee, ou d'un type qui ne correspond pas a un \
-appel reel).
+appel reel). Une action qui compte une simple vue de page comme \
+conversion gonfle artificiellement le nombre de conversions et fausse le \
+CPA - signale-le explicitement si tu en vois une, et propose de \
+l'exclure du comptage (proposer_action_ads, type \
+exclure_action_conversion) apres accord de l'utilisateur.
+  - Appelle obtenir_extensions_appel_ads des que tu analyses une campagne \
+ou l'appel telephonique est la conversion visee : une campagne absente du \
+resultat n'a aucun moyen de suivre les appels independamment du site - \
+dis-le explicitement, c'est un angle mort de mesure, pas juste une \
+optimisation secondaire.
   Quand l'utilisateur demande un audit ou un point complet (pas une \
 question ponctuelle), structure ta reponse ainsi : (1) resume executif en \
 2-3 phrases (etat general, principal probleme, principale opportunite), \
@@ -674,6 +727,13 @@ TOUJOURS groupeId et criterionId (fournis par obtenir_mots_cles_ads pour \
 chaque mot-cle, jamais devines) en plus de motCleTexte pour l'affichage. \
 Comme pour toute proposition, discute d'abord : un faible volume de \
 donnees ne suffit pas a juger un mot-cle definitivement mauvais.
+  Exclusion d'une action de conversion du comptage \
+(exclure_action_conversion) : pour une action qui compte une simple vue \
+de page ou un signal non commercial comme conversion (identifie via \
+obtenir_actions_conversion_ads), fausse le CPA et les decisions prises \
+dessus. Precise conversionActionId (jamais devine). Explique clairement a \
+l'utilisateur que cela ne SUPPRIME pas l'action, seulement son comptage \
+dans les conversions - les donnees passees ne changent pas.
   Les actions de gestion encore plus fine (ajustement d'enchere individuel, \
 modification de budget d'une campagne existante, ajout de mots-cles \
 POSITIFS a une campagne existante) n'existent pas encore : dis-le \

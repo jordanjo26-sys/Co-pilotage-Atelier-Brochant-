@@ -193,6 +193,33 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (exclure_action_conversion) : rejette une entree sans conversionActionId", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "exclure_action_conversion",
+        campagneId: "",
+        campagneNom: "Fichet (vue de page)",
+        justification: "Cette action compte une simple vue de page comme conversion, ce qui fausse le CPA.",
+      }),
+      /conversionActionId/
+    );
+  });
+
+  await t.test("creerPropositionAds (exclure_action_conversion) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "exclure_action_conversion",
+      campagneId: "",
+      campagneNom: "Fichet (vue de page)",
+      justification: "Cette action compte une simple vue de page comme conversion, ce qui fausse le CPA.",
+      conversionActionId: "987654",
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.conversionActionId, "987654");
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -260,6 +287,18 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultatMotCle = await accepterPropositionAds(prisma, propositionMotCle.id);
       assert.equal(resultatMotCle.statut, "echec");
       assert.match(resultatMotCle.erreur || "", /non configure/);
+
+      // Meme verification pour exclure_action_conversion.
+      const propositionConversion = await creerPropositionAds(prisma, {
+        type: "exclure_action_conversion",
+        campagneId: "",
+        campagneNom: "Fichet (vue de page)",
+        justification: "Cette action compte une simple vue de page comme conversion.",
+        conversionActionId: "987654",
+      });
+      const resultatConversion = await accepterPropositionAds(prisma, propositionConversion.id);
+      assert.equal(resultatConversion.statut, "echec");
+      assert.match(resultatConversion.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

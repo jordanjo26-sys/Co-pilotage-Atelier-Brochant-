@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { changerStatutCampagne, changerStatutMotCle, creerCampagne, ajouterMotsClesExclus, messageErreurGoogleAds } from "./googleAds";
+import { changerStatutCampagne, changerStatutMotCle, creerCampagne, ajouterMotsClesExclus, changerComptageActionConversion, messageErreurGoogleAds } from "./googleAds";
 import { logEvenement } from "./journalService";
 
 /**
@@ -17,7 +17,8 @@ export type TypePropositionAds =
   | "creer_campagne"
   | "ajouter_mots_cles_exclus"
   | "pause_mot_cle"
-  | "reactiver_mot_cle";
+  | "reactiver_mot_cle"
+  | "exclure_action_conversion";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -33,6 +34,7 @@ export interface PropositionAdsEntree {
   groupeId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
   criterionId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
   motCleTexte?: string; // requis pour pause_mot_cle/reactiver_mot_cle (affichage)
+  conversionActionId?: string; // requis pour exclure_action_conversion
 }
 
 /**
@@ -61,6 +63,9 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
     if (!entree.groupeId) throw new Error(`groupeId manquant (requis pour ${entree.type}).`);
     if (!entree.criterionId) throw new Error(`criterionId manquant (requis pour ${entree.type}).`);
     if (!entree.motCleTexte) throw new Error(`motCleTexte manquant (requis pour ${entree.type}).`);
+  }
+  if (entree.type === "exclure_action_conversion") {
+    if (!entree.conversionActionId) throw new Error("conversionActionId manquant (requis pour exclure_action_conversion).");
   }
 
   const proposition = await prisma.propositionAds.create({ data: entree });
@@ -124,6 +129,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
       case "reactiver_mot_cle":
         await changerStatutMotCle(prisma, proposition.groupeId ?? "", proposition.criterionId ?? "", "ENABLED");
         break;
+      case "exclure_action_conversion":
+        await changerComptageActionConversion(prisma, proposition.conversionActionId ?? "", false);
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -142,7 +150,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
             ? `${proposition.motsClesExclus.length} mot(s)-cle(s) exclu(s) ajoute(s) : ${proposition.motsClesExclus.join(", ")}.`
             : proposition.type === "pause_mot_cle" || proposition.type === "reactiver_mot_cle"
               ? `Mot-cle "${proposition.motCleTexte}" ${proposition.type === "pause_mot_cle" ? "mis en pause" : "reactive"}.`
-              : "Applique avec succes sur Google Ads.",
+              : proposition.type === "exclure_action_conversion"
+                ? `Action de conversion "${proposition.campagneNom}" retiree du comptage des conversions.`
+                : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {
