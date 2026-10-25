@@ -47,8 +47,20 @@ const INTERVALLE_ENVOI_AUTO_PROSPECTION_MS = Number(process.env.PROSPECTION_ENVO
  */
 export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
   const intervalle = Number(process.env.GMAIL_POLL_INTERVAL_MS) || INTERVALLE_PAR_DEFAUT_MS;
+  // Garde-fou contre le chevauchement (bug racine du "jeton qui saute" en
+  // production, octobre 2026) : setInterval ne sait pas qu'un callback
+  // async est deja en cours. Si une synchronisation prend plus longtemps
+  // que l'intervalle (gros volume de pieces jointes), le tic suivant en
+  // demarrait une deuxieme en parallele, chacune consommant le quota
+  // Gmail par utilisateur en meme temps - un "User-rate limit exceeded"
+  // qui ne se resorbait jamais puisque chaque nouveau tic ajoutait encore
+  // une synchronisation en plus, au lieu d'attendre que la precedente
+  // libere le quota.
+  let synchronisationEnCours = false;
 
   setInterval(async () => {
+    if (synchronisationEnCours) return;
+    synchronisationEnCours = true;
     try {
       const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
       if (!connexion) return; // rien a synchroniser tant que Gmail n'est pas connecte
@@ -80,6 +92,8 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
         action: "Synchronisation automatique Gmail",
         resultat: `Echec : ${(err as Error).message}`,
       }).catch(() => {});
+    } finally {
+      synchronisationEnCours = false;
     }
   }, intervalle);
 }
@@ -261,13 +275,24 @@ export function demarrerEnvoiAutomatiqueCampagnes(prisma: PrismaClient): void {
  * src/services/messagerieSecours.ts.
  */
 export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void {
-  setInterval(() => {
-    recupererMessagesSecours(prisma).catch((err) => {
-      console.error("Recuperation des messages de secours en echec :", (err as Error).message);
-    });
-    renvoyerComptesRendusEnAttente(prisma).catch((err) => {
-      console.error("Renvoi des comptes rendus d'appel en echec :", (err as Error).message);
-    });
+  // Meme garde-fou anti-chevauchement que demarrerSurveillanceGmail : ces
+  // deux fonctions envoient des e-mails via l'API Gmail (meme quota par
+  // utilisateur), donc un chevauchement ici aggrave aussi un "User-rate
+  // limit exceeded" en cours.
+  let enCours = false;
+  setInterval(async () => {
+    if (enCours) return;
+    enCours = true;
+    try {
+      await recupererMessagesSecours(prisma).catch((err) => {
+        console.error("Recuperation des messages de secours en echec :", (err as Error).message);
+      });
+      await renvoyerComptesRendusEnAttente(prisma).catch((err) => {
+        console.error("Renvoi des comptes rendus d'appel en echec :", (err as Error).message);
+      });
+    } finally {
+      enCours = false;
+    }
   }, 5 * 60 * 1000);
 }
 
@@ -278,9 +303,16 @@ export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void 
  * uniquement si au moins un a ete trouve.
  */
 export function demarrerRecapMailsImportants(prisma: PrismaClient): void {
-  setInterval(() => {
-    verifierMailsImportants(prisma).catch((err) => {
-      console.error("Verification des mails importants en echec :", (err as Error).message);
-    });
+  let enCours = false;
+  setInterval(async () => {
+    if (enCours) return;
+    enCours = true;
+    try {
+      await verifierMailsImportants(prisma).catch((err) => {
+        console.error("Verification des mails importants en echec :", (err as Error).message);
+      });
+    } finally {
+      enCours = false;
+    }
   }, 60 * 60 * 1000);
 }
