@@ -663,6 +663,27 @@ export interface AudienceAds {
   nomTrouve: string;
 }
 
+/**
+ * Un centre d'interet Google (user_interest) n'est pas forcement utilisable
+ * sur une campagne Search : certaines categories sont reservees a
+ * Display/Video (launched_to_all = false et aucune disponibilite listant
+ * SEARCH), et les utiliser comme critere sur une campagne Search declenche
+ * INVALID_USER_INTEREST a l'ajout plutot qu'une erreur "non trouve" - d'ou
+ * la necessite de filtrer AVANT de proposer un nom, pas seulement de
+ * verifier qu'il existe.
+ */
+function centreInteretEligiblePourSearch(ui: {
+  launched_to_all?: unknown;
+  availabilities?: Array<{ channel?: { availability_mode?: unknown; advertising_channel_type?: unknown } | null }> | null;
+}): boolean {
+  if (ui.launched_to_all === true) return true;
+  return (ui.availabilities ?? []).some((a) => {
+    const mode = decoderEnum(enums.CriterionCategoryChannelAvailabilityMode as unknown as Record<string, string | number>, a.channel?.availability_mode);
+    const canal = decoderEnum(enums.AdvertisingChannelType as unknown as Record<string, string | number>, a.channel?.advertising_channel_type);
+    return mode === "ALL_CHANNELS" || canal === "SEARCH";
+  });
+}
+
 export async function rechercherAudiences(prisma: PrismaClient, termes: string[]): Promise<AudienceAds[]> {
   const customer = await obtenirClientAds(prisma);
   if (!customer) {
@@ -674,14 +695,14 @@ export async function rechercherAudiences(prisma: PrismaClient, termes: string[]
   for (const terme of termes) {
     const termeEchappe = terme.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const lignes = await customer.query(`
-      SELECT user_interest.resource_name, user_interest.name
+      SELECT user_interest.resource_name, user_interest.name, user_interest.launched_to_all, user_interest.availabilities
       FROM user_interest
       WHERE user_interest.name LIKE '%${termeEchappe}%'
-      LIMIT 1
+      LIMIT 20
     `);
-    const resourceName = lignes[0]?.user_interest?.resource_name;
-    if (resourceName) {
-      resultats.push({ nomRecherche: terme, resourceName, nomTrouve: lignes[0].user_interest?.name ?? "" });
+    const ligne = lignes.find((l) => l.user_interest?.resource_name && centreInteretEligiblePourSearch(l.user_interest));
+    if (ligne?.user_interest?.resource_name) {
+      resultats.push({ nomRecherche: terme, resourceName: ligne.user_interest.resource_name, nomTrouve: ligne.user_interest.name ?? "" });
     }
   }
   return resultats;
