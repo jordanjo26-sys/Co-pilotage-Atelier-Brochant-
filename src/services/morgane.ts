@@ -210,15 +210,31 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne existante, ajout de mots-cles exclus sur une campagne existante, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
     input_schema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["pause_campagne", "reactiver_campagne", "creer_campagne", "ajouter_mots_cles_exclus"], description: "Action proposee." },
+        type: {
+          type: "string",
+          enum: ["pause_campagne", "reactiver_campagne", "creer_campagne", "ajouter_mots_cles_exclus", "pause_mot_cle", "reactiver_mot_cle"],
+          description: "Action proposee.",
+        },
         campagneId: {
           type: "string",
           description:
-            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore).",
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore) et optionnel pour pause_mot_cle/reactiver_mot_cle (groupeId/criterionId suffisent a cibler le mot-cle).",
+        },
+        groupeId: {
+          type: "string",
+          description: "Identifiant du groupe d'annonces (ad_group.id, voir obtenir_mots_cles_ads). REQUIS pour pause_mot_cle/reactiver_mot_cle.",
+        },
+        criterionId: {
+          type: "string",
+          description: "Identifiant du critere mot-cle (criterionId, voir obtenir_mots_cles_ads). REQUIS pour pause_mot_cle/reactiver_mot_cle - identifie le mot-cle precis avec groupeId.",
+        },
+        motCleTexte: {
+          type: "string",
+          description: "Texte du mot-cle concerne, pour affichage sur l'ecran de validation. REQUIS pour pause_mot_cle/reactiver_mot_cle.",
         },
         campagneNom: { type: "string", description: "Nom de la campagne (existante, ou nom propose pour une nouvelle campagne)." },
         justification: {
@@ -444,11 +460,21 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
     }
 
     case "proposer_action_ads": {
-      const { type, campagneId, campagneNom, justification, budgetQuotidien, urlFinale, titres, descriptions, motsCles, motsClesExclus } = params as Record<string, unknown>;
-      if (type !== "pause_campagne" && type !== "reactiver_campagne" && type !== "creer_campagne" && type !== "ajouter_mots_cles_exclus") {
-        return { erreur: "type invalide (attendu : pause_campagne, reactiver_campagne, creer_campagne ou ajouter_mots_cles_exclus)" };
+      const { type, campagneId, campagneNom, justification, budgetQuotidien, urlFinale, titres, descriptions, motsCles, motsClesExclus, groupeId, criterionId, motCleTexte } =
+        params as Record<string, unknown>;
+      const typesValides: TypePropositionAds[] = [
+        "pause_campagne",
+        "reactiver_campagne",
+        "creer_campagne",
+        "ajouter_mots_cles_exclus",
+        "pause_mot_cle",
+        "reactiver_mot_cle",
+      ];
+      if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
+        return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
       }
-      if (type !== "creer_campagne" && (typeof campagneId !== "string" || !campagneId)) return { erreur: "campagneId manquant" };
+      const exigeCampagneId = type !== "creer_campagne" && type !== "pause_mot_cle" && type !== "reactiver_mot_cle";
+      if (exigeCampagneId && (typeof campagneId !== "string" || !campagneId)) return { erreur: "campagneId manquant" };
       if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
       if (typeof justification !== "string" || !justification) return { erreur: "justification manquante" };
       const toTableauString = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined);
@@ -464,6 +490,9 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
           descriptions: toTableauString(descriptions),
           motsCles: toTableauString(motsCles),
           motsClesExclus: toTableauString(motsClesExclus),
+          groupeId: typeof groupeId === "string" ? groupeId : undefined,
+          criterionId: typeof criterionId === "string" ? criterionId : undefined,
+          motCleTexte: typeof motCleTexte === "string" ? motCleTexte : undefined,
         });
         return {
           ok: true,
@@ -617,11 +646,21 @@ Google Ads apres verification - c'est une securite volontaire, pas une \
 limitation a contourner.
   Mots-cles exclus sur une campagne existante (ajouter_mots_cles_exclus) : \
 identifie-les via obtenir_termes_recherche_ads (jamais invente), discute \
-chaque terme avec l'utilisateur avant de le proposer. Les actions de \
-gestion encore plus fine (ajustement d'enchere individuel, modification de \
-budget d'une campagne existante, ajout de mots-cles POSITIFS a une \
-campagne existante) n'existent pas encore : dis-le clairement si \
-l'utilisateur les demande plutot que de pretendre les avoir faites.`;
+chaque terme avec l'utilisateur avant de le proposer.
+  Pause/reactivation d'un mot-cle precis (pause_mot_cle/reactiver_mot_cle) : \
+pour un mot-cle qui coute cher sans convertir (identifie via \
+obtenir_mots_cles_ads), tu peux proposer de le mettre en pause plutot que \
+de l'exclure - utile quand ce n'est pas le mot-cle lui-meme qui est hors \
+sujet, mais sa performance qui est mauvaise sur la periode. Precise \
+TOUJOURS groupeId et criterionId (fournis par obtenir_mots_cles_ads pour \
+chaque mot-cle, jamais devines) en plus de motCleTexte pour l'affichage. \
+Comme pour toute proposition, discute d'abord : un faible volume de \
+donnees ne suffit pas a juger un mot-cle definitivement mauvais.
+  Les actions de gestion encore plus fine (ajustement d'enchere individuel, \
+modification de budget d'une campagne existante, ajout de mots-cles \
+POSITIFS a une campagne existante) n'existent pas encore : dis-le \
+clairement si l'utilisateur les demande plutot que de pretendre les avoir \
+faites.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils

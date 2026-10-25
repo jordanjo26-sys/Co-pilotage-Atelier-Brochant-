@@ -159,6 +159,40 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (pause_mot_cle/reactiver_mot_cle) : rejette une entree incomplete", async () => {
+    const base = {
+      type: "pause_mot_cle" as const,
+      campagneId: "",
+      campagneNom: "Dépannage",
+      justification: "212 € dépensés sans aucune conversion sur 30 jours.",
+      groupeId: "456",
+      criterionId: "789",
+      motCleTexte: "serrure Fichet",
+    };
+    await assert.rejects(creerPropositionAds(prisma, { ...base, groupeId: undefined }), /groupeId/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, criterionId: undefined }), /criterionId/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, motCleTexte: undefined }), /motCleTexte/);
+  });
+
+  await t.test("creerPropositionAds (pause_mot_cle) : entree valide -> deposee en_attente, campagneId optionnel", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "pause_mot_cle",
+      campagneId: "",
+      campagneNom: "Dépannage",
+      justification: "212 € dépensés sans aucune conversion sur 30 jours.",
+      groupeId: "456",
+      criterionId: "789",
+      motCleTexte: "serrure Fichet",
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.groupeId, "456");
+    assert.equal(proposition.criterionId, "789");
+    assert.equal(proposition.motCleTexte, "serrure Fichet");
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -212,6 +246,20 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultatExclus = await accepterPropositionAds(prisma, propositionExclus.id);
       assert.equal(resultatExclus.statut, "echec");
       assert.match(resultatExclus.erreur || "", /non configure/);
+
+      // Meme verification pour pause_mot_cle.
+      const propositionMotCle = await creerPropositionAds(prisma, {
+        type: "pause_mot_cle",
+        campagneId: "",
+        campagneNom: "Dépannage",
+        justification: "212 € dépensés sans aucune conversion sur 30 jours.",
+        groupeId: "456",
+        criterionId: "789",
+        motCleTexte: "serrure Fichet",
+      });
+      const resultatMotCle = await accepterPropositionAds(prisma, propositionMotCle.id);
+      assert.equal(resultatMotCle.statut, "echec");
+      assert.match(resultatMotCle.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

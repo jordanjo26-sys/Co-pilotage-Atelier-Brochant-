@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { changerStatutCampagne, creerCampagne, ajouterMotsClesExclus, messageErreurGoogleAds } from "./googleAds";
+import { changerStatutCampagne, changerStatutMotCle, creerCampagne, ajouterMotsClesExclus, messageErreurGoogleAds } from "./googleAds";
 import { logEvenement } from "./journalService";
 
 /**
@@ -11,7 +11,13 @@ import { logEvenement } from "./journalService";
  * Rien n'est applique a Google Ads avant cette validation explicite.
  */
 
-export type TypePropositionAds = "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus";
+export type TypePropositionAds =
+  | "pause_campagne"
+  | "reactiver_campagne"
+  | "creer_campagne"
+  | "ajouter_mots_cles_exclus"
+  | "pause_mot_cle"
+  | "reactiver_mot_cle";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -24,6 +30,9 @@ export interface PropositionAdsEntree {
   descriptions?: string[];
   motsCles?: string[];
   motsClesExclus?: string[];
+  groupeId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
+  criterionId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
+  motCleTexte?: string; // requis pour pause_mot_cle/reactiver_mot_cle (affichage)
 }
 
 /**
@@ -47,6 +56,11 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
   if (entree.type === "ajouter_mots_cles_exclus") {
     if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_mots_cles_exclus).");
     if (!entree.motsClesExclus || entree.motsClesExclus.length === 0) throw new Error("motsClesExclus : au moins un mot-cle est requis.");
+  }
+  if (entree.type === "pause_mot_cle" || entree.type === "reactiver_mot_cle") {
+    if (!entree.groupeId) throw new Error(`groupeId manquant (requis pour ${entree.type}).`);
+    if (!entree.criterionId) throw new Error(`criterionId manquant (requis pour ${entree.type}).`);
+    if (!entree.motCleTexte) throw new Error(`motCleTexte manquant (requis pour ${entree.type}).`);
   }
 
   const proposition = await prisma.propositionAds.create({ data: entree });
@@ -104,6 +118,12 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
       case "ajouter_mots_cles_exclus":
         await ajouterMotsClesExclus(prisma, proposition.campagneId, proposition.motsClesExclus);
         break;
+      case "pause_mot_cle":
+        await changerStatutMotCle(prisma, proposition.groupeId ?? "", proposition.criterionId ?? "", "PAUSED");
+        break;
+      case "reactiver_mot_cle":
+        await changerStatutMotCle(prisma, proposition.groupeId ?? "", proposition.criterionId ?? "", "ENABLED");
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -120,7 +140,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
           ? `Campagne creee avec succes (id ${campagneIdCreee}), en PAUSE - a activer manuellement dans Google Ads apres verification.`
           : proposition.type === "ajouter_mots_cles_exclus"
             ? `${proposition.motsClesExclus.length} mot(s)-cle(s) exclu(s) ajoute(s) : ${proposition.motsClesExclus.join(", ")}.`
-            : "Applique avec succes sur Google Ads.",
+            : proposition.type === "pause_mot_cle" || proposition.type === "reactiver_mot_cle"
+              ? `Mot-cle "${proposition.motCleTexte}" ${proposition.type === "pause_mot_cle" ? "mis en pause" : "reactive"}.`
+              : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {

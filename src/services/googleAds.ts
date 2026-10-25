@@ -293,6 +293,30 @@ export async function changerStatutCampagne(prisma: PrismaClient, campagneId: st
   ]);
 }
 
+/**
+ * Change le statut (ENABLED/PAUSED) d'un mot-cle PRECIS (par opposition a
+ * changerStatutCampagne, qui agit sur la campagne entiere). groupeId et
+ * criterionId identifient le mot-cle de facon unique (voir listerMotsCles) -
+ * son texte seul ne suffit pas, le meme mot pouvant exister dans plusieurs
+ * groupes d'annonces. JAMAIS appelee directement par Morgane : uniquement
+ * par googleAdsActions.ts, lors de l'application d'une PropositionAds deja
+ * validee par l'utilisateur sur l'ecran dedie.
+ */
+export async function changerStatutMotCle(prisma: PrismaClient, groupeId: string, criterionId: string, nouveauStatut: "ENABLED" | "PAUSED"): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.adGroupCriteria.update([
+    {
+      resource_name: ResourceNames.adGroupCriterion(customerId, groupeId, criterionId),
+      status: enums.AdGroupCriterionStatus[nouveauStatut],
+    },
+  ]);
+}
+
 export interface ParametresCreationCampagne {
   nom: string;
   budgetQuotidien: number; // euros/jour
@@ -429,7 +453,9 @@ function clauseCampagne(campagneId?: string): string {
 export interface MotCleAds {
   campagneId: string;
   campagneNom: string;
+  groupeId: string;
   groupeNom: string;
+  criterionId: string;
   texte: string;
   typeCorrespondance: string;
   statut: string;
@@ -462,7 +488,9 @@ export async function listerMotsCles(prisma: PrismaClient, jours = 30, campagneI
     SELECT
       campaign.id,
       campaign.name,
+      ad_group.id,
       ad_group.name,
+      ad_group_criterion.criterion_id,
       ad_group_criterion.keyword.text,
       ad_group_criterion.keyword.match_type,
       ad_group_criterion.status,
@@ -484,7 +512,9 @@ export async function listerMotsCles(prisma: PrismaClient, jours = 30, campagneI
   return lignes.map((ligne) => ({
     campagneId: String(ligne.campaign?.id ?? ""),
     campagneNom: ligne.campaign?.name ?? "",
+    groupeId: String(ligne.ad_group?.id ?? ""),
     groupeNom: ligne.ad_group?.name ?? "",
+    criterionId: String(ligne.ad_group_criterion?.criterion_id ?? ""),
     texte: ligne.ad_group_criterion?.keyword?.text ?? "",
     typeCorrespondance: String(ligne.ad_group_criterion?.keyword?.match_type ?? ""),
     statut: String(ligne.ad_group_criterion?.status ?? ""),
