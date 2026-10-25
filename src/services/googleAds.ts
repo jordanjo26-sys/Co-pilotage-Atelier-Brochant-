@@ -889,11 +889,25 @@ export interface ParametresCreationCampagne {
  * verification. Enchere automatique "maximiser les conversions" (pas
  * d'enchere manuelle par mot-cle a gerer).
  */
-export async function creerCampagne(prisma: PrismaClient, params: ParametresCreationCampagne): Promise<{ campagneId: string }> {
+/**
+ * Cree une campagne Search complete. Les etapes CORE (budget, campagne,
+ * groupe, mots-cles, annonce) levent une exception en cas d'echec - sans
+ * elles, il n'y a pas de campagne utilisable. Les etapes d'ENRICHISSEMENT
+ * posterieures (ciblage geo, extension d'appel, extensions, horaires,
+ * audiences) sont volontairement NON BLOQUANTES : un echec sur l'une
+ * d'elles est collecte dans `avertissements` plutot que de faire remonter
+ * une exception - la campagne existe deja a ce stade (budget depense,
+ * mots-cles et annonce bien crees), et la marquer "echec" dans son
+ * ensemble induirait l'utilisateur en erreur en lui faisant croire que
+ * rien n'a ete cree alors qu'une campagne reelle existe, juste incomplete
+ * sur un point secondaire.
+ */
+export async function creerCampagne(prisma: PrismaClient, params: ParametresCreationCampagne): Promise<{ campagneId: string; avertissements: string[] }> {
   const customer = await obtenirClientAds(prisma);
   if (!customer) {
     throw new Error("Google Ads non configure ou aucune boite Google connectee.");
   }
+  const avertissements: string[] = [];
 
   const budgetResultat = await customer.campaignBudgets.create([
     {
@@ -975,45 +989,49 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
   ]);
 
   if (params.ciblesGeographiques && params.ciblesGeographiques.length > 0) {
-    const cibles = await rechercherCiblesGeographiques(prisma, params.ciblesGeographiques);
-    const manquants = params.ciblesGeographiques.filter((nom) => !cibles.some((c) => c.nomRecherche === nom));
-    if (manquants.length > 0) {
-      throw new Error(
-        `Campagne creee (id ${campagneId}) mais ciblage geographique incomplet : aucune correspondance Google pour "${manquants.join('", "')}". Les autres lieux n'ont pas ete appliques non plus - corrige les noms et reessaie via une modification de ciblage.`
+    try {
+      const cibles = await rechercherCiblesGeographiques(prisma, params.ciblesGeographiques);
+      const manquants = params.ciblesGeographiques.filter((nom) => !cibles.some((c) => c.nomRecherche === nom));
+      if (manquants.length > 0) {
+        throw new Error(`aucune correspondance Google pour "${manquants.join('", "')}". Aucun lieu n'a ete applique (tout ou rien).`);
+      }
+      await customer.campaignCriteria.create(
+        cibles.map((cible) => ({
+          campaign: campagneResourceName,
+          status: enums.CampaignCriterionStatus.ENABLED,
+          location: { geo_target_constant: cible.resourceName },
+        }))
       );
+    } catch (err) {
+      avertissements.push(`Ciblage geographique incomplet : ${messageErreurGoogleAds(err)}`);
     }
-    await customer.campaignCriteria.create(
-      cibles.map((cible) => ({
-        campaign: campagneResourceName,
-        status: enums.CampaignCriterionStatus.ENABLED,
-        location: { geo_target_constant: cible.resourceName },
-      }))
-    );
   }
 
   if (params.numeroTelephone) {
-    const assetResultat = await customer.assets.create([
-      {
-        type: enums.AssetType.CALL,
-        call_asset: {
-          country_code: "FR",
-          phone_number: params.numeroTelephone,
-          call_conversion_reporting_state: enums.CallConversionReportingState.USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION,
+    try {
+      const assetResultat = await customer.assets.create([
+        {
+          type: enums.AssetType.CALL,
+          call_asset: {
+            country_code: "FR",
+            phone_number: params.numeroTelephone,
+            call_conversion_reporting_state: enums.CallConversionReportingState.USE_ACCOUNT_LEVEL_CALL_CONVERSION_ACTION,
+          },
         },
-      },
-    ]);
-    const assetResourceName = assetResultat.results?.[0]?.resource_name;
-    if (!assetResourceName) {
-      throw new Error(`Campagne creee (id ${campagneId}) mais echec de la creation de l'extension d'appel (aucun resource_name retourne).`);
+      ]);
+      const assetResourceName = assetResultat.results?.[0]?.resource_name;
+      if (!assetResourceName) throw new Error("aucun resource_name retourne");
+      await customer.campaignAssets.create([
+        {
+          campaign: campagneResourceName,
+          asset: assetResourceName,
+          field_type: enums.AssetFieldType.CALL,
+          status: enums.AssetLinkStatus.ENABLED,
+        },
+      ]);
+    } catch (err) {
+      avertissements.push(`Extension d'appel non creee : ${messageErreurGoogleAds(err)}`);
     }
-    await customer.campaignAssets.create([
-      {
-        campaign: campagneResourceName,
-        asset: assetResourceName,
-        field_type: enums.AssetFieldType.CALL,
-        status: enums.AssetLinkStatus.ENABLED,
-      },
-    ]);
   }
 
   if (params.sitelinks?.length || params.callouts?.length || params.structuredSnippets?.length) {
@@ -1024,7 +1042,7 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
         structuredSnippets: params.structuredSnippets,
       });
     } catch (err) {
-      throw new Error(`Campagne creee (id ${campagneId}) mais echec de la creation des extensions (liens d'accroche/accroches/extraits) : ${messageErreurGoogleAds(err)}`);
+      avertissements.push(`Extensions (liens d'accroche/accroches/extraits) non creees : ${messageErreurGoogleAds(err)}`);
     }
   }
 
@@ -1032,7 +1050,7 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
     try {
       await customer.campaignCriteria.create(params.horaires.map((h) => ({ campaign: campagneResourceName, ...construireChampHoraire(h) })));
     } catch (err) {
-      throw new Error(`Campagne creee (id ${campagneId}) mais echec de la configuration des horaires : ${messageErreurGoogleAds(err)}`);
+      avertissements.push(`Horaires non configures : ${messageErreurGoogleAds(err)}`);
     }
   }
 
@@ -1051,11 +1069,11 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
         }))
       );
     } catch (err) {
-      throw new Error(`Campagne creee (id ${campagneId}) mais echec de l'ajout des audiences : ${messageErreurGoogleAds(err)}`);
+      avertissements.push(`Audiences non ajoutees : ${messageErreurGoogleAds(err)}`);
     }
   }
 
-  return { campagneId };
+  return { campagneId, avertissements };
 }
 
 /** Ajoute des mots-cles exclus (negatifs) au niveau de la campagne (correspondance large). Usage interne. */

@@ -188,6 +188,7 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
 
   try {
     let campagneIdCreee: string | undefined;
+    let avertissementsCreation: string[] = [];
     let conversionActionIdCreee: string | undefined;
     switch (proposition.type) {
       case "pause_campagne":
@@ -217,6 +218,7 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
           audiences: proposition.audiences.length > 0 ? proposition.audiences : undefined,
         });
         campagneIdCreee = resultat.campagneId;
+        avertissementsCreation = resultat.avertissements;
         break;
       }
       case "ajouter_mots_cles_exclus":
@@ -288,7 +290,7 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
       action: `${proposition.type} : ${proposition.campagneNom}`,
       resultat:
         proposition.type === "creer_campagne"
-          ? `Campagne creee avec succes (id ${campagneIdCreee}), en PAUSE - a activer manuellement dans Google Ads apres verification.`
+          ? `Campagne creee avec succes (id ${campagneIdCreee}), en PAUSE - a activer manuellement dans Google Ads apres verification.${avertissementsCreation.length > 0 ? ` Points a corriger separement : ${avertissementsCreation.join(" | ")}` : ""}`
           : proposition.type === "ajouter_mots_cles_exclus"
             ? `${proposition.motsClesExclus.length} mot(s)-cle(s) exclu(s) ajoute(s) : ${proposition.motsClesExclus.join(", ")}.`
             : proposition.type === "pause_mot_cle" || proposition.type === "reactiver_mot_cle"
