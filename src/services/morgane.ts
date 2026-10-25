@@ -20,6 +20,7 @@ import {
   obtenirSnippetConversion,
   listerPerformanceAnnonces,
   verifierPolitiqueAnnonces,
+  verifierPolitiqueAssets,
   rechercherAudiences,
   diagnostiquerAudience,
   listerMotsClesConfigures,
@@ -293,6 +294,12 @@ const OUTILS: Anthropic.Tool[] = [
         campagneId: { type: "string", description: "Limiter a une campagne precise (campaign.id, voir obtenir_campagnes_ads). Omis = toutes les campagnes." },
       },
     },
+  },
+  {
+    name: "verifier_politique_assets_ads",
+    description:
+      "Retourne le statut d'approbation reel et les sujets de politique des ASSETS (sitelinks, accroches/callouts, extensions d'appel...), avec leur texte/numero exact - par opposition a verifier_politique_annonces_ads, qui ne couvre QUE les annonces. Indispensable si l'utilisateur recoit un e-mail Google Ads signalant un 'composant' refuse (ex. politique 'Numero de telephone dans un texte d'annonce' ou 'Services locaux') : ce refus porte souvent sur un sitelink/accroche, pas sur l'annonce elle-meme, et verifier_politique_annonces_ads ne le detecte pas. Compte entier, pas de filtre par campagne (un asset peut etre partage). Lecture seule.",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "rechercher_audiences_ads",
@@ -766,6 +773,14 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       const campagneId = typeof params.campagneId === "string" && params.campagneId ? params.campagneId : undefined;
       try {
         return { annonces: await verifierPolitiqueAnnonces(prisma, campagneId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
+    case "verifier_politique_assets_ads": {
+      try {
+        return { assets: await verifierPolitiqueAssets(prisma) };
       } catch (err) {
         return { erreur: messageErreurGoogleAds(err) };
       }

@@ -1423,6 +1423,51 @@ export async function verifierPolitiqueAnnonces(prisma: PrismaClient, campagneId
   }));
 }
 
+export interface AssetPolitiqueAds {
+  assetId: string;
+  type: string; // SITELINK | CALLOUT | CALL | TEXT | ...
+  contenu: string; // texte du lien/accroche, ou numero pour une extension d'appel - permet d'identifier LEQUEL est en cause
+  statutApprobation: string;
+  sujetsPolitique: string[];
+}
+
+/**
+ * Statut d'approbation des ASSETS (sitelinks, accroches/callouts,
+ * extensions d'appel...) - par opposition a verifierPolitiqueAnnonces, qui
+ * ne couvre que les annonces elles-memes. Necessaire car un refus de
+ * politique peut porter sur un composant (ex. "Numero de telephone dans un
+ * texte d'annonce" sur une accroche) sans qu'aucune annonce ne remonte de
+ * probleme - c'etait invisible jusqu'ici. Lecture seule, pas de filtre par
+ * campagne (un asset peut etre partage entre plusieurs campagnes).
+ */
+export async function verifierPolitiqueAssets(prisma: PrismaClient): Promise<AssetPolitiqueAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const lignes = await customer.query(`
+    SELECT
+      asset.id,
+      asset.type,
+      asset.sitelink_asset.link_text,
+      asset.callout_asset.callout_text,
+      asset.call_asset.phone_number,
+      asset.policy_summary.approval_status,
+      asset.policy_summary.policy_topic_entries
+    FROM asset
+    LIMIT 1000
+  `);
+
+  return lignes.map((ligne) => ({
+    assetId: String(ligne.asset?.id ?? ""),
+    type: decoderEnum(enums.AssetType as unknown as Record<string, string | number>, ligne.asset?.type),
+    contenu: ligne.asset?.sitelink_asset?.link_text || ligne.asset?.callout_asset?.callout_text || ligne.asset?.call_asset?.phone_number || "",
+    statutApprobation: decoderEnum(enums.PolicyApprovalStatus as unknown as Record<string, string | number>, ligne.asset?.policy_summary?.approval_status),
+    sujetsPolitique: (ligne.asset?.policy_summary?.policy_topic_entries ?? []).map((e) => e.topic ?? "").filter(Boolean),
+  }));
+}
+
 export interface MotCleAds {
   campagneId: string;
   campagneNom: string;
