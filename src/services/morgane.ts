@@ -213,7 +213,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "obtenir_actions_conversion_ads",
     description:
-      "Retourne les actions de conversion CONFIGUREES au niveau du compte Google Ads (nom, type, categorie, statut, si elle compte dans les conversions, duree minimale pour un appel telephonique). A utiliser des que le nombre de conversions semble incoherent avec l'activite reelle (ex. tres peu de conversions pour une activite ou l'appel telephonique est la vraie conversion) - permet de voir precisement CE QUI est compte, et si une action censee exister (appel, formulaire) est absente, mal configuree ou desactivee (include_in_conversions_metric=false ou statut different de ENABLED). Lecture seule.",
+      "Retourne les actions de conversion CONFIGUREES au niveau du compte Google Ads (nom, type, categorie, statut, si elle compte pour l'objectif principal (comptePourObjectifPrincipal, ex-include_in_conversions_metric), duree minimale pour un appel telephonique). A utiliser des que le nombre de conversions semble incoherent avec l'activite reelle (ex. tres peu de conversions pour une activite ou l'appel telephonique est la vraie conversion) - permet de voir precisement CE QUI est compte, et si une action censee exister (appel, formulaire) est absente, mal configuree ou desactivee (comptePourObjectifPrincipal=false ou statut different de ENABLED). Lecture seule.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -714,7 +714,7 @@ l'appel telephonique est souvent LA conversion qui compte - si \
 metrics.conversions semble incoherent avec l'activite reelle (ex. tres \
 peu ou toujours a zero), appelle obtenir_actions_conversion_ads pour voir \
 precisement ce qui est configure (type d'action, statut, \
-include_in_conversions_metric) plutot que de suggerer une verification \
+comptePourObjectifPrincipal) plutot que de suggerer une verification \
 manuelle en aveugle - explique ensuite clairement ce que tu as trouve \
 (action absente, desactivee, ou d'un type qui ne correspond pas a un \
 appel reel). Une action qui compte une simple vue de page comme \
