@@ -372,14 +372,7 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
   }
 
   if (params.motsClesExclus.length > 0) {
-    await customer.campaignCriteria.create(
-      params.motsClesExclus.map((texte) => ({
-        campaign: campagneResourceName,
-        status: enums.CampaignCriterionStatus.ENABLED,
-        negative: true,
-        keyword: { text: texte, match_type: enums.KeywordMatchType.BROAD },
-      }))
-    );
+    await ajouterMotsClesExclusCampagne(customer, campagneResourceName, params.motsClesExclus);
   }
 
   await customer.adGroupAds.create([
@@ -397,4 +390,174 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
   ]);
 
   return { campagneId };
+}
+
+/** Ajoute des mots-cles exclus (negatifs) au niveau de la campagne (correspondance large). Usage interne. */
+async function ajouterMotsClesExclusCampagne(customer: Customer, campagneResourceName: string, motsClesExclus: string[]): Promise<void> {
+  if (motsClesExclus.length === 0) return;
+  await customer.campaignCriteria.create(
+    motsClesExclus.map((texte) => ({
+      campaign: campagneResourceName,
+      status: enums.CampaignCriterionStatus.ENABLED,
+      negative: true,
+      keyword: { text: texte, match_type: enums.KeywordMatchType.BROAD },
+    }))
+  );
+}
+
+/**
+ * Ajoute des mots-cles exclus a une campagne EXISTANTE (par opposition a
+ * ceux definis a la creation dans creerCampagne). JAMAIS appelee
+ * directement par Morgane : uniquement par googleAdsActions.ts, lors de
+ * l'application d'une PropositionAds deja validee par l'utilisateur.
+ */
+export async function ajouterMotsClesExclus(prisma: PrismaClient, campagneId: string, motsClesExclus: string[]): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await ajouterMotsClesExclusCampagne(customer, ResourceNames.campaign(customerId, campagneId), motsClesExclus);
+}
+
+function clauseCampagne(campagneId?: string): string {
+  if (!campagneId) return "";
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+  return ` AND campaign.id = ${campagneId}`;
+}
+
+export interface MotCleAds {
+  campagneId: string;
+  campagneNom: string;
+  groupeNom: string;
+  texte: string;
+  typeCorrespondance: string;
+  statut: string;
+  scoreQualite: number | null;
+  impressions: number;
+  clics: number;
+  cout: number;
+  conversions: number;
+  ctr: number;
+  cpcMoyen: number;
+}
+
+/**
+ * Performance par mot-cle (par opposition a listerCampagnesAds, agrege par
+ * campagne). Primordial pour la gestion fine d'une campagne (section 3 de
+ * la demande utilisateur) : identifier les mots-cles rentables a developper
+ * et ceux a optimiser/exclure. `campagneId` optionnel pour se concentrer
+ * sur une seule campagne (recommande des qu'on analyse une campagne
+ * precise, pour limiter la taille de la reponse). N'inclut que les
+ * mots-cles ayant eu au moins une impression sur la periode - un mot-cle
+ * jamais diffuse n'apporte aucune information exploitable.
+ */
+export async function listerMotsCles(prisma: PrismaClient, jours = 30, campagneId?: string): Promise<MotCleAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const lignes = await customer.query(`
+    SELECT
+      campaign.id,
+      campaign.name,
+      ad_group.name,
+      ad_group_criterion.keyword.text,
+      ad_group_criterion.keyword.match_type,
+      ad_group_criterion.status,
+      ad_group_criterion.quality_info.quality_score,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.ctr,
+      metrics.average_cpc
+    FROM keyword_view
+    WHERE segments.date ${clauseFenetreDate(jours)}
+      AND ad_group_criterion.status != 'REMOVED'
+      AND metrics.impressions > 0${clauseCampagne(campagneId)}
+    ORDER BY metrics.cost_micros DESC
+    LIMIT 300
+  `);
+
+  return lignes.map((ligne) => ({
+    campagneId: String(ligne.campaign?.id ?? ""),
+    campagneNom: ligne.campaign?.name ?? "",
+    groupeNom: ligne.ad_group?.name ?? "",
+    texte: ligne.ad_group_criterion?.keyword?.text ?? "",
+    typeCorrespondance: String(ligne.ad_group_criterion?.keyword?.match_type ?? ""),
+    statut: String(ligne.ad_group_criterion?.status ?? ""),
+    scoreQualite: ligne.ad_group_criterion?.quality_info?.quality_score ?? null,
+    impressions: Number(ligne.metrics?.impressions ?? 0),
+    clics: Number(ligne.metrics?.clicks ?? 0),
+    cout: fromMicros(Number(ligne.metrics?.cost_micros ?? 0)),
+    conversions: Number(ligne.metrics?.conversions ?? 0),
+    ctr: Number(ligne.metrics?.ctr ?? 0),
+    cpcMoyen: fromMicros(Number(ligne.metrics?.average_cpc ?? 0)),
+  }));
+}
+
+export interface TermeRechercheAds {
+  campagneId: string;
+  campagneNom: string;
+  groupeNom: string;
+  terme: string;
+  statut: string; // "ADDED" (deja ajoute comme mot-cle) | "EXCLUDED" (deja exclu) | "ADDED_EXCLUDED" | "NONE"
+  impressions: number;
+  clics: number;
+  cout: number;
+  conversions: number;
+  ctr: number;
+  cpcMoyen: number;
+}
+
+/**
+ * Termes de recherche REELS ayant declenche une annonce (par opposition
+ * aux mots-cles cibles, qui sont une intention - le terme de recherche est
+ * ce que l'internaute a effectivement tape). Primordial pour detecter le
+ * trafic non pertinent et proposer des mots-cles exclus (section 4 de la
+ * demande utilisateur). `statut` indique si ce terme est deja ajoute/exclu
+ * comme mot-cle - inutile de proposer une exclusion sur un terme deja
+ * EXCLUDED ou ADDED_EXCLUDED.
+ */
+export async function listerTermesRecherche(prisma: PrismaClient, jours = 30, campagneId?: string): Promise<TermeRechercheAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const lignes = await customer.query(`
+    SELECT
+      campaign.id,
+      campaign.name,
+      ad_group.name,
+      search_term_view.search_term,
+      search_term_view.status,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.ctr,
+      metrics.average_cpc
+    FROM search_term_view
+    WHERE segments.date ${clauseFenetreDate(jours)}
+      AND metrics.impressions > 0${clauseCampagne(campagneId)}
+    ORDER BY metrics.cost_micros DESC
+    LIMIT 300
+  `);
+
+  return lignes.map((ligne) => ({
+    campagneId: String(ligne.campaign?.id ?? ""),
+    campagneNom: ligne.campaign?.name ?? "",
+    groupeNom: ligne.ad_group?.name ?? "",
+    terme: ligne.search_term_view?.search_term ?? "",
+    statut: String(ligne.search_term_view?.status ?? ""),
+    impressions: Number(ligne.metrics?.impressions ?? 0),
+    clics: Number(ligne.metrics?.clicks ?? 0),
+    cout: fromMicros(Number(ligne.metrics?.cost_micros ?? 0)),
+    conversions: Number(ligne.metrics?.conversions ?? 0),
+    ctr: Number(ligne.metrics?.ctr ?? 0),
+    cpcMoyen: fromMicros(Number(ligne.metrics?.average_cpc ?? 0)),
+  }));
 }

@@ -120,6 +120,45 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (ajouter_mots_cles_exclus) : rejette une entree incomplete", async () => {
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "ajouter_mots_cles_exclus",
+        campagneId: "",
+        campagneNom: "Dépannage",
+        justification: "Termes hors sujet detectes dans les recherches reelles.",
+        motsClesExclus: ["formation plombier"],
+      }),
+      /campagneId/
+    );
+    await assert.rejects(
+      creerPropositionAds(prisma, {
+        type: "ajouter_mots_cles_exclus",
+        campagneId: "123456",
+        campagneNom: "Dépannage",
+        justification: "Termes hors sujet detectes dans les recherches reelles.",
+        motsClesExclus: [],
+      }),
+      /motsClesExclus/
+    );
+  });
+
+  await t.test("creerPropositionAds (ajouter_mots_cles_exclus) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "ajouter_mots_cles_exclus",
+      campagneId: "123456",
+      campagneNom: "Dépannage",
+      justification: "Les termes \"formation plombier\" et \"emploi plombier\" ont coute 45 € sans conversion sur 30 jours, hors sujet (activite = interventions, pas recrutement/formation).",
+      motsClesExclus: ["formation plombier", "emploi plombier"],
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.campagneId, "123456");
+    assert.deepEqual(proposition.motsClesExclus, ["formation plombier", "emploi plombier"]);
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -161,6 +200,18 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       assert.equal(resultatCreation.statut, "echec");
       assert.match(resultatCreation.erreur || "", /non configure/);
       assert.equal(resultatCreation.campagneId, "", "campagneId ne doit pas changer puisque la creation a echoue avant tout appel API");
+
+      // Meme verification pour ajouter_mots_cles_exclus.
+      const propositionExclus = await creerPropositionAds(prisma, {
+        type: "ajouter_mots_cles_exclus",
+        campagneId: "123456",
+        campagneNom: "Dépannage",
+        justification: "Termes hors sujet.",
+        motsClesExclus: ["formation plombier"],
+      });
+      const resultatExclus = await accepterPropositionAds(prisma, propositionExclus.id);
+      assert.equal(resultatExclus.statut, "echec");
+      assert.match(resultatExclus.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

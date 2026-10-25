@@ -594,6 +594,7 @@ const LIBELLE_TYPE_PROPOSITION_ADS = {
   pause_campagne: "Mettre en pause",
   reactiver_campagne: "Réactiver",
   creer_campagne: "Nouvelle campagne",
+  ajouter_mots_cles_exclus: "Mots-clés exclus",
 };
 const BADGE_STATUT_PROPOSITION_ADS = {
   en_attente: "badge-partiel",
@@ -673,7 +674,9 @@ async function chargerPropositionsAds() {
              <div class="anomalie-meta"><strong>Mots-clés</strong> : ${(p.motsCles || []).map(echapper).join(", ") || "—"}</div>
              ${(p.motsClesExclus || []).length > 0 ? `<div class="anomalie-meta"><strong>Mots-clés exclus</strong> : ${p.motsClesExclus.map(echapper).join(", ")}</div>` : ""}
              <div class="anomalie-meta">Sera créée <strong>en pause</strong> : aucune dépense tant que tu ne l'actives pas toi-même dans Google Ads.</div>`
-          : "";
+          : p.type === "ajouter_mots_cles_exclus"
+            ? `<div class="anomalie-meta"><strong>Mots-clés exclus à ajouter</strong> : ${(p.motsClesExclus || []).map(echapper).join(", ") || "—"}</div>`
+            : "";
       return `
     <div class="decision-carte">
       <div class="relance-entete">

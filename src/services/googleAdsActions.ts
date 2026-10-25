@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { changerStatutCampagne, creerCampagne, messageErreurGoogleAds } from "./googleAds";
+import { changerStatutCampagne, creerCampagne, ajouterMotsClesExclus, messageErreurGoogleAds } from "./googleAds";
 import { logEvenement } from "./journalService";
 
 /**
@@ -11,7 +11,7 @@ import { logEvenement } from "./journalService";
  * Rien n'est applique a Google Ads avant cette validation explicite.
  */
 
-export type TypePropositionAds = "pause_campagne" | "reactiver_campagne" | "creer_campagne";
+export type TypePropositionAds = "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -44,6 +44,10 @@ function validerEntreeCreationCampagne(entree: PropositionAdsEntree) {
 
 export async function creerPropositionAds(prisma: PrismaClient, entree: PropositionAdsEntree) {
   if (entree.type === "creer_campagne") validerEntreeCreationCampagne(entree);
+  if (entree.type === "ajouter_mots_cles_exclus") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_mots_cles_exclus).");
+    if (!entree.motsClesExclus || entree.motsClesExclus.length === 0) throw new Error("motsClesExclus : au moins un mot-cle est requis.");
+  }
 
   const proposition = await prisma.propositionAds.create({ data: entree });
 
@@ -97,6 +101,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
         campagneIdCreee = resultat.campagneId;
         break;
       }
+      case "ajouter_mots_cles_exclus":
+        await ajouterMotsClesExclus(prisma, proposition.campagneId, proposition.motsClesExclus);
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -111,7 +118,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
       resultat:
         proposition.type === "creer_campagne"
           ? `Campagne creee avec succes (id ${campagneIdCreee}), en PAUSE - a activer manuellement dans Google Ads apres verification.`
-          : "Applique avec succes sur Google Ads.",
+          : proposition.type === "ajouter_mots_cles_exclus"
+            ? `${proposition.motsClesExclus.length} mot(s)-cle(s) exclu(s) ajoute(s) : ${proposition.motsClesExclus.join(", ")}.`
+            : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {

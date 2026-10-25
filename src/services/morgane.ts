@@ -11,7 +11,15 @@ import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { enregistrerDecision, listerDecisions, TypeDecision } from "./decisions";
 import { logEvenement } from "./journalService";
 import { verifierMailsImportants } from "./mailsImportants";
-import { listerCampagnesAds, messageErreurGoogleAds, diagnosticConfigurationAds, diagnosticScopesJeton, diagnosticLienGestionnaire } from "./googleAds";
+import {
+  listerCampagnesAds,
+  listerMotsCles,
+  listerTermesRecherche,
+  messageErreurGoogleAds,
+  diagnosticConfigurationAds,
+  diagnosticScopesJeton,
+  diagnosticLienGestionnaire,
+} from "./googleAds";
 import { dernieresCampagnesImportees } from "./googleAdsImport";
 import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
 
@@ -176,16 +184,41 @@ const OUTILS: Anthropic.Tool[] = [
     },
   },
   {
-    name: "proposer_action_ads",
+    name: "obtenir_mots_cles_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne existante, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
+      "Retourne la performance PAR MOT-CLE (impressions, clics, cout, conversions, CTR, CPC moyen, score de qualite) sur la periode demandee. A utiliser pour identifier les mots-cles rentables a developper, ceux a optimiser, et ceux sans interet commercial. Precise campagneId pour te concentrer sur une seule campagne (recommande des que tu analyses une campagne precise). Lecture seule.",
     input_schema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["pause_campagne", "reactiver_campagne", "creer_campagne"], description: "Action proposee." },
+        jours: { type: "number", description: "Nombre de jours a analyser en arriere (30 par defaut)." },
+        campagneId: { type: "string", description: "Limiter a une campagne precise (campaign.id, voir obtenir_campagnes_ads). Omis = toutes les campagnes." },
+      },
+    },
+  },
+  {
+    name: "obtenir_termes_recherche_ads",
+    description:
+      "Retourne les TERMES DE RECHERCHE REELS (ce que les internautes ont effectivement tape, par opposition aux mots-cles cibles) ayant declenche une annonce, avec leurs indicateurs. A utiliser pour detecter le trafic non pertinent et identifier des mots-cles exclus a proposer (proposer_action_ads, type ajouter_mots_cles_exclus). Le champ statut indique si le terme est deja ajoute/exclu comme mot-cle (EXCLUDED/ADDED_EXCLUDED = deja traite, inutile de le reproposer). Precise campagneId pour te concentrer sur une seule campagne. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        jours: { type: "number", description: "Nombre de jours a analyser en arriere (30 par defaut)." },
+        campagneId: { type: "string", description: "Limiter a une campagne precise (campaign.id, voir obtenir_campagnes_ads). Omis = toutes les campagnes." },
+      },
+    },
+  },
+  {
+    name: "proposer_action_ads",
+    description:
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne existante, ajout de mots-cles exclus sur une campagne existante, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["pause_campagne", "reactiver_campagne", "creer_campagne", "ajouter_mots_cles_exclus"], description: "Action proposee." },
         campagneId: {
           type: "string",
-          description: "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Omis/vide pour creer_campagne (elle n'existe pas encore).",
+          description:
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus. Omis/vide pour creer_campagne (elle n'existe pas encore).",
         },
         campagneNom: { type: "string", description: "Nom de la campagne (existante, ou nom propose pour une nouvelle campagne)." },
         justification: {
@@ -205,7 +238,12 @@ const OUTILS: Anthropic.Tool[] = [
           description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Uniquement pour creer_campagne.",
         },
         motsCles: { type: "array", items: { type: "string" }, description: "Mots-cles pertinents a cibler (au moins un). Uniquement pour creer_campagne." },
-        motsClesExclus: { type: "array", items: { type: "string" }, description: "Mots-cles exclus (negatifs), optionnel. Uniquement pour creer_campagne." },
+        motsClesExclus: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Mots-cles exclus (negatifs) a ajouter. Optionnel pour creer_campagne. REQUIS pour ajouter_mots_cles_exclus (au moins un) - identifie-les via obtenir_termes_recherche_ads.",
+        },
       },
       required: ["type", "campagneNom", "justification"],
     },
@@ -385,10 +423,30 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       return { source: "import_manuel", fichierNom: importe.fichierNom, importeLe: importe.importeLe, campagnes: importe.campagnes };
     }
 
+    case "obtenir_mots_cles_ads": {
+      const jours = typeof params.jours === "number" && params.jours > 0 ? params.jours : 30;
+      const campagneId = typeof params.campagneId === "string" && params.campagneId ? params.campagneId : undefined;
+      try {
+        return { motsCles: await listerMotsCles(prisma, jours, campagneId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
+    case "obtenir_termes_recherche_ads": {
+      const jours = typeof params.jours === "number" && params.jours > 0 ? params.jours : 30;
+      const campagneId = typeof params.campagneId === "string" && params.campagneId ? params.campagneId : undefined;
+      try {
+        return { termesRecherche: await listerTermesRecherche(prisma, jours, campagneId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
     case "proposer_action_ads": {
       const { type, campagneId, campagneNom, justification, budgetQuotidien, urlFinale, titres, descriptions, motsCles, motsClesExclus } = params as Record<string, unknown>;
-      if (type !== "pause_campagne" && type !== "reactiver_campagne" && type !== "creer_campagne") {
-        return { erreur: "type invalide (attendu : pause_campagne, reactiver_campagne ou creer_campagne)" };
+      if (type !== "pause_campagne" && type !== "reactiver_campagne" && type !== "creer_campagne" && type !== "ajouter_mots_cles_exclus") {
+        return { erreur: "type invalide (attendu : pause_campagne, reactiver_campagne, creer_campagne ou ajouter_mots_cles_exclus)" };
       }
       if (type !== "creer_campagne" && (typeof campagneId !== "string" || !campagneId)) return { erreur: "campagneId manquant" };
       if (typeof campagneNom !== "string" || !campagneNom) return { erreur: "campagneNom manquant" };
@@ -464,16 +522,35 @@ conversion est potentiellement une intervention facturee), et ne considere \
 jamais un mot-cle ou une campagne "mauvais" uniquement parce qu'il n'a pas \
 encore converti - tiens compte du cout, du volume et de l'historique.
   Perimetre REEL de tes donnees aujourd'hui (a respecter strictement, ne \
-jamais laisser croire a plus) : uniquement des indicateurs AGREGES PAR \
-CAMPAGNE (obtenir_campagnes_ads) - impressions, clics, cout, conversions, \
-CTR, CPC moyen, budget quotidien. Tu n'as PAS acces aujourd'hui aux \
-mots-cles individuels, aux termes de recherche reels, aux audiences, \
-appareils, zones geographiques, horaires, a GA4/GTM/Merchant Center, ni a \
-un historique structure des modifications passees. Si l'utilisateur \
-demande une analyse ou une action a ce niveau (exclusion d'un terme de \
-recherche precis, ajustement d'enchere, audit par appareil/audience...), \
-dis-le clairement et propose de construire cette capacite plutot que \
-d'improviser une reponse que les donnees ne permettent pas de justifier.
+jamais laisser croire a plus) : indicateurs AGREGES PAR CAMPAGNE \
+(obtenir_campagnes_ads), PAR MOT-CLE (obtenir_mots_cles_ads - avec score de \
+qualite) et les TERMES DE RECHERCHE REELS (obtenir_termes_recherche_ads - \
+ce que les internautes ont tape, pas seulement les mots-cles cibles). \
+Utilise systematiquement ces deux derniers outils des que l'utilisateur \
+discute d'une campagne en particulier ou te demande d'optimiser/creer une \
+campagne - ils sont indispensables a une analyse serieuse, ne te contente \
+jamais du niveau campagne seul quand ils sont pertinents. Tu n'as PAS \
+encore acces aux audiences, appareils, zones geographiques, horaires, a \
+GA4/GTM/Merchant Center, ni a un ajustement d'enchere individuel. Si \
+l'utilisateur demande une analyse ou une action a ce niveau-la, dis-le \
+clairement plutot que d'improviser une reponse que les donnees ne \
+permettent pas de justifier.
+  Mots-cles (obtenir_mots_cles_ads) : classe mentalement chaque mot-cle \
+actif selon son cout, ses conversions et son CPA - rentable a maintenir/\
+developper, prometteur mais manque de donnees, a optimiser (CTR ou score \
+de qualite faible), ou non rentable (cout significatif sans conversion). \
+Ne juge jamais un mot-cle a faible volume uniquement sur l'absence de \
+conversion.
+  Termes de recherche (obtenir_termes_recherche_ads) : c'est ta source \
+principale pour detecter le trafic non pertinent. Repere les termes qui \
+ont genere du cout (clics) sans rapport avec l'activite de l'utilisateur \
+(debouchage/degorgement), ou hors zone, ou a intention non commerciale \
+(ex. recherche d'emploi, de formation). Pour chaque exclusion que tu \
+envisages, verifie que son statut n'est pas deja EXCLUDED/ADDED_EXCLUDED \
+(deja traite), discute-la avec l'utilisateur (terme exact, cout constate, \
+clics, conversions eventuelles, raison), et ne propose JAMAIS une \
+exclusion massive sans avoir explique le risque de perdre du trafic \
+qualifie si le terme est en realite pertinent.
   Le resultat d'obtenir_campagnes_ads precise sa source ("api_google_ads" = \
 donnees live, ou "import_manuel" = dernier export CSV depose, avec sa \
 date) : si c'est un import manuel, dis-le explicitement a l'utilisateur et \
@@ -512,33 +589,39 @@ pour un audit complet, pas pour chaque reponse.
   Ne promets jamais un nombre de conversions ou un ROAS garanti : tu \
 formules des recommandations a partir de donnees observees, jamais de \
 previsions chiffrees garanties.
-  Tu peux proposer de mettre en pause ou de reactiver une campagne, ou de \
-creer une campagne Search complete (proposer_action_ads), mais JAMAIS \
-directement : il faut d'abord en discuter avec l'utilisateur dans la \
-conversation et qu'il donne clairement son accord sur CETTE action precise, \
-avant d'appeler l'outil. L'outil ne modifie rien tout de suite : il depose \
-une proposition sur l'ecran de validation dedie de l'application (onglet \
-Google Ads), que l'utilisateur doit encore accepter la-bas pour qu'elle \
-soit reellement appliquee - dis-le lui explicitement apres avoir depose la \
-proposition ("c'est en attente de validation sur l'ecran dedie, rien n'est \
-encore modifie"). Ne depose jamais une proposition sans accord explicite et \
+  Tu peux proposer de mettre en pause/reactiver une campagne, d'ajouter des \
+mots-cles exclus a une campagne existante, ou de creer une campagne Search \
+complete (proposer_action_ads), mais JAMAIS directement : il faut d'abord \
+en discuter avec l'utilisateur dans la conversation et qu'il donne \
+clairement son accord sur CETTE action precise, avant d'appeler l'outil. \
+L'outil ne modifie rien tout de suite : il depose une proposition sur \
+l'ecran de validation dedie de l'application (onglet Google Ads), que \
+l'utilisateur doit encore accepter la-bas pour qu'elle soit reellement \
+appliquee - dis-le lui explicitement apres avoir depose la proposition \
+("c'est en attente de validation sur l'ecran dedie, rien n'est encore \
+modifie"). Ne depose jamais une proposition sans accord explicite et \
 recent dans la conversation.
   Creation de campagne (creer_campagne) : c'est a TOI de proposer le \
 contenu, pas a l'utilisateur de tout dicter - en t'appuyant sur ce que tu \
 sais deja de son activite et de ses campagnes existantes (performances, \
-CPA, formulations qui marchent). Avant de deposer la proposition, mets-toi \
-d'accord avec l'utilisateur sur : le nom de la campagne, le budget \
-quotidien (toujours decide ensemble, jamais invente), l'URL de destination, \
-3 a 15 titres d'annonce (30 caracteres max chacun), 2 a 4 descriptions (90 \
-caracteres max chacune), au moins un mot-cle pertinent, et des mots-cles \
-exclus si pertinent. Rappelle-lui systematiquement que la campagne sera \
-creee EN PAUSE : aucune depense ne commence avant qu'il ne l'active \
-lui-meme dans Google Ads apres verification - c'est une securite \
-volontaire, pas une limitation a contourner. Les actions de gestion fine \
-(mot-cle par mot-cle sur une campagne existante, ajustement d'enchere \
-precis, modification de budget d'une campagne existante) n'existent pas \
-encore : dis-le clairement si l'utilisateur les demande plutot que de \
-pretendre les avoir faites.`;
+CPA, mots-cles et termes de recherche qui marchent le mieux via \
+obtenir_mots_cles_ads/obtenir_termes_recherche_ads sur les campagnes \
+proches). Avant de deposer la proposition, mets-toi d'accord avec \
+l'utilisateur sur : le nom de la campagne, le budget quotidien (toujours \
+decide ensemble, jamais invente), l'URL de destination, 3 a 15 titres \
+d'annonce (30 caracteres max chacun), 2 a 4 descriptions (90 caracteres \
+max chacune), au moins un mot-cle pertinent, et des mots-cles exclus si \
+pertinent. Rappelle-lui systematiquement que la campagne sera creee EN \
+PAUSE : aucune depense ne commence avant qu'il ne l'active lui-meme dans \
+Google Ads apres verification - c'est une securite volontaire, pas une \
+limitation a contourner.
+  Mots-cles exclus sur une campagne existante (ajouter_mots_cles_exclus) : \
+identifie-les via obtenir_termes_recherche_ads (jamais invente), discute \
+chaque terme avec l'utilisateur avant de le proposer. Les actions de \
+gestion encore plus fine (ajustement d'enchere individuel, modification de \
+budget d'une campagne existante, ajout de mots-cles POSITIFS a une \
+campagne existante) n'existent pas encore : dis-le clairement si \
+l'utilisateur les demande plutot que de pretendre les avoir faites.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils
