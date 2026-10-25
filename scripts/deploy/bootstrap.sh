@@ -68,6 +68,10 @@ DEXT_AUTO_FORWARD="false"
 # Numero Twilio du standard telephonique IA (Morgane), vers lequel le
 # portable de l'atelier renvoie les appels non decroches.
 TWILIO_NUMERO="+33973921009"
+# Mode du standard telephonique : "relais" (Twilio ConversationRelay, voix
+# en temps reel, plus fluide ; exige d'avoir accepte l'avenant IA dans la
+# console Twilio) ou "gather" (une requete HTTP par replique).
+TELEPHONE_MODE="gather"
 
 echo "== Fuseau horaire =="
 # Les images cloud sont generalement en UTC par defaut : sans ce reglage,
@@ -205,6 +209,7 @@ definir_variable TWILIO_ACCOUNT_SID "$TWILIO_ACCOUNT_SID_ARG"
 definir_variable TWILIO_SMS_EXPEDITEUR "$TWILIO_SMS_EXPEDITEUR_ARG"
 definir_variable TELEPHONE_SMS_DESTINATAIRE "$TELEPHONE_SMS_DESTINATAIRE_ARG"
 definir_variable TELEPHONE_NUMERO_SECOURS "$TELEPHONE_NUMERO_SECOURS_ARG"
+definir_variable TELEPHONE_MODE "$TELEPHONE_MODE"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
@@ -280,6 +285,11 @@ mkdir -p "$CERTBOT_WEBROOT"
 # si la principale refuse la connexion). Dans conf.d, inclus dans le bloc
 # http de nginx, donc partage par toutes les configurations de site.
 cat > /etc/nginx/conf.d/copilote-upstream.conf <<EOF
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 upstream copilote_app {
     server 127.0.0.1:3000 max_fails=1 fail_timeout=5s;
     server 127.0.0.1:3001 backup;
@@ -414,6 +424,13 @@ ${AUTH_BASIC_CONF}
     # signature Twilio cote application (src/api/telephonieRoutes.ts).
     location /telephonie/ {
         auth_basic off;
+        # Relais vocal temps reel (WebSocket Twilio ConversationRelay,
+        # /telephonie/relais) : passage en WebSocket et connexion longue
+        # (duree d'un appel).
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
         proxy_pass http://copilote_app;
         # Bascule sur l'instance de secours si la principale ne repond pas
         # (connexion refusee pendant un redemarrage). non_idempotent : les

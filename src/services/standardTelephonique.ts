@@ -71,28 +71,32 @@ function parametresReflexion(): Record<string, unknown> {
 export async function appelerIA(
   client: Anthropic,
   conversation: Anthropic.Beta.BetaMessageParam[],
-  timeoutMs: number
+  timeoutMs: number,
+  onTexte?: (morceau: string) => void
 ): Promise<Anthropic.Beta.BetaMessage> {
-  const requete = () =>
-    client.beta.messages.create(
-      {
-        model: MODELE,
-        max_tokens: 2048,
-        // Effort bas : au telephone, chaque seconde de silence compte, et
-        // les decisions a prendre (noter, proposer un creneau) sont simples.
-        output_config: { effort: "low" },
-        // Instructions et outils identiques d'une replique a l'autre : mis
-        // en cache pour raccourcir le temps de premiere reponse.
-        cache_control: { type: "ephemeral" },
-        system: PROMPT_SYSTEME,
-        tools: OUTILS,
-        messages: conversation,
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
-        ...parametresReflexion(),
-      } as Anthropic.Beta.MessageCreateParamsNonStreaming,
-      { timeout: timeoutMs }
-    );
+  const parametres = () =>
+    ({
+      model: MODELE,
+      max_tokens: 2048,
+      // Effort bas : au telephone, chaque seconde de silence compte, et
+      // les decisions a prendre (noter, proposer un creneau) sont simples.
+      output_config: { effort: "low" },
+      // Instructions et outils identiques d'une replique a l'autre : mis
+      // en cache pour raccourcir le temps de premiere reponse.
+      cache_control: { type: "ephemeral" },
+      system: PROMPT_SYSTEME,
+      tools: OUTILS,
+      messages: conversation,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      ...parametresReflexion(),
+    }) as Anthropic.Beta.MessageCreateParamsNonStreaming;
+  const requete = async () => {
+    if (!onTexte) return client.beta.messages.create(parametres(), { timeout: timeoutMs });
+    const flux = client.beta.messages.stream(parametres(), { timeout: timeoutMs });
+    flux.on("text", (morceau) => onTexte(morceau));
+    return flux.finalMessage();
+  };
   try {
     return await requete();
   } catch (err) {
@@ -108,6 +112,16 @@ export async function appelerIA(
 export interface ResultatTour {
   reponse: string;
   raccrocher: boolean;
+  /** Derniere phrase avant de raccrocher (outil terminer_appel), a dire a part. */
+  messageFinal?: string;
+}
+
+export interface OptionsTour {
+  /**
+   * Recoit le texte de la reponse au fil de sa generation (mode relais
+   * vocal temps reel : Twilio commence a parler des les premiers mots).
+   */
+  onTexte?: (morceau: string) => void;
 }
 
 const OUTILS: Anthropic.Beta.BetaTool[] = [
@@ -397,7 +411,8 @@ export async function traiterTour(
   prisma: PrismaClient,
   appel: Appel,
   propos: string,
-  client: Anthropic = new Anthropic({ timeout: DELAI_MAX_IA_MS, maxRetries: 0 })
+  client: Anthropic = new Anthropic({ timeout: DELAI_MAX_IA_MS, maxRetries: 0 }),
+  options: OptionsTour = {}
 ): Promise<ResultatTour> {
   const texteAppelant = [appel.enAttente, propos].filter(Boolean).join(" ");
   const conversation = [...(appel.conversation as unknown as Anthropic.Beta.BetaMessageParam[])];
@@ -413,7 +428,7 @@ export async function traiterTour(
     for (let tour = 0; tour < MAX_TOURS_OUTILS; tour++) {
       const restant = echeance - Date.now();
       if (restant < 1_000) throw new Error("Delai de reponse depasse");
-      const message = await appelerIA(client, conversation, restant);
+      const message = await appelerIA(client, conversation, restant, options.onTexte);
       conversation.push({ role: "assistant", content: message.content });
 
       if (message.stop_reason !== "tool_use") {
@@ -470,7 +485,7 @@ export async function traiterTour(
       silences: 0,
     },
   });
-  return { reponse, raccrocher: etat.raccrocher };
+  return { reponse, raccrocher: etat.raccrocher, messageFinal: etat.messageFinal };
 }
 
 export function adresseComplete(appel: Appel): string {

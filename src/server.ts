@@ -5,6 +5,7 @@ import { prisma } from "./db/client";
 import { buildRouter } from "./api/routes";
 import { buildAuthRouter } from "./api/authRoutes";
 import { buildTelephonieRouter } from "./api/telephonieRoutes";
+import { installerRelaisVocal } from "./services/relaisVocal";
 import { demarrerSurveillanceGmail, demarrerRecapQuotidien, demarrerSurveillanceStripe, demarrerSurveillanceSynec, demarrerRecuperationMessagesSecours } from "./services/scheduler";
 
 dotenv.config();
@@ -23,10 +24,14 @@ app.use("/telephonie", buildTelephonieRouter(prisma));
 // comme en production via WorkingDirectory dans le service systemd).
 app.use(express.static(path.join(process.cwd(), "public")));
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Outil de reception CSV - Copilote Brochant demarre sur http://localhost:${PORT}`);
 });
+
+// Relais vocal temps reel du standard telephonique (WebSocket Twilio
+// ConversationRelay, /telephonie/relais).
+installerRelaisVocal(server, prisma);
 
 // Instance de secours (scripts/deploy/copilote-brochant-secours.service) :
 // sert les requetes pendant le redemarrage de l'instance principale, mais
