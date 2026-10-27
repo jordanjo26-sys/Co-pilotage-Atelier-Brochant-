@@ -8,6 +8,7 @@ import { logEvenement } from "./journalService";
 import { detecterReponses, executerEnvoisAutomatiques } from "./prospection/campagnes";
 import { recupererMessagesSecours, renvoyerComptesRendusEnAttente } from "./messagerieSecours";
 import { verifierMailsImportants } from "./mailsImportants";
+import { gmailEnPause, signalerLimiteGmail, reinitialiserLimiteGmail } from "./gmailRateLimit";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVALLE_VERIF_RECAP_MS = 5 * 60 * 1000; // 5 minutes
@@ -45,17 +46,6 @@ const INTERVALLE_ENVOI_AUTO_PROSPECTION_MS = Number(process.env.PROSPECTION_ENVO
  * jamais le serveur en cas d'erreur (reseau, jeton expire...), seulement
  * journalisee pour investigation.
  */
-// Extrait l'indication "Retry after <date ISO>" que Gmail renvoie avec un
-// "User-rate limit exceeded" (voir isoler le niveau de dessous : chaque
-// attente non respectee prolonge elle-meme l'interdiction). null si le
-// message ne contient pas cette indication.
-function extraireDateReprise(messageErreur: string): Date | null {
-  const correspondance = messageErreur.match(/Retry after (\S+)/);
-  if (!correspondance) return null;
-  const date = new Date(correspondance[1]);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
 export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
   const intervalle = Number(process.env.GMAIL_POLL_INTERVAL_MS) || INTERVALLE_PAR_DEFAUT_MS;
   // Garde-fou contre le chevauchement (bug racine du "jeton qui saute" en
@@ -68,25 +58,21 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
   // une synchronisation en plus, au lieu d'attendre que la precedente
   // libere le quota.
   let synchronisationEnCours = false;
-  // Deuxieme garde-fou, distinct du precedent (constate en production
-  // juste apres le premier correctif) : meme SANS chevauchement, un tic
-  // toutes les 5 minutes qui ignore l'indication "Retry after" de Google
-  // (generalement ~15 minutes) retente en pleine interdiction a chaque
-  // fois, ce qui la prolonge elle-meme sans fin - "User-rate limit
-  // exceeded" en continu alors qu'une seule tentative est en cours a la
-  // fois. Tant que cette date n'est pas depassee, les tics sont ignores.
-  let pauseJusqua: Date | null = null;
 
   setInterval(async () => {
     if (synchronisationEnCours) return;
-    if (pauseJusqua && new Date() < pauseJusqua) return;
+    // Pause partagee (voir gmailRateLimit.ts) : respecte aussi bien
+    // l'indication "Retry after" de Google que le fait qu'un AUTRE
+    // appelant (un autre planificateur, ou GET /api/gmail/status
+    // interroge par le tableau de bord) ait deja constate le blocage.
+    if (gmailEnPause()) return;
     synchronisationEnCours = true;
     try {
       const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
       if (!connexion) return; // rien a synchroniser tant que Gmail n'est pas connecte
 
       const resultat = await synchroniserGmail(prisma);
-      pauseJusqua = null;
+      reinitialiserLimiteGmail();
       if (resultat.documentsTraites > 0 || resultat.documentsAmbigus > 0 || resultat.erreurs.length > 0) {
         // Le detail des erreurs (pas seulement leur nombre) est inclus ici :
         // sans cela, une erreur repetee sur une piece jointe precise (PDF
@@ -105,11 +91,7 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
       const messageErreur = (err as Error).message;
       // eslint-disable-next-line no-console
       console.error("Synchronisation Gmail planifiee en echec :", messageErreur);
-      const dateReprise = extraireDateReprise(messageErreur);
-      // Sans date exploitable dans le message, 15 minutes par defaut
-      // (fenetre habituelle constatee pour ce type d'erreur) plutot que de
-      // retenter sans attendre.
-      pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
+      const dateReprise = signalerLimiteGmail(messageErreur);
       // Journalise aussi en base (pas seulement la console du serveur,
       // inaccessible sans acces SSH) : une panne silencieuse et repetee de
       // ce planificateur (ex. jeton Google expire) est passee inapercue en
@@ -117,7 +99,7 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
       await logEvenement(prisma, {
         evenement: "gmail_sync_planifiee_erreur",
         action: "Synchronisation automatique Gmail",
-        resultat: `Echec : ${messageErreur}` + (dateReprise ? ` (nouvelle tentative apres ${dateReprise.toISOString()})` : " (nouvelle tentative dans 15 min)"),
+        resultat: `Echec : ${messageErreur} (nouvelle tentative apres ${dateReprise.toISOString()})`,
       }).catch(() => {});
     } finally {
       synchronisationEnCours = false;
@@ -139,19 +121,16 @@ export function demarrerRecapQuotidien(prisma: PrismaClient): void {
   const heureCible = Number(process.env.DAILY_RECAP_HOUR);
   const heure = Number.isInteger(heureCible) && heureCible >= 0 && heureCible <= 23 ? heureCible : HEURE_RECAP_PAR_DEFAUT;
 
-  // Meme garde-fou "Retry after" que demarrerSurveillanceGmail / que
-  // demarrerAnalyseQuotidienneAds (voir leurs commentaires) : ce
-  // planificateur envoie lui aussi via Gmail (envoyerRecapQuotidien ->
-  // gmail.users.messages.send), partage donc le meme quota, et verifiait
-  // toutes les 5 minutes pendant toute l'heure cible sans jamais respecter
-  // une interdiction "User-rate limit exceeded" en cours.
-  let pauseJusqua: Date | null = null;
-
+  // Pause partagee (voir gmailRateLimit.ts) : ce planificateur envoie lui
+  // aussi via Gmail (envoyerRecapQuotidien -> gmail.users.messages.send),
+  // partage donc le meme quota que tout autre appelant Gmail du process -
+  // y compris GET /api/gmail/status interroge en continu par le tableau
+  // de bord.
   setInterval(async () => {
     try {
       const maintenant = new Date();
       if (maintenant.getHours() !== heure) return;
-      if (pauseJusqua && maintenant < pauseJusqua) return;
+      if (gmailEnPause()) return;
 
       const debutJour = new Date(maintenant);
       debutJour.setHours(0, 0, 0, 0);
@@ -161,17 +140,16 @@ export function demarrerRecapQuotidien(prisma: PrismaClient): void {
       if (dejaEnvoyeAujourdhui) return;
 
       await envoyerRecapQuotidien(prisma, maintenant);
-      pauseJusqua = null;
+      reinitialiserLimiteGmail();
     } catch (err) {
       const messageErreur = (err as Error).message;
       // eslint-disable-next-line no-console
       console.error("Envoi du recapitulatif quotidien en echec :", messageErreur);
-      const dateReprise = extraireDateReprise(messageErreur);
-      pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
+      const dateReprise = signalerLimiteGmail(messageErreur);
       await logEvenement(prisma, {
         evenement: "recap_quotidien_erreur",
         action: "Envoi du recapitulatif quotidien",
-        resultat: `Echec : ${messageErreur}` + (dateReprise ? ` (nouvelle tentative apres ${dateReprise.toISOString()})` : " (nouvelle tentative dans 15 min)"),
+        resultat: `Echec : ${messageErreur} (nouvelle tentative apres ${dateReprise.toISOString()})`,
       }).catch(() => {});
     }
   }, INTERVALLE_VERIF_RECAP_MS);
@@ -188,24 +166,16 @@ export function demarrerAnalyseQuotidienneAds(prisma: PrismaClient): void {
   const heureCible = Number(process.env.ANALYSE_ADS_HOUR);
   const heure = Number.isInteger(heureCible) && heureCible >= 0 && heureCible <= 23 ? heureCible : HEURE_ANALYSE_ADS_PAR_DEFAUT;
 
-  // Meme garde-fou "Retry after" que demarrerSurveillanceGmail (voir
-  // extraireDateReprise ci-dessus) - manquait ici jusqu'ici. Bug reel
-  // distinct constate en production (octobre 2026) : ce planificateur
-  // verifie toutes les 5 minutes pendant toute l'heure cible (jusqu'a 12
-  // tentatives) et partage le MEME quota Gmail par utilisateur que la
-  // synchronisation (envoyerAnalyseQuotidienneAds envoie aussi via
-  // gmail.users.messages.send) - sans ce garde-fou, il retentait toutes
-  // les 5 minutes meme en pleine interdiction Google ("Retry after"
-  // ~15 minutes), ce qui la prolongeait a chaque fois, independamment de
-  // demarrerSurveillanceGmail et sans que son propre correctif ne s'y
-  // applique.
-  let pauseJusqua: Date | null = null;
-
+  // Pause partagee (voir gmailRateLimit.ts) : ce planificateur verifie
+  // toutes les 5 minutes pendant toute l'heure cible (jusqu'a 12
+  // tentatives) et partage le meme quota Gmail par utilisateur que tout
+  // autre appelant Gmail du process (envoyerAnalyseQuotidienneAds envoie
+  // via gmail.users.messages.send).
   setInterval(async () => {
     try {
       const maintenant = new Date();
       if (maintenant.getHours() !== heure) return;
-      if (pauseJusqua && maintenant < pauseJusqua) return;
+      if (gmailEnPause()) return;
 
       const debutJour = new Date(maintenant);
       debutJour.setHours(0, 0, 0, 0);
@@ -215,17 +185,16 @@ export function demarrerAnalyseQuotidienneAds(prisma: PrismaClient): void {
       if (dejaEnvoyeeAujourdhui) return;
 
       await envoyerAnalyseQuotidienneAds(prisma, maintenant);
-      pauseJusqua = null;
+      reinitialiserLimiteGmail();
     } catch (err) {
       const messageErreur = (err as Error).message;
       // eslint-disable-next-line no-console
       console.error("Analyse quotidienne Google Ads en echec :", messageErreur);
-      const dateReprise = extraireDateReprise(messageErreur);
-      pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
+      const dateReprise = signalerLimiteGmail(messageErreur);
       await logEvenement(prisma, {
         evenement: "analyse_ads_erreur",
         action: "Analyse quotidienne Google Ads",
-        resultat: `Echec : ${messageErreur}` + (dateReprise ? ` (nouvelle tentative apres ${dateReprise.toISOString()})` : " (nouvelle tentative dans 15 min)"),
+        resultat: `Echec : ${messageErreur} (nouvelle tentative apres ${dateReprise.toISOString()})`,
       }).catch(() => {});
     }
   }, INTERVALLE_VERIF_RECAP_MS);
@@ -287,26 +256,23 @@ export function demarrerSurveillanceSynec(prisma: PrismaClient): void {
  * contente de lire les fils Gmail concernes.
  */
 export function demarrerDetectionReponsesProspection(prisma: PrismaClient): void {
-  // Meme garde-fou "Retry after" que demarrerSurveillanceGmail : lit les
-  // fils Gmail (getGmailClient + gmail.users.threads.get), donc partage le
-  // meme quota par utilisateur - manquait ici jusqu'ici.
-  let pauseJusqua: Date | null = null;
-
+  // Pause partagee (voir gmailRateLimit.ts) : lit les fils Gmail
+  // (getGmailClient + gmail.users.threads.get), partage donc le meme
+  // quota que tout autre appelant Gmail du process.
   setInterval(async () => {
-    if (pauseJusqua && new Date() < pauseJusqua) return;
+    if (gmailEnPause()) return;
     try {
       await detecterReponses(prisma);
-      pauseJusqua = null;
+      reinitialiserLimiteGmail();
     } catch (err) {
       const messageErreur = (err as Error).message;
       // eslint-disable-next-line no-console
       console.error("Detection des reponses de prospection en echec :", messageErreur);
-      const dateReprise = extraireDateReprise(messageErreur);
-      pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
+      const dateReprise = signalerLimiteGmail(messageErreur);
       await logEvenement(prisma, {
         evenement: "prospection_reponses_erreur",
         action: "Detection automatique des reponses",
-        resultat: `Echec : ${messageErreur}` + (dateReprise ? ` (nouvelle tentative apres ${dateReprise.toISOString()})` : ""),
+        resultat: `Echec : ${messageErreur} (nouvelle tentative apres ${dateReprise.toISOString()})`,
       }).catch(() => {});
     }
   }, INTERVALLE_REPONSES_PROSPECTION_MS);
@@ -321,25 +287,22 @@ export function demarrerDetectionReponsesProspection(prisma: PrismaClient): void
  * applique par ailleurs (relances de factures notamment).
  */
 export function demarrerEnvoiAutomatiqueCampagnes(prisma: PrismaClient): void {
-  // Meme garde-fou "Retry after" que demarrerSurveillanceGmail : envoie
-  // via gmail.users.messages.send, partage donc le meme quota.
-  let pauseJusqua: Date | null = null;
-
+  // Pause partagee (voir gmailRateLimit.ts) : envoie via
+  // gmail.users.messages.send, partage donc le meme quota.
   setInterval(async () => {
-    if (pauseJusqua && new Date() < pauseJusqua) return;
+    if (gmailEnPause()) return;
     try {
       await executerEnvoisAutomatiques(prisma);
-      pauseJusqua = null;
+      reinitialiserLimiteGmail();
     } catch (err) {
       const messageErreur = (err as Error).message;
       // eslint-disable-next-line no-console
       console.error("Envoi automatique de campagnes en echec :", messageErreur);
-      const dateReprise = extraireDateReprise(messageErreur);
-      pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
+      const dateReprise = signalerLimiteGmail(messageErreur);
       await logEvenement(prisma, {
         evenement: "campagne_envoi_auto_erreur",
         action: "Envoi automatique de campagnes de prospection",
-        resultat: `Echec : ${messageErreur}` + (dateReprise ? ` (nouvelle tentative apres ${dateReprise.toISOString()})` : ""),
+        resultat: `Echec : ${messageErreur} (nouvelle tentative apres ${dateReprise.toISOString()})`,
       }).catch(() => {});
     }
   }, INTERVALLE_ENVOI_AUTO_PROSPECTION_MS);
@@ -357,12 +320,11 @@ export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void 
   // utilisateur), donc un chevauchement ici aggrave aussi un "User-rate
   // limit exceeded" en cours.
   let enCours = false;
-  // + le meme garde-fou "Retry after" (manquait ici jusqu'ici) :
-  // renvoyerComptesRendusEnAttente envoie via gmail.users.messages.send.
-  let pauseJusqua: Date | null = null;
+  // + la pause partagee (voir gmailRateLimit.ts) : renvoyerComptesRendusEnAttente
+  // envoie via gmail.users.messages.send.
   setInterval(async () => {
     if (enCours) return;
-    if (pauseJusqua && new Date() < pauseJusqua) return;
+    if (gmailEnPause()) return;
     enCours = true;
     try {
       await recupererMessagesSecours(prisma).catch((err) => {
@@ -371,8 +333,7 @@ export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void 
       await renvoyerComptesRendusEnAttente(prisma).catch((err) => {
         const messageErreur = (err as Error).message;
         console.error("Renvoi des comptes rendus d'appel en echec :", messageErreur);
-        const dateReprise = extraireDateReprise(messageErreur);
-        pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
+        signalerLimiteGmail(messageErreur);
       });
     } finally {
       enCours = false;
@@ -388,19 +349,17 @@ export function demarrerRecuperationMessagesSecours(prisma: PrismaClient): void 
  */
 export function demarrerRecapMailsImportants(prisma: PrismaClient): void {
   let enCours = false;
-  // Meme garde-fou "Retry after" que demarrerSurveillanceGmail :
-  // verifierMailsImportants lit et envoie via l'API Gmail.
-  let pauseJusqua: Date | null = null;
+  // + la pause partagee (voir gmailRateLimit.ts) : verifierMailsImportants
+  // lit et envoie via l'API Gmail.
   setInterval(async () => {
     if (enCours) return;
-    if (pauseJusqua && new Date() < pauseJusqua) return;
+    if (gmailEnPause()) return;
     enCours = true;
     try {
       await verifierMailsImportants(prisma).catch((err) => {
         const messageErreur = (err as Error).message;
         console.error("Verification des mails importants en echec :", messageErreur);
-        const dateReprise = extraireDateReprise(messageErreur);
-        pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
+        signalerLimiteGmail(messageErreur);
       });
     } finally {
       enCours = false;

@@ -22,6 +22,7 @@ import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierC
 import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec, CHEMIN_CAPTURE_ECHEC } from "../services/synecSync";
 import { existsSync } from "fs";
 import { getGmailClient } from "../services/googleAuth";
+import { gmailEnPause, signalerLimiteGmail, reinitialiserLimiteGmail } from "../services/gmailRateLimit";
 import { typeMimePourAffichage } from "../services/fileType";
 import { genererPdfFacturesImpayees } from "../services/facturesPdf";
 import { genererPdfPaiements } from "../services/paiementsPdf";
@@ -261,15 +262,36 @@ export function buildRouter(prisma: PrismaClient): Router {
     const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
     if (!connexion) return res.json({ connecte: false });
 
+    // Cause reelle (trouvee en production, octobre 2026) d'un blocage de
+    // quota Gmail qui a persiste plusieurs heures malgre tous les
+    // planificateurs backend corriges pour respecter le "Retry after" de
+    // Google : cette route fait un appel Gmail reel (getProfile) a CHAQUE
+    // requete, et le tableau de bord l'interroge a chaque ouverture de
+    // page ET toutes les 2 minutes tant qu'un onglet reste ouvert (voir
+    // public/app.js) - chaque onglet ouvert suffisait a lui seul a
+    // relancer l'interdiction, independamment de tout planificateur. Tant
+    // qu'une pause partagee est active (voir gmailRateLimit.ts), on
+    // repond depuis l'etat connu SANS appeler Gmail.
+    const pause = gmailEnPause();
+    if (pause) {
+      return res.json({
+        connecte: false,
+        motif: `Google a temporairement limite ce compte ("User-rate limit exceeded"). Nouvelle tentative automatique apres ${pause.toISOString()}. Aucune action a faire - les planificateurs reprendront seuls.`,
+      });
+    }
+
     try {
       const client = await getGmailClient(prisma);
       await client!.gmail.users.getProfile({ userId: "me" });
+      reinitialiserLimiteGmail();
       res.json({ connecte: true, compteEmail: connexion.compteEmail, derniereSynchro: connexion.derniereSynchro });
     } catch (err) {
+      const messageErreur = (err as Error).message;
+      if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);
       res.json({
         connecte: false,
         motif:
-          `Jeton Google invalide ou expire (${(err as Error).message}). Reconnexion necessaire via le bouton ci-dessous. ` +
+          `Jeton Google invalide ou expire (${messageErreur}). Reconnexion necessaire via le bouton ci-dessous. ` +
           "Cause frequente : ecran de consentement OAuth encore en statut \"Testing\" cote Google Cloud (le refresh_token expire alors automatiquement au bout de 7 jours) - voir docs/mise-en-service.md section 3.",
       });
     }
@@ -278,15 +300,25 @@ export function buildRouter(prisma: PrismaClient): Router {
   // Synchronisation manuelle, en attendant la planification automatique
   // (cron) sur le serveur de production (section 16).
   router.post("/gmail/sync", async (_req, res) => {
+    // Meme pause partagee que les planificateurs (voir gmailRateLimit.ts) :
+    // un declenchement manuel repete (bouton "Synchroniser") pendant une
+    // interdiction Google en cours relancerait lui aussi le quota.
+    const pause = gmailEnPause();
+    if (pause) {
+      return res.status(400).json({ erreur: `Google a temporairement limite ce compte. Nouvelle tentative possible apres ${pause.toISOString()}.` });
+    }
     try {
       const resultat = await synchroniserGmail(prisma);
+      reinitialiserLimiteGmail();
       // resumeErreurs : version groupee/lisible de "erreurs" pour
       // l'affichage direct dans l'interface (une meme panne affectant de
       // nombreux messages a la fois, ex. quota Gmail depasse, produisait
       // sinon un mur de texte quasi identique repete ligne par ligne).
       res.json({ ...resultat, resumeErreurs: resumerErreurs(resultat.erreurs) });
     } catch (err) {
-      res.status(400).json({ erreur: (err as Error).message });
+      const messageErreur = (err as Error).message;
+      if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);
+      res.status(400).json({ erreur: messageErreur });
     }
   });
 
