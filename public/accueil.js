@@ -56,6 +56,17 @@ async function chargerAds() {
   }
 }
 
+async function chargerReseauxSociaux() {
+  try {
+    const res = await fetch("/api/reseaux-sociaux/connexion");
+    if (!res.ok) return;
+    const data = await res.json();
+    definirMeta("meta-reseaux-sociaux", data.connecte ? `Connecté — Page « ${data.pageNom} »` : "Non connecté");
+  } catch {
+    // carte conservee sans statistique
+  }
+}
+
 async function chargerResultat() {
   try {
     const res = await fetch("/api/dashboard/ca-serie?granularite=mois");
@@ -72,4 +83,5 @@ chargerGestion();
 chargerProspection();
 chargerDemandes();
 chargerAds();
+chargerReseauxSociaux();
 chargerResultat();
