@@ -121,11 +121,21 @@ document.querySelectorAll(".onglet").forEach((b) => {
 
 // L'accueil (accueil.html) pointe vers des onglets precis via l'URL
 // (ex. /index.html#systeme) : la cible explicite dans le hash prime sur le
-// dernier onglet consulte, elle-meme utilisee a defaut.
+// dernier onglet consulte, elle-meme utilisee a defaut. Accepte aussi
+// l'id d'une section precise a l'interieur d'un onglet (ex.
+// #section-reseaux-sociaux) : bascule sur l'onglet qui la contient puis
+// y defile - sans ca, plusieurs cartes de l'accueil pointant sur le meme
+// onglet "systeme" (Google Ads, Reseaux sociaux, Systeme lui-meme)
+// atterrissaient toutes en haut de l'onglet, sur la premiere carte
+// (Google Ads), jamais sur celle visee (signale par l'utilisateur).
 const ongletDepuisHash = location.hash.replace("#", "");
 try {
   if (ongletDepuisHash && document.querySelector(`.onglet-panneau[data-panneau="${ongletDepuisHash}"]`)) {
     basculerOnglet(ongletDepuisHash);
+  } else if (ongletDepuisHash && document.getElementById(ongletDepuisHash)?.closest(".onglet-panneau")) {
+    const cible = document.getElementById(ongletDepuisHash);
+    basculerOnglet(cible.closest(".onglet-panneau").dataset.panneau);
+    requestAnimationFrame(() => cible.scrollIntoView({ behavior: "smooth", block: "start" }));
   } else {
     const dernierOnglet = localStorage.getItem(CLE_ONGLET_ACTIF);
     if (dernierOnglet) basculerOnglet(dernierOnglet);
