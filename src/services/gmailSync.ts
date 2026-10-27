@@ -113,6 +113,20 @@ function attendre(ms: number): Promise<void> {
 }
 
 /**
+ * Marque un message Gmail comme entierement traite (voir le commentaire du
+ * modele GmailMessageTraite dans prisma/schema.prisma pour le pourquoi) :
+ * idempotent via upsert, au cas ou deux cycles se recouvreraient malgre le
+ * garde-fou du planificateur.
+ */
+async function marquerMessageTraite(prisma: PrismaClient, gmailMessageId: string): Promise<void> {
+  await prisma.gmailMessageTraite.upsert({
+    where: { gmailMessageId },
+    create: { gmailMessageId },
+    update: {},
+  });
+}
+
+/**
  * Reessaie un appel a l'API Gmail avec un delai croissant en cas de quota
  * depasse ("Quota exceeded... Units per minute per user"). Bug reel
  * constate en production : l'elargissement de la fenetre de recherche
@@ -248,16 +262,48 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
     messages.push(...(liste.data.messages || []));
     pageToken = liste.data.nextPageToken || undefined;
   } while (pageToken && messages.length < 1000);
+
+  // Cause reelle (et plus profonde que la simple rafale deja corrigee
+  // ci-dessus) du depassement de quota Gmail constate en production de
+  // facon soutenue (plusieurs heures d'affilee, meme avec des tentatives
+  // bien espacees) : la deduplication par hashFichier n'intervenait
+  // jusqu'ici qu'APRES avoir deja retelecharge chaque piece jointe
+  // (messages.get PUIS attachments.get, les deux appels les plus couteux
+  // en quota) - aucune economie n'etait donc jamais realisee pour un
+  // message deja entierement connu, re-telecharge en entier a chaque
+  // cycle (toutes les 5 minutes) pendant toute la fenetre de 14 jours. On
+  // ecarte ici, avant le moindre appel couteux, tout message deja marque
+  // "traite" (voir l'ecriture dans GmailMessageTraite en fin de boucle) :
+  // le volume reel d'appels Gmail par cycle tombe ainsi au nombre de
+  // messages vraiment nouveaux depuis le cycle precedent, au lieu du
+  // volume total de la fenetre de 14 jours.
+  const idsTraites = new Set(
+    (
+      await prisma.gmailMessageTraite.findMany({
+        where: { gmailMessageId: { in: messages.map((m) => m.id).filter((id): id is string => !!id) } },
+        select: { gmailMessageId: true },
+      })
+    ).map((m) => m.gmailMessageId)
+  );
+
   const cacheLabels = new Map<string, string>();
   const cacheFournisseurs = new Map<string, string>();
 
   for (const ref of messages) {
     if (!ref.id) continue;
+    if (idsTraites.has(ref.id)) continue;
     resultat.messagesExamines++;
     // Pause volontaire entre chaque message (voir la note ci-dessus sur le
     // quota Gmail) : etale les appels dans le temps plutot que de les
     // tenter tous en rafale, cause reelle du depassement de quota constate.
     await attendre(150);
+
+    // Mis a true si une piece ou le message rencontre une erreur reelle
+    // (quota, permission...) : empeche de marquer le message "traite" dans
+    // ce cas precis, pour qu'il soit retente au prochain cycle plutot que
+    // silencieusement abandonne. Un message qui se termine sans la moindre
+    // erreur, lui, n'a plus rien a apporter aux cycles suivants.
+    let messageEnErreur = false;
 
     try {
       const msg = await appelAvecRetryQuota(() => gmail.users.messages.get({ userId: "me", id: ref.id!, format: "full" }));
@@ -269,10 +315,16 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
       // Filet de securite en plus du "-from:dext.cc" de la recherche
       // (au cas ou Dext changerait un jour de sous-domaine d'envoi) :
       // jamais retraiter un e-mail dont l'expediteur est Dext.
-      if (expediteur.toLowerCase().includes("dext.cc")) continue;
+      if (expediteur.toLowerCase().includes("dext.cc")) {
+        await marquerMessageTraite(prisma, ref.id);
+        continue;
+      }
 
       const piecesBrutes = extrairePiecesJointes(msg.data.payload);
-      if (piecesBrutes.length === 0) continue; // rien a router pour ce message
+      if (piecesBrutes.length === 0) {
+        await marquerMessageTraite(prisma, ref.id); // rien a router pour ce message
+        continue;
+      }
 
       const emailContexte: EmailAClassifier = {
         sujet,
@@ -367,10 +419,14 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
           piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, classifiePar });
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
+          messageEnErreur = true;
         }
       }
 
-      if (piecesAtraiter.length === 0) continue;
+      if (piecesAtraiter.length === 0) {
+        if (!messageEnErreur) await marquerMessageTraite(prisma, ref.id);
+        continue;
+      }
 
       const nbFactures = piecesAtraiter.filter((p) => p.type === "facture").length;
       const adresseDext = choisirAdresseDext(nbFactures);
@@ -527,8 +583,11 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
           resultat.documentsTraites++;
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
+          messageEnErreur = true;
         }
       }
+
+      if (!messageEnErreur) await marquerMessageTraite(prisma, ref.id);
     } catch (err) {
       resultat.erreurs.push(`Message ${ref.id} : ${(err as Error).message}`);
     }

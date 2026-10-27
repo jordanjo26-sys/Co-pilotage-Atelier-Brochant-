@@ -248,6 +248,25 @@ model GmailConnexion {
   dernierHistoryId    String?
 }
 
+// Marque un message Gmail comme entierement traite par synchroniserGmail
+// (section 7), pour ne plus jamais le re-telecharger aux cycles suivants.
+// Cause reelle, constatee en production, du depassement de quota Gmail
+// persistant (bien au-dela d'une simple rafale) : la fenetre de recherche
+// de 14 jours est volontairement re-balayee a chaque cycle (toutes les 5
+// minutes) par construction (voir le commentaire dans gmailSync.ts), mais
+// jusqu'ici la deduplication (hashFichier) n'intervenait qu'APRES avoir
+// deja retelecharge chaque piece jointe (gmail.users.messages.get PUIS
+// attachments.get, les deux appels couteux en quota) - aucune economie
+// d'appel n'etait donc jamais realisee pour un message deja entierement
+// connu. Cette table permet de sauter un message deja traite avant meme
+// le premier appel couteux (messages.get), ce qui reduit le volume reel
+// d'appels Gmail par cycle a uniquement les messages vraiment nouveaux.
+model GmailMessageTraite {
+  id             String   @id @default(cuid())
+  gmailMessageId String   @unique
+  traiteLe       DateTime @default(now())
+}
+
 model FactureFournisseur {
   id            String    @id @default(cuid())
   fournisseurId String?
