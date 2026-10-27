@@ -1450,7 +1450,13 @@ if (formScanDocument) {
       const d = await res.json();
       if (!res.ok) throw new Error(d.erreur || "Échec de l'enregistrement.");
 
-      resultatDiv.innerHTML = `Document enregistré${d.type === "facture" ? " — visible ci-dessous, en attente d'envoi à Dext." : "."}`;
+      const suffixe =
+        d.type !== "facture"
+          ? "."
+          : d.statutDext === "envoye"
+            ? " — envoyée automatiquement à Dext."
+            : " — visible ci-dessous, en attente d'envoi à Dext.";
+      resultatDiv.innerHTML = `Document enregistré${suffixe}`;
       scanReinitialiser();
       await Promise.all([chargerFacturesFournisseurs(), chargerFournisseurs(), chargerCockpit()]);
     } catch (err) {

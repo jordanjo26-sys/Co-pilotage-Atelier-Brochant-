@@ -156,7 +156,7 @@ async function appelAvecRetryQuota<T>(appel: () => Promise<T>, tentativesRestant
  * mois de reception plutot que transmises, pour un envoi manuel groupe en
  * fin de mois le temps d'observer le comportement du systeme.
  */
-function transfertAutomatiqueActif(): boolean {
+export function transfertAutomatiqueActif(): boolean {
   return process.env.DEXT_AUTO_FORWARD !== "false";
 }
 
@@ -606,7 +606,7 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
  * Envoie une piece jointe vers l'adresse Dext dediee, depuis la boite
  * Gmail connectee (via l'API Gmail, jamais de mot de passe SMTP separe).
  */
-async function envoyerVersDext(
+export async function envoyerVersDext(
   gmail: gmail_v1.Gmail,
   params: { destinataire: string; nomFichier: string; mimeType: string; donnees: Buffer; sujetOrigine: string }
 ) {

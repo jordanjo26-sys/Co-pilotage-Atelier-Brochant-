@@ -55,7 +55,12 @@ test("enregistrerDocumentScanne", async (t) => {
     );
   });
 
-  await t.test("facture -> en attente d'envoi a Dext, PDF valide ecrit sur disque", async () => {
+  await t.test("facture, Gmail non connecte -> repli sur l'attente d'envoi manuel a Dext, PDF valide ecrit sur disque", async () => {
+    // Pas de GmailConnexion active dans cette base de test : l'envoi
+    // automatique (meme regle que par e-mail, voir gmailSync.ts) ne peut
+    // donc jamais se declencher ici et retombe sur "a_valider" - c'est le
+    // comportement attendu quand Gmail est deconnecte ou en quota depasse,
+    // pas une absence de fonctionnalite. Voir documentsScannes.ts.
     const doc = await enregistrerDocumentScanne(prisma, { image: PNG_1X1, type: "facture", fournisseurNom: "Cedeo Scan" });
 
     assert.equal(doc.type, "facture");

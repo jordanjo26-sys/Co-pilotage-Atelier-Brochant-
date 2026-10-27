@@ -3,7 +3,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import PDFDocument from "pdfkit";
 import { PrismaClient } from "@prisma/client";
-import { TypeDocument } from "./gmailClassify";
+import { TypeDocument, choisirAdresseDext } from "./gmailClassify";
+import { transfertAutomatiqueActif, envoyerVersDext } from "./gmailSync";
+import { getGmailClient } from "./googleAuth";
+import { gmailEnPause, signalerLimiteGmail, reinitialiserLimiteGmail } from "./gmailRateLimit";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
 
@@ -81,14 +84,50 @@ export async function enregistrerDocumentScanne(prisma: PrismaClient, params: Pa
   });
 
   const maintenant = new Date();
+  const fichierNom = `Scan ${maintenant.toLocaleDateString("fr-FR")} - ${fournisseurNom}.pdf`;
+
+  // Une fois le document rattache a un fournisseur, une facture suit la
+  // meme regle que par e-mail (gmailSync.ts, cas standard) : envoi
+  // automatique vers Dext si actif (DEXT_AUTO_FORWARD), demande explicite
+  // de l'utilisateur apres la mise en place du scanner. Jamais bloquant :
+  // Gmail deconnecte, quota depasse ou toute autre panne laisse
+  // simplement le document "a_valider" plutot que de faire echouer tout
+  // l'enregistrement (le document photographie, lui, ne doit jamais etre
+  // perdu).
+  let statutDext: string = params.type === "facture" ? "a_valider" : "archive";
+  let envoiAutoReussi = false;
+  if (params.type === "facture" && transfertAutomatiqueActif() && !gmailEnPause()) {
+    try {
+      const connexionGmail = await getGmailClient(prisma);
+      if (connexionGmail) {
+        await envoyerVersDext(connexionGmail.gmail, {
+          destinataire: choisirAdresseDext(1),
+          nomFichier: fichierNom,
+          mimeType: "application/pdf",
+          donnees: pdf,
+          sujetOrigine: `Scan - ${fournisseurNom}`,
+        });
+        reinitialiserLimiteGmail();
+        statutDext = "envoye";
+        envoiAutoReussi = true;
+      }
+    } catch (err) {
+      const messageErreur = (err as Error).message;
+      if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);
+      // Echec de l'envoi automatique : document conserve, a envoyer
+      // manuellement depuis "Factures fournisseurs reçues" (statutDext
+      // reste "a_valider", valeur par defaut ci-dessus).
+    }
+  }
+
   const document = await prisma.documentFournisseur.create({
     data: {
       type: params.type,
       fournisseurId: fournisseur.id,
-      fichierNom: `Scan ${maintenant.toLocaleDateString("fr-FR")} - ${fournisseurNom}.pdf`,
+      fichierNom,
       numero: params.numero?.trim() || null,
       hashFichier,
-      statutDext: params.type === "facture" ? "a_valider" : "archive",
+      statutDext,
       mimeType: "application/pdf",
       dateReceptionMail: maintenant,
       cheminFichier,
@@ -98,7 +137,12 @@ export async function enregistrerDocumentScanne(prisma: PrismaClient, params: Pa
   await logEvenement(prisma, {
     evenement: "document_scanne",
     action: `Document papier numerise : ${fournisseurNom}`,
-    resultat: `Type "${params.type}" enregistre${params.type === "facture" ? ", en attente d'envoi a Dext" : ", archive pour controle"}.`,
+    resultat:
+      params.type !== "facture"
+        ? `Type "${params.type}" enregistre, archive pour controle.`
+        : envoiAutoReussi
+          ? "Facture envoyee automatiquement vers Dext."
+          : "Facture enregistree, en attente d'envoi a Dext.",
   });
 
   return document;
