@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=29" />
+  <link rel="stylesheet" href="/styles.css?v=30" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -100,6 +100,55 @@
         <h2>Relances à envoyer</h2>
         <p class="aide">Factures ayant atteint un nouveau palier de retard (rappel, relance, mise en demeure). L'envoi reste toujours un geste volontaire, facture par facture — rien n'est envoyé automatiquement.</p>
         <div id="liste-relances"></div>
+      </section>
+
+      <section class="carte accent-violet">
+        <h2>Scanner un document papier</h2>
+        <p class="aide">Facture, avoir, bon ou relevé reçu en papier : prends-le en photo, recadre-le et améliore le contraste ci-dessous — le document rejoint ensuite "Factures fournisseurs reçues" juste en dessous, comme un document reçu par e-mail.</p>
+        <input type="file" id="scan-fichier-photo" accept="image/*" capture="environment" />
+        <div id="scan-resultat-envoi"></div>
+
+        <div id="scan-zone-edition" hidden>
+          <p class="aide">Place les 4 poignées sur les bords du document, puis valide.</p>
+          <div class="scan-canvas-wrap" id="scan-canvas-wrap">
+            <canvas id="scan-canvas-source"></canvas>
+            <span class="scan-poignee" data-coin="haut-gauche"></span>
+            <span class="scan-poignee" data-coin="haut-droite"></span>
+            <span class="scan-poignee" data-coin="bas-gauche"></span>
+            <span class="scan-poignee" data-coin="bas-droite"></span>
+          </div>
+          <div class="ligne-boutons" style="margin-top:8px">
+            <button type="button" class="ghost" id="scan-btn-rogner">Rogner et améliorer</button>
+            <button type="button" class="ghost" id="scan-btn-annuler">Recommencer</button>
+          </div>
+        </div>
+
+        <div id="scan-zone-resultat" hidden>
+          <canvas id="scan-canvas-resultat" class="scan-canvas-resultat"></canvas>
+          <div class="ligne-boutons" style="margin-top:8px">
+            <label><input type="checkbox" id="scan-noir-blanc" checked /> Noir et blanc (plus net pour du texte)</label>
+            <button type="button" class="ghost" id="scan-btn-reprendre">Reprendre le cadrage</button>
+          </div>
+          <form id="form-scan-document" class="form-grille" style="margin-top:10px">
+            <label>Type de document
+              <select id="scan-type-document" required>
+                <option value="facture">Facture</option>
+                <option value="avoir">Avoir</option>
+                <option value="bon_enlevement">Bon d'enlèvement</option>
+                <option value="releve">Relevé</option>
+                <option value="devis">Devis</option>
+              </select>
+            </label>
+            <label>Fournisseur
+              <input type="text" id="scan-fournisseur-nom" list="scan-liste-fournisseurs" required placeholder="Nom du fournisseur" />
+            </label>
+            <datalist id="scan-liste-fournisseurs"></datalist>
+            <label>Numéro (facultatif)
+              <input type="text" id="scan-numero" placeholder="N° de facture" />
+            </label>
+            <button type="submit">Enregistrer</button>
+          </form>
+        </div>
       </section>
 
       <section class="carte accent-teal">
@@ -246,7 +295,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=33"></script>
+  <script src="/app.js?v=37"></script>
   <script src="/morgane.js?v=2"></script>
 </body>
 </html>

@@ -17,6 +17,7 @@ import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
 import { controlerReleveFournisseur } from "./controleReleves";
 import { extractPdfText } from "../importers/bankStatementPdf";
+import fs from "node:fs/promises";
 
 export interface ResultatSyncGmail {
   messagesExamines: number;
@@ -642,7 +643,10 @@ export async function envoyerDocumentFournisseurVersDext(prisma: PrismaClient, d
   if (document.statutDext === "envoye") {
     throw new DocumentFournisseurEnvoiError("Cette facture a deja ete envoyee a Dext.");
   }
-  if (!document.gmailMessageId || !document.gmailAttachmentId) {
+  // Deux sources possibles pour les octets du document : un document papier
+  // numerise (cheminFichier, voir documentsScannes.ts) n'a jamais de message
+  // Gmail a redemander, a la difference d'un document recu par e-mail.
+  if (!document.cheminFichier && (!document.gmailMessageId || !document.gmailAttachmentId)) {
     throw new DocumentFournisseurEnvoiError("Piece jointe non disponible (document trop ancien, avant l'enregistrement de sa reference Gmail).");
   }
 
@@ -650,12 +654,17 @@ export async function envoyerDocumentFournisseurVersDext(prisma: PrismaClient, d
   if (!connexionGmail) throw new DocumentFournisseurEnvoiError("Gmail non connecte.");
   const { gmail } = connexionGmail;
 
-  const attachment = await gmail.users.messages.attachments.get({
-    userId: "me",
-    messageId: document.gmailMessageId,
-    id: document.gmailAttachmentId,
-  });
-  const donnees = Buffer.from(attachment.data.data || "", "base64url");
+  let donnees: Buffer;
+  if (document.cheminFichier) {
+    donnees = await fs.readFile(document.cheminFichier);
+  } else {
+    const attachment = await gmail.users.messages.attachments.get({
+      userId: "me",
+      messageId: document.gmailMessageId!,
+      id: document.gmailAttachmentId!,
+    });
+    donnees = Buffer.from(attachment.data.data || "", "base64url");
+  }
 
   // Un envoi manuel porte toujours sur un document a la fois : l'adresse
   // "multiple" (choisirAdresseDext) ne s'applique qu'au moment ou plusieurs

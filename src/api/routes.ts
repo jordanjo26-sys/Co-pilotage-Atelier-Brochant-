@@ -16,11 +16,13 @@ import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante"
 import { repondreMorgane, MessageMorgane } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
+import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
 import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec, CHEMIN_CAPTURE_ECHEC } from "../services/synecSync";
 import { existsSync } from "fs";
+import fs from "node:fs/promises";
 import { getGmailClient } from "../services/googleAuth";
 import { gmailEnPause, signalerLimiteGmail, reinitialiserLimiteGmail } from "../services/gmailRateLimit";
 import { typeMimePourAffichage } from "../services/fileType";
@@ -425,6 +427,18 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/documents-fournisseurs/:id/document", async (req, res) => {
     const document = await prisma.documentFournisseur.findUnique({ where: { id: req.params.id } });
     if (!document) return res.status(404).json({ erreur: "Document introuvable." });
+    // Document papier numerise (cheminFichier, voir documentsScannes.ts) :
+    // servi directement depuis le disque, pas de message Gmail a redemander.
+    if (document.cheminFichier) {
+      try {
+        const donnees = await fs.readFile(document.cheminFichier);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.fichierNom || "document")}"`);
+        return res.send(donnees);
+      } catch {
+        return res.status(404).json({ erreur: "Fichier numerise introuvable sur le serveur." });
+      }
+    }
     if (!document.gmailMessageId || !document.gmailAttachmentId) {
       return res.status(404).json({ erreur: "Document non disponible (piece jointe plus ancienne, reference Gmail non enregistree)." });
     }
@@ -456,6 +470,32 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       if (err instanceof DocumentFournisseurEnvoiError) {
         return res.status(409).json({ erreur: err.message });
+      }
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Numerisation d'un document papier (facture, avoir, bon d'enlevement,
+  // releve, devis) depuis l'appareil photo (demande explicite de
+  // l'utilisateur : "je dois les scanner, mais ça sort mal"). L'image
+  // envoyee est deja recadree/mise en contraste cote frontend (voir
+  // app.js) ; cette route se contente de la mettre en PDF et de creer le
+  // document comme s'il venait de Gmail (voir documentsScannes.ts).
+  router.post("/documents-fournisseurs/scan", upload.single("image"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ erreur: "Aucune image recue (champ attendu : 'image')." });
+    }
+    try {
+      const document = await enregistrerDocumentScanne(prisma, {
+        image: req.file.buffer,
+        type: typeof req.body?.type === "string" ? req.body.type : "",
+        fournisseurNom: typeof req.body?.fournisseurNom === "string" ? req.body.fournisseurNom : "",
+        numero: typeof req.body?.numero === "string" ? req.body.numero : null,
+      });
+      res.status(201).json({ id: document.id, type: document.type, statutDext: document.statutDext });
+    } catch (err) {
+      if (err instanceof DocumentScanneError) {
+        return res.status(400).json({ erreur: err.message });
       }
       res.status(500).json({ erreur: (err as Error).message });
     }

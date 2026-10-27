@@ -1203,6 +1203,264 @@ async function chargerDecisions() {
 // factures". Cette section la rend visible individuellement, avec un envoi
 // manuel immediat en plus de l'attente de fin de mois.
 
+// --- Scanner un document papier (photo -> recadrage -> amelioration) -----
+// Demande explicite de l'utilisateur : les photos de factures/tickets
+// papier prises au telephone "sortent mal" une fois envoyees telles
+// quelles. Recadrage (4 poignees ajustables sur les bords du document) puis
+// amelioration du contraste directement dans le navigateur (aucune
+// bibliotheque externe), avant envoi au serveur qui met le resultat en PDF
+// et le fait rejoindre le meme circuit qu'un document recu par e-mail (voir
+// documentsScannes.ts) : "Factures fournisseurs reçues" ci-dessous pour une
+// facture, simple archive pour les autres types (meme regle que par e-mail).
+
+let scanImage = null; // <img> en pleine resolution, une fois la photo choisie
+let scanRect = null; // { x1, y1, x2, y2 } en pixels CSS du canvas source affiche
+// Taille du canvas source au moment de la photo, memorisee a part :
+// canvas.clientWidth/clientHeight retombent a 0 une fois la zone d'edition
+// masquee (hidden -> display:none), ce qui cassait le retraitement lors
+// d'une simple bascule noir et blanc / couleur apres le rognage (bug reel
+// trouve en testant la fonctionnalite avec Playwright avant deploiement).
+let scanCanvasSourceTaille = null; // { largeur, hauteur }
+const MAX_LARGEUR_AFFICHAGE_SCAN = 420;
+const MAX_DIMENSION_SCAN_TRAITEE = 1600;
+
+function scanElementsPoignees() {
+  const wrap = document.getElementById("scan-canvas-wrap");
+  return wrap ? [...wrap.querySelectorAll(".scan-poignee")] : [];
+}
+
+function scanPositionnerPoignees() {
+  if (!scanRect) return;
+  for (const el of scanElementsPoignees()) {
+    const coin = el.dataset.coin;
+    const x = coin.endsWith("gauche") ? scanRect.x1 : scanRect.x2;
+    const y = coin.startsWith("haut") ? scanRect.y1 : scanRect.y2;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+  }
+}
+
+function scanDeplacerPoignee(coin, x, y) {
+  const canvas = document.getElementById("scan-canvas-source");
+  const largeur = canvas.clientWidth;
+  const hauteur = canvas.clientHeight;
+  const marge = 24; // taille minimale du cadre, evite un rectangle degenere
+  const xBorne = Math.max(0, Math.min(x, largeur));
+  const yBorne = Math.max(0, Math.min(y, hauteur));
+  if (coin.endsWith("gauche")) scanRect.x1 = Math.min(xBorne, scanRect.x2 - marge);
+  else scanRect.x2 = Math.max(xBorne, scanRect.x1 + marge);
+  if (coin.startsWith("haut")) scanRect.y1 = Math.min(yBorne, scanRect.y2 - marge);
+  else scanRect.y2 = Math.max(yBorne, scanRect.y1 + marge);
+  scanRect.x1 = Math.max(0, scanRect.x1);
+  scanRect.y1 = Math.max(0, scanRect.y1);
+  scanRect.x2 = Math.min(largeur, scanRect.x2);
+  scanRect.y2 = Math.min(hauteur, scanRect.y2);
+  scanPositionnerPoignees();
+}
+
+function scanInitPoignees() {
+  for (const el of scanElementsPoignees()) {
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const wrap = document.getElementById("scan-canvas-wrap");
+      const rectWrap = wrap.getBoundingClientRect();
+      const deplacer = (ev) => scanDeplacerPoignee(el.dataset.coin, ev.clientX - rectWrap.left, ev.clientY - rectWrap.top);
+      const arreter = () => {
+        window.removeEventListener("pointermove", deplacer);
+        window.removeEventListener("pointerup", arreter);
+      };
+      window.addEventListener("pointermove", deplacer);
+      window.addEventListener("pointerup", arreter);
+    });
+  }
+}
+scanInitPoignees();
+
+/** Etire le contraste (percentile 1-99 de la luminance) et, en mode noir et blanc, accentue le texte sur fond clair — l'effet "document scanné" plutôt qu'une simple photo. */
+function scanAmeliorerPixels(data, noirEtBlanc) {
+  const histogramme = new Array(256).fill(0);
+  let total = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    histogramme[lum]++;
+    total++;
+  }
+  const seuilBas = total * 0.01;
+  const seuilHaut = total * 0.99;
+  let cumul = 0;
+  let p1 = 0;
+  let p99 = 255;
+  for (let v = 0; v < 256; v++) {
+    cumul += histogramme[v];
+    if (cumul >= seuilBas) {
+      p1 = v;
+      break;
+    }
+  }
+  cumul = 0;
+  for (let v = 255; v >= 0; v--) {
+    cumul += histogramme[v];
+    if (cumul >= total - seuilHaut) {
+      p99 = v;
+      break;
+    }
+  }
+  const etendue = Math.max(p99 - p1, 1);
+  const facteur = 255 / etendue;
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (noirEtBlanc) {
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      let v = (lum - p1) * facteur;
+      v = (v - 128) * 1.35 + 128; // accentue le contraste autour du milieu (texte plus net)
+      v = Math.max(0, Math.min(255, v));
+      data[i] = data[i + 1] = data[i + 2] = v;
+    } else {
+      data[i] = Math.max(0, Math.min(255, (data[i] - p1) * facteur));
+      data[i + 1] = Math.max(0, Math.min(255, (data[i + 1] - p1) * facteur));
+      data[i + 2] = Math.max(0, Math.min(255, (data[i + 2] - p1) * facteur));
+    }
+  }
+}
+
+function scanAppliquerRognageEtAmelioration() {
+  if (!scanImage || !scanRect || !scanCanvasSourceTaille) return;
+  const scaleX = scanImage.naturalWidth / scanCanvasSourceTaille.largeur;
+  const scaleY = scanImage.naturalHeight / scanCanvasSourceTaille.hauteur;
+  const sx = scanRect.x1 * scaleX;
+  const sy = scanRect.y1 * scaleY;
+  const sw = (scanRect.x2 - scanRect.x1) * scaleX;
+  const sh = (scanRect.y2 - scanRect.y1) * scaleY;
+
+  const echelleSortie = Math.min(1, MAX_DIMENSION_SCAN_TRAITEE / Math.max(sw, sh));
+  const outW = Math.max(1, Math.round(sw * echelleSortie));
+  const outH = Math.max(1, Math.round(sh * echelleSortie));
+
+  const canvasResultat = document.getElementById("scan-canvas-resultat");
+  canvasResultat.width = outW;
+  canvasResultat.height = outH;
+  const ctx = canvasResultat.getContext("2d");
+  ctx.drawImage(scanImage, sx, sy, sw, sh, 0, 0, outW, outH);
+
+  const noirEtBlanc = document.getElementById("scan-noir-blanc").checked;
+  const imageData = ctx.getImageData(0, 0, outW, outH);
+  scanAmeliorerPixels(imageData.data, noirEtBlanc);
+  ctx.putImageData(imageData, 0, 0);
+
+  document.getElementById("scan-zone-edition").hidden = true;
+  document.getElementById("scan-zone-resultat").hidden = false;
+}
+
+// Ne touche jamais #scan-resultat-envoi : appelee juste apres y avoir
+// affiche la confirmation d'enregistrement, qui doit rester visible
+// jusqu'au prochain scan (bug reel trouve en testant avec Playwright -
+// la reinitialisation effacait son propre message de succes).
+function scanReinitialiser() {
+  scanImage = null;
+  scanRect = null;
+  scanCanvasSourceTaille = null;
+  document.getElementById("scan-fichier-photo").value = "";
+  document.getElementById("scan-zone-edition").hidden = true;
+  document.getElementById("scan-zone-resultat").hidden = true;
+  const form = document.getElementById("form-scan-document");
+  if (form) form.reset();
+}
+
+const champFichierScan = document.getElementById("scan-fichier-photo");
+if (champFichierScan) {
+  champFichierScan.addEventListener("change", () => {
+    const fichier = champFichierScan.files[0];
+    if (!fichier) return;
+    document.getElementById("scan-resultat-envoi").innerHTML = "";
+    const img = new Image();
+    img.onload = () => {
+      scanImage = img;
+      const canvasSource = document.getElementById("scan-canvas-source");
+      const ratio = img.naturalWidth / img.naturalHeight;
+      const largeurAffichage = Math.min(MAX_LARGEUR_AFFICHAGE_SCAN, img.naturalWidth);
+      canvasSource.width = largeurAffichage;
+      canvasSource.height = Math.round(largeurAffichage / ratio);
+      canvasSource.getContext("2d").drawImage(img, 0, 0, canvasSource.width, canvasSource.height);
+      scanCanvasSourceTaille = { largeur: canvasSource.width, hauteur: canvasSource.height };
+
+      // Cadre initial legerement en retrait des bords (le document occupe
+      // rarement toute la photo) : l'utilisateur ajuste ensuite les 4
+      // poignees sur les bords reels du document.
+      const marge = 0.08;
+      scanRect = {
+        x1: canvasSource.width * marge,
+        y1: canvasSource.height * marge,
+        x2: canvasSource.width * (1 - marge),
+        y2: canvasSource.height * (1 - marge),
+      };
+      scanPositionnerPoignees();
+
+      document.getElementById("scan-zone-resultat").hidden = true;
+      document.getElementById("scan-zone-edition").hidden = false;
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(fichier);
+  });
+}
+
+const btnScanRogner = document.getElementById("scan-btn-rogner");
+if (btnScanRogner) btnScanRogner.addEventListener("click", scanAppliquerRognageEtAmelioration);
+
+const btnScanAnnuler = document.getElementById("scan-btn-annuler");
+if (btnScanAnnuler) {
+  btnScanAnnuler.addEventListener("click", () => {
+    scanReinitialiser();
+    document.getElementById("scan-resultat-envoi").innerHTML = "";
+  });
+}
+
+const btnScanReprendre = document.getElementById("scan-btn-reprendre");
+if (btnScanReprendre) {
+  btnScanReprendre.addEventListener("click", () => {
+    document.getElementById("scan-zone-resultat").hidden = true;
+    document.getElementById("scan-zone-edition").hidden = false;
+  });
+}
+
+const caseScanNoirEtBlanc = document.getElementById("scan-noir-blanc");
+if (caseScanNoirEtBlanc) caseScanNoirEtBlanc.addEventListener("change", scanAppliquerRognageEtAmelioration);
+
+const formScanDocument = document.getElementById("form-scan-document");
+if (formScanDocument) {
+  formScanDocument.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const resultatDiv = document.getElementById("scan-resultat-envoi");
+    const bouton = formScanDocument.querySelector("button[type='submit']");
+    const canvasResultat = document.getElementById("scan-canvas-resultat");
+
+    bouton.disabled = true;
+    resultatDiv.textContent = "Enregistrement…";
+    try {
+      const blob = await new Promise((resolve) => canvasResultat.toBlob(resolve, "image/jpeg", 0.9));
+      if (!blob) throw new Error("Impossible de préparer l'image.");
+
+      const donnees = new FormData();
+      donnees.append("image", blob, "scan.jpg");
+      donnees.append("type", document.getElementById("scan-type-document").value);
+      donnees.append("fournisseurNom", document.getElementById("scan-fournisseur-nom").value);
+      const numero = document.getElementById("scan-numero").value.trim();
+      if (numero) donnees.append("numero", numero);
+
+      const res = await fetch("/api/documents-fournisseurs/scan", { method: "POST", body: donnees });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.erreur || "Échec de l'enregistrement.");
+
+      resultatDiv.innerHTML = `Document enregistré${d.type === "facture" ? " — visible ci-dessous, en attente d'envoi à Dext." : "."}`;
+      scanReinitialiser();
+      await Promise.all([chargerFacturesFournisseurs(), chargerFournisseurs(), chargerCockpit()]);
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    } finally {
+      bouton.disabled = false;
+    }
+  });
+}
+
 async function envoyerFactureFournisseurVersDext(id, bouton) {
   const texteInitial = bouton.textContent;
   bouton.disabled = true;
@@ -1359,6 +1617,12 @@ async function chargerFournisseurs() {
   const res = await fetch("/api/fournisseurs");
   const fournisseurs = await res.json();
   const liste = document.getElementById("liste-fournisseurs");
+
+  // Suggestions pour le champ "Fournisseur" du scanner de documents papier
+  // (voir plus haut) : evite de retaper un nom deja connu, sans empecher
+  // d'en saisir un nouveau.
+  const datalistScan = document.getElementById("scan-liste-fournisseurs");
+  if (datalistScan) datalistScan.innerHTML = fournisseurs.map((f) => `<option value="${echapper(f.nom)}"></option>`).join("");
 
   if (fournisseurs.length === 0) {
     liste.innerHTML = `<p class="liste-vide">Aucun fournisseur identifié pour le moment.</p>`;

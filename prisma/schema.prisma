@@ -229,6 +229,13 @@ model DocumentFournisseur {
   gmailObjet        String?
   dateReceptionMail DateTime?
   createdAt      DateTime  @default(now())
+  // Document papier numerise depuis l'application (section "Scanner un
+  // document papier") : chemin local du PDF genere (voir uploads/scans/,
+  // .gitignore), rempli uniquement pour cette source puisqu'il n'existe
+  // alors aucun message Gmail a redemander pour previsualiser le document
+  // ou l'envoyer a Dext (a la difference de gmailMessageId/gmailAttachmentId
+  // ci-dessus, qui couvrent la source Gmail).
+  cheminFichier     String?
 
   @@index([gmailMessageId])
 }
