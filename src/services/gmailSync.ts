@@ -50,7 +50,11 @@ export function resumerErreurs(erreurs: string[]): string {
   return [...groupes.entries()]
     .map(([message, identifiants]) => {
       const messageCourt = message.length > 160 ? `${message.slice(0, 160)}…` : message;
-      return identifiants.length <= 3
+      // Seuil releve de 3 a 10 (temporairement, diagnostic d'un "Insufficient
+      // Permission" recurrent sur 7 pieces precises signale par l'utilisateur,
+      // octobre 2026) : sans les noms de fichiers individuels, impossible de
+      // savoir lesquelles sont en cause.
+      return identifiants.length <= 10
         ? `${identifiants.join(", ")} : ${messageCourt}`
         : `${identifiants.length} document(s)/message(s) : ${messageCourt}`;
     })

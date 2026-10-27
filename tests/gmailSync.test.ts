@@ -80,13 +80,24 @@ test("resumerErreurs : beaucoup d'occurrences du meme message -> regroupees avec
   assert.equal(resume, "50 document(s)/message(s) : Quota exceeded for quota metric 'Total Query Cost'");
 });
 
+// Seuil releve de 3 a 10 (octobre 2026) pour diagnostiquer un "Insufficient
+// Permission" recurrent sur un petit nombre fixe de pieces jointes : jusqu'a
+// 10 occurrences identiques, les identifiants restent listes en clair (noms
+// de fichiers exploitables), au-dela ils sont regroupes avec un compte.
+test("resumerErreurs : jusqu'a 10 occurrences identiques -> identifiants encore listes en clair", () => {
+  const erreurs = Array.from({ length: 10 }, (_, i) => `fichier${i}.pdf : Insufficient Permission`);
+  const resume = resumerErreurs(erreurs);
+  assert.ok(!resume.includes("document(s)/message(s)"));
+  assert.match(resume, /fichier0\.pdf.*fichier9\.pdf : Insufficient Permission/);
+});
+
 test("resumerErreurs : plusieurs types d'erreurs distincts -> une ligne par type", () => {
   const erreurs = [
-    ...Array.from({ length: 10 }, (_, i) => `Message ${i} : Quota exceeded`),
+    ...Array.from({ length: 15 }, (_, i) => `Message ${i} : Quota exceeded`),
     "a.pdf : Insufficient Permission",
   ];
   const resume = resumerErreurs(erreurs);
-  assert.match(resume, /10 document\(s\)\/message\(s\) : Quota exceeded/);
+  assert.match(resume, /15 document\(s\)\/message\(s\) : Quota exceeded/);
   assert.match(resume, /a\.pdf : Insufficient Permission/);
 });
 
