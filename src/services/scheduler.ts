@@ -45,6 +45,17 @@ const INTERVALLE_ENVOI_AUTO_PROSPECTION_MS = Number(process.env.PROSPECTION_ENVO
  * jamais le serveur en cas d'erreur (reseau, jeton expire...), seulement
  * journalisee pour investigation.
  */
+// Extrait l'indication "Retry after <date ISO>" que Gmail renvoie avec un
+// "User-rate limit exceeded" (voir isoler le niveau de dessous : chaque
+// attente non respectee prolonge elle-meme l'interdiction). null si le
+// message ne contient pas cette indication.
+function extraireDateReprise(messageErreur: string): Date | null {
+  const correspondance = messageErreur.match(/Retry after (\S+)/);
+  if (!correspondance) return null;
+  const date = new Date(correspondance[1]);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
   const intervalle = Number(process.env.GMAIL_POLL_INTERVAL_MS) || INTERVALLE_PAR_DEFAUT_MS;
   // Garde-fou contre le chevauchement (bug racine du "jeton qui saute" en
@@ -57,15 +68,25 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
   // une synchronisation en plus, au lieu d'attendre que la precedente
   // libere le quota.
   let synchronisationEnCours = false;
+  // Deuxieme garde-fou, distinct du precedent (constate en production
+  // juste apres le premier correctif) : meme SANS chevauchement, un tic
+  // toutes les 5 minutes qui ignore l'indication "Retry after" de Google
+  // (generalement ~15 minutes) retente en pleine interdiction a chaque
+  // fois, ce qui la prolonge elle-meme sans fin - "User-rate limit
+  // exceeded" en continu alors qu'une seule tentative est en cours a la
+  // fois. Tant que cette date n'est pas depassee, les tics sont ignores.
+  let pauseJusqua: Date | null = null;
 
   setInterval(async () => {
     if (synchronisationEnCours) return;
+    if (pauseJusqua && new Date() < pauseJusqua) return;
     synchronisationEnCours = true;
     try {
       const connexion = await prisma.gmailConnexion.findFirst({ where: { actif: true } });
       if (!connexion) return; // rien a synchroniser tant que Gmail n'est pas connecte
 
       const resultat = await synchroniserGmail(prisma);
+      pauseJusqua = null;
       if (resultat.documentsTraites > 0 || resultat.documentsAmbigus > 0 || resultat.erreurs.length > 0) {
         // Le detail des erreurs (pas seulement leur nombre) est inclus ici :
         // sans cela, une erreur repetee sur une piece jointe precise (PDF
@@ -81,8 +102,14 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
         });
       }
     } catch (err) {
+      const messageErreur = (err as Error).message;
       // eslint-disable-next-line no-console
-      console.error("Synchronisation Gmail planifiee en echec :", (err as Error).message);
+      console.error("Synchronisation Gmail planifiee en echec :", messageErreur);
+      const dateReprise = extraireDateReprise(messageErreur);
+      // Sans date exploitable dans le message, 15 minutes par defaut
+      // (fenetre habituelle constatee pour ce type d'erreur) plutot que de
+      // retenter sans attendre.
+      pauseJusqua = dateReprise ?? new Date(Date.now() + 15 * 60 * 1000);
       // Journalise aussi en base (pas seulement la console du serveur,
       // inaccessible sans acces SSH) : une panne silencieuse et repetee de
       // ce planificateur (ex. jeton Google expire) est passee inapercue en
@@ -90,7 +117,7 @@ export function demarrerSurveillanceGmail(prisma: PrismaClient): void {
       await logEvenement(prisma, {
         evenement: "gmail_sync_planifiee_erreur",
         action: "Synchronisation automatique Gmail",
-        resultat: `Echec : ${(err as Error).message}`,
+        resultat: `Echec : ${messageErreur}` + (dateReprise ? ` (nouvelle tentative apres ${dateReprise.toISOString()})` : " (nouvelle tentative dans 15 min)"),
       }).catch(() => {});
     } finally {
       synchronisationEnCours = false;
