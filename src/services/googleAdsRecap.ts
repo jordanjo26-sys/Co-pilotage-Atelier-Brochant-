@@ -4,6 +4,7 @@ import { getGmailClient } from "./googleAuth";
 import { logEvenement } from "./journalService";
 import { repondreMorgane } from "./morgane";
 import { googleAdsEstConfigure } from "./googleAds";
+import { construireEmailHtml } from "./emailFormat";
 
 /**
  * Demande explicite de l'utilisateur : Morgane doit analyser automatiquement
@@ -25,7 +26,14 @@ const PROMPT_ANALYSE_QUOTIDIENNE = `Fais une analyse quotidienne de mes campagne
 3. Mots-cles a ajouter : des termes de recherche (obtenir_termes_recherche_ads) qui convertissent bien mais ne sont pas encore des mots-cles positifs.
 4. Points d'amelioration eventuels : budget limite, score de qualite faible, annonce non approuvee (verifier_politique_annonces_ads si pertinent).
 
-Donne une synthese claire et actionnable en francais. Pour chaque recommandation precise, donne le chiffre qui la justifie (pas d'affirmation sans donnee). Priorise les 3 a 5 points les plus importants plutot que tout lister - c'est un rapport quotidien court, pas une analyse exhaustive. Si rien de notable aujourd'hui, dis-le simplement en une phrase plutot que de forcer des recommandations. N'appelle JAMAIS proposer_action_ads ici : c'est un rapport de lecture seule, l'utilisateur redemandera lui-meme dans la conversation s'il veut agir sur une recommandation.`;
+Donne une synthese claire et actionnable en francais. Pour chaque recommandation precise, donne le chiffre qui la justifie (pas d'affirmation sans donnee). Priorise les 3 a 5 points les plus importants plutot que tout lister - c'est un rapport quotidien court, pas une analyse exhaustive. Si rien de notable aujourd'hui, dis-le simplement en une phrase plutot que de forcer des recommandations. N'appelle JAMAIS proposer_action_ads ici : c'est un rapport de lecture seule, l'utilisateur redemandera lui-meme dans la conversation s'il veut agir sur une recommandation.
+
+Format de reponse IMPORTANT (ce texte part directement dans un e-mail mis en forme automatiquement, l'utilisateur s'est plaint que les versions precedentes etaient "un pave de texte illisible") :
+- Un titre "## " court par section (ex. "## Etat general", "## Mots-cles a exclure").
+- Les chiffres cles en gras avec **...**.
+- Une liste a puces "- " par recommandation individuelle (jamais un paragraphe qui enchaine plusieurs recommandations a la suite).
+- Si tu listes plusieurs mots-cles avec chacun un cout/des conversions a comparer, utilise un tableau Markdown ("| Mot-cle | Cout | Conversions |" puis une ligne "|---|---|---|" puis une ligne par mot-cle) plutot qu'une liste - bien plus lisible pour comparer des chiffres.
+- Pas de phrase d'introduction ni de conclusion generique ("Voici l'analyse...", "N'hesitez pas...") : va directement aux sections.`;
 
 export async function envoyerAnalyseQuotidienneAds(prisma: PrismaClient, maintenant: Date = new Date()): Promise<void> {
   if (!googleAdsEstConfigure()) {
@@ -64,10 +72,12 @@ export async function envoyerAnalyseQuotidienneAds(prisma: PrismaClient, mainten
   }
 
   const { gmail, connexion } = connexionGmail;
+  const sujet = `Analyse Google Ads du ${maintenant.toLocaleDateString("fr-FR")} - Copilote Atelier Brochant`;
   const composer = new MailComposer({
     to: connexion.compteEmail,
-    subject: `Analyse Google Ads du ${maintenant.toLocaleDateString("fr-FR")} - Copilote Atelier Brochant`,
+    subject: sujet,
     text: contenu,
+    html: construireEmailHtml({ titre: "Analyse Google Ads", sousTitre: maintenant.toLocaleDateString("fr-FR"), corpsMarkdown: contenu }),
   });
   const message = await composer.compile().build();
   const raw = message.toString("base64url");
