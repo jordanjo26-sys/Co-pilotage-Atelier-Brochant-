@@ -64,7 +64,7 @@ async function journalApplicatif(): Promise<void> {
         `Appel ${a.createdAt.toISOString()} statut=${a.statut} erreurs=${a.erreurs} silences=${a.silences} tours=${transcription.length} enAttente=${a.enAttente ? "oui" : "non"} sms=${a.smsUrgenceEnvoyeLe ? "oui" : "non"} notifie=${a.notifieLe ? "oui" : "non"}` +
           (durees.length ? ` reponseIA(ms) moy=${Math.round(durees.reduce((x, y) => x + y, 0) / durees.length)} max=${Math.max(...durees)} detail=${durees.join(",")}` : "")
       );
-      for (const l of transcription.slice(-4)) console.log(`   ${l.qui}: ${l.texte.slice(0, 160)}`);
+      for (const l of transcription.slice(a === appels[0] ? 0 : -4)) console.log(`   ${l.qui}: ${l.texte.slice(0, 220)}`);
     }
     const evenements = await prisma.journalEvenement.findMany({
       where: { evenement: { startsWith: "appel" } },

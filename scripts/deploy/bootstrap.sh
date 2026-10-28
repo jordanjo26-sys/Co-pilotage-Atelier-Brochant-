@@ -278,6 +278,9 @@ echo "== Numero Twilio du standard telephonique =="
 sudo -u "$APP_USER" node dist/scripts/configurer-numero-twilio.js "$TWILIO_NUMERO" || true
 echo "== Diagnostic du standard telephonique =="
 sudo -u "$APP_USER" node dist/scripts/diagnostic-telephonie.js || true
+# Erreurs du standard cote serveur (relais vocal, IA), 3 derniers jours.
+journalctl -u copilote-brochant -u copilote-brochant-secours --no-pager --since "3 days ago" 2>/dev/null \
+  | grep -iE "relais|standard telephonique|telephonie" | tail -40 || true
 
 echo "== Services systemd (principal + secours) =="
 cp "$APP_DIR/scripts/deploy/copilote-brochant.service" /etc/systemd/system/copilote-brochant.service
