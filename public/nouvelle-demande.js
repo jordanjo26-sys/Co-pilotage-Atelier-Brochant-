@@ -108,7 +108,7 @@ async function chargerDemandes() {
       bouton.disabled = true;
       bouton.textContent = "Envoi en cours… (peut prendre une minute)";
       try {
-        await appelApi(`/api/demandes-intervention/${id}/envoyer-synec`, { method: "POST" });
+        await envoyerVersSynecAvecNouvelleTentative(id, bouton);
         await chargerDemandes();
       } catch (err) {
         bouton.disabled = false;
@@ -118,6 +118,38 @@ async function chargerDemandes() {
       }
     });
   });
+}
+
+/**
+ * Coupure reseau mobile pendant l'envoi (demande explicite de
+ * l'utilisateur, apres plusieurs "Load failed" constates sur telephone) :
+ * un vrai navigateur est pilote en arriere-plan cote serveur pendant
+ * jusqu'a une minute, le temps pendant lequel un changement wifi/4G ou une
+ * mise en veille de l'onglet peut faire echouer fetch() avec une TypeError
+ * ("Load failed" sur Safari/iOS, "Failed to fetch" sur Chrome) SANS dire
+ * si l'envoi a quand meme abouti cote serveur. Avant de retenter
+ * automatiquement (ce qui creerait un deuxieme client/evenement dans
+ * Synec si le premier essai a en fait reussi), on verifie d'abord si la
+ * demande est deja sortie de la liste "a saisir" - si oui, rien a
+ * refaire. Une erreur explicite renvoyee par le serveur (res.ok === false,
+ * ex. "deja saisie", identifiants Synec invalides...) n'est elle jamais
+ * retentee automatiquement : le serveur a deja tranche.
+ */
+async function envoyerVersSynecAvecNouvelleTentative(id, bouton) {
+  try {
+    await appelApi(`/api/demandes-intervention/${id}/envoyer-synec`, { method: "POST" });
+    return;
+  } catch (err) {
+    if (err.name !== "TypeError") throw err;
+  }
+
+  bouton.textContent = "Coupure réseau, vérification…";
+  await new Promise((resolve) => setTimeout(resolve, 8000));
+  const enAttente = await appelApi("/api/demandes-intervention?statut=a_saisir");
+  if (!enAttente.some((d) => d.id === id)) return; // envoyee avec succes malgre la coupure
+
+  bouton.textContent = "Nouvelle tentative… (peut prendre une minute)";
+  await appelApi(`/api/demandes-intervention/${id}/envoyer-synec`, { method: "POST" });
 }
 
 // Autocompletion d'adresse via l'API Adresse du gouvernement francais
