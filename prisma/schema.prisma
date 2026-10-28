@@ -284,6 +284,13 @@ model FactureFournisseur {
   modePaiement  String?
   statut        String    @default("a_payer") // a_payer | payee
   sousTraitant  Boolean   @default(false)
+  // Rapprochement avec un mouvement bancaire (meme principe que
+  // Payout.mouvementBancaireId : pas une vraie relation Prisma, juste un
+  // identifiant pose par rapprochementBancaire.ts, verifie par requete
+  // applicative). Permet d'etendre le dossier comptable aux factures
+  // fournisseurs payees par virement/prelevement, pas seulement aux
+  // payouts Stripe.
+  mouvementBancaireId String?
   createdAt     DateTime  @default(now())
 }
 

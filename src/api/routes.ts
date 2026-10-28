@@ -13,10 +13,11 @@ import {
 } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
-import { repondreMorgane, MessageMorgane } from "../services/morgane";
+import { repondreMorgane, MessageMorgane, PieceJointeMorgane, MIME_PIECES_JOINTES_AUTORISEES } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
+import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
@@ -757,6 +758,27 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   // --- Morgane, assistante IA (Phase 7 du cahier des charges) -------------
 
+  // Telechargement d'un document PDF genere par Morgane a la demande
+  // (outil generer_document_pdf/generer_dossier_comptable, voir
+  // documentsGeneres.ts) - nom de fichier toujours genere cote serveur
+  // (slug + uuid), jamais fourni par l'utilisateur : la validation du
+  // format ci-dessous est une defense en profondeur, pas la seule barriere.
+  router.get("/documents-generes/:fichier", async (req, res) => {
+    const { fichier } = req.params;
+    if (!nomFichierGenereValide(fichier)) {
+      return res.status(400).json({ erreur: "Nom de fichier invalide." });
+    }
+    try {
+      const chemin = cheminDocumentGenere(fichier);
+      const contenu = await fs.readFile(chemin);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${fichier}"`);
+      res.send(contenu);
+    } catch {
+      res.status(404).json({ erreur: "Document introuvable (peut-etre deja supprime)." });
+    }
+  });
+
   router.post("/morgane/message", async (req, res) => {
     const historique = req.body?.historique;
     if (!Array.isArray(historique) || historique.length === 0) {
@@ -772,8 +794,31 @@ export function buildRouter(prisma: PrismaClient): Router {
     if (!valide) {
       return res.status(400).json({ erreur: "Chaque message doit avoir 'role' (user|assistant) et 'content' (texte)." });
     }
+
+    // Piece jointe optionnelle (photo/fichier) pour CE tour uniquement -
+    // jamais stockee dans l'historique renvoye par le client (section
+    // "assistante administrative" : les octets ne doivent pas etre
+    // re-envoyes a chaque message suivant, voir morgane.ts).
+    let pieceJointe: PieceJointeMorgane | undefined;
+    const brut = req.body?.pieceJointe;
+    if (brut !== undefined && brut !== null) {
+      if (
+        !brut ||
+        typeof brut !== "object" ||
+        typeof brut.nomFichier !== "string" ||
+        typeof brut.mimeType !== "string" ||
+        typeof brut.donneesBase64 !== "string" ||
+        !MIME_PIECES_JOINTES_AUTORISEES.includes(brut.mimeType)
+      ) {
+        return res
+          .status(400)
+          .json({ erreur: `Piece jointe invalide (type accepte : ${MIME_PIECES_JOINTES_AUTORISEES.join(", ")}).` });
+      }
+      pieceJointe = { nomFichier: brut.nomFichier, mimeType: brut.mimeType, donneesBase64: brut.donneesBase64 };
+    }
+
     try {
-      const reponse = await repondreMorgane(prisma, historique);
+      const reponse = await repondreMorgane(prisma, historique, pieceJointe);
       res.json({ reponse });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });

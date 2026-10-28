@@ -36,6 +36,9 @@ import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds, Ajust
 import { creerPropositionPost, listerPropositionsPost } from "./reseauxSociauxActions";
 import { obtenirStatistiquesPost, reseauxSociauxEstConfigure } from "./reseauxSociaux";
 import { obtenirConnexionMeta } from "./metaAuth";
+import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./documentsScannes";
+import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
+import { genererDossierComptable } from "./dossierComptable";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -52,6 +55,26 @@ export interface MessageMorgane {
   role: "user" | "assistant";
   content: string;
 }
+
+/**
+ * Piece jointe (photo ou fichier) envoyee avec le DERNIER message de
+ * l'historique uniquement - jamais stockee dans MessageMorgane.content,
+ * qui reste du texte simple (voir repondreMorgane : les octets ne sont
+ * utilises que pour ce tour, jamais renvoyes par le client au tour
+ * suivant). Demande explicite de l'utilisateur ("Morgane ne peut pas
+ * recevoir de photos ou fichiers").
+ */
+export interface PieceJointeMorgane {
+  nomFichier: string;
+  mimeType: string;
+  donneesBase64: string;
+}
+
+// jpeg/png : formats geres a la fois par pdfkit (classement en document
+// fournisseur, voir documentsScannes.ts) et par la vision Claude - pas de
+// webp/heic, que pdfkit ne sait pas mettre en page. application/pdf est
+// deja un document, transmis tel quel a Claude (bloc "document").
+export const MIME_PIECES_JOINTES_AUTORISEES = ["image/jpeg", "image/png", "application/pdf"];
 
 // Nom de modele tel que fourni par la configuration de l'environnement de
 // build (voir la doc interne) : le plus capable disponible, adapte a une
@@ -561,9 +584,58 @@ const OUTILS: Anthropic.Tool[] = [
       required: ["idPublication", "plateforme"],
     },
   },
+  {
+    name: "classer_document_recu",
+    description:
+      "Enregistre la photo ou le fichier PDF joint AU MESSAGE EN COURS comme document fournisseur (facture, avoir, bon d'enlevement, releve ou devis) : meme circuit que le scanner de l'onglet Factures (type facture -> envoi automatique vers Dext si possible, sinon en attente ; autres types -> simplement archives). Echoue explicitement si aucune piece jointe n'a ete envoyee avec ce message - ne jamais appeler sans piece jointe reelle, et toujours confirmer le fournisseur et le type avec l'utilisateur avant d'appeler (ne les devine jamais a partir du seul nom de fichier).",
+    input_schema: {
+      type: "object",
+      properties: {
+        fournisseurNom: { type: "string", description: "Nom du fournisseur (cree s'il n'existe pas encore)." },
+        type: { type: "string", enum: ["facture", "avoir", "bon_enlevement", "releve", "devis"] },
+        numero: { type: "string", description: "Numero de piece visible sur le document, si lisible/connu. Optionnel." },
+      },
+      required: ["fournisseurNom", "type"],
+    },
+  },
+  {
+    name: "generer_document_pdf",
+    description:
+      "Genere un document PDF telechargeable a partir d'un contenu que TU redige (recapitulatif, rapport, lettre...) - demande explicite de l'utilisateur ('fais-moi un fichier'). Retourne une URL de telechargement (/api/documents-generes/...) a donner telle quelle a l'utilisateur dans ta reponse, jamais reformulee. Structure le contenu en sections (titre de section optionnel + paragraphes et/ou puces) plutot que de tout mettre dans un seul bloc de texte - une lettre typique est une seule section avec des paragraphes, un rapport a plusieurs sections. Ne fabrique jamais un chiffre dans le document : toute donnee chiffree doit venir d'un outil de lecture deja appele dans la conversation.",
+    input_schema: {
+      type: "object",
+      properties: {
+        titre: { type: "string", description: "Titre du document (sert aussi de nom de fichier)." },
+        sections: {
+          type: "array",
+          description: "Au moins une section.",
+          items: {
+            type: "object",
+            properties: {
+              titre: { type: "string", description: "Titre de la section, omis si non pertinent (ex. lettre simple)." },
+              paragraphes: { type: "array", items: { type: "string" }, description: "Paragraphes de texte, dans l'ordre." },
+              puces: { type: "array", items: { type: "string" }, description: "Liste a puces, dans l'ordre." },
+            },
+          },
+        },
+      },
+      required: ["titre", "sections"],
+    },
+  },
+  {
+    name: "generer_dossier_comptable",
+    description:
+      "Relance le rapprochement bancaire (payouts Stripe + factures fournisseurs, voir verifier_rapprochement_bancaire) puis genere un PDF pret a transmettre au comptable : resume chiffre, encaissements/factures encore en attente de rapprochement, et mouvements bancaires non expliques. Retourne une URL de telechargement a donner telle quelle a l'utilisateur. N'appelle cet outil que si l'utilisateur demande explicitement un dossier/document pour son comptable - une simple verification de rapprochement reste verifier_rapprochement_bancaire, sans fichier.",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
-async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown): Promise<unknown> {
+async function executerOutil(
+  prisma: PrismaClient,
+  nom: string,
+  entree: unknown,
+  pieceJointe: PieceJointeMorgane | undefined
+): Promise<unknown> {
   const params = (entree && typeof entree === "object" ? entree : {}) as Record<string, unknown>;
 
   switch (nom) {
@@ -1063,6 +1135,42 @@ async function executerOutil(prisma: PrismaClient, nom: string, entree: unknown)
       }
     }
 
+    case "classer_document_recu": {
+      if (!pieceJointe) {
+        return { erreur: "Aucune piece jointe n'a ete recue avec ce message : redemande a l'utilisateur d'envoyer la photo ou le fichier avant d'appeler cet outil." };
+      }
+      const fournisseurNom = typeof params.fournisseurNom === "string" ? params.fournisseurNom : "";
+      const type = typeof params.type === "string" ? params.type : "";
+      const numero = typeof params.numero === "string" ? params.numero : undefined;
+      try {
+        const document = await enregistrerDocumentDepuisPieceJointe(prisma, {
+          buffer: Buffer.from(pieceJointe.donneesBase64, "base64"),
+          mimeType: pieceJointe.mimeType,
+          type,
+          fournisseurNom,
+          numero,
+        });
+        return { ok: true, documentId: document.id, statutDext: document.statutDext };
+      } catch (err) {
+        if (err instanceof DocumentScanneError) return { erreur: err.message };
+        throw err;
+      }
+    }
+
+    case "generer_document_pdf": {
+      const titre = typeof params.titre === "string" ? params.titre : "";
+      const sections = Array.isArray(params.sections) ? (params.sections as SectionDocumentGenere[]) : [];
+      try {
+        return await genererDocumentPdf(prisma, { titre, sections });
+      } catch (err) {
+        if (err instanceof DocumentGenereError) return { erreur: err.message };
+        throw err;
+      }
+    }
+
+    case "generer_dossier_comptable":
+      return genererDossierComptable(prisma);
+
     default:
       return { erreur: `Outil inconnu : ${nom}` };
   }
@@ -1445,7 +1553,45 @@ recent de l'utilisateur sur le texte exact et les plateformes, et dis-lui \
 toujours que la publication reelle ne se fait qu'apres son acceptation \
 sur l'ecran de validation dedie, jamais depuis la conversation.
   Instagram EXIGE une photo (cheminMedia) - rappelle-le si l'utilisateur \
-demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.`;
+demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.
+
+Pieces jointes dans la conversation (photo ou PDF, outil classer_document_recu) : \
+l'utilisateur peut joindre une photo ou un fichier a son message - tu la \
+vois directement (vision), tu peux donc decrire ce qu'elle montre, lire \
+du texte visible, repondre a une question dessus, SANS appeler aucun \
+outil pour ca. N'appelle classer_document_recu que si l'utilisateur \
+demande explicitement de l'enregistrer/classer comme document \
+fournisseur (facture, avoir, bon d'enlevement, releve, devis) - jamais de \
+ta propre initiative juste parce qu'une photo ressemble a une facture. \
+Confirme toujours le fournisseur et le type exact avec l'utilisateur \
+avant d'appeler l'outil (ne les devine jamais depuis l'image seule, une \
+mauvaise lecture enverrait le document au mauvais fournisseur). La piece \
+jointe n'existe que pour CE message : si l'utilisateur en reparle plus \
+tard dans la conversation sans la renvoyer, tu ne la vois plus - dis-le \
+plutot que de pretendre t'en souvenir.
+
+Generation de fichiers (outil generer_document_pdf, demande explicite \
+"fais-moi un fichier/un document/une lettre...") : c'est a toi de \
+rediger le contenu (texte, structure en sections), pas a l'utilisateur de \
+te dicter phrase par phrase - pose-lui seulement les quelques questions \
+necessaires (destinataire d'une lettre, periode d'un recap...) puis \
+redige. Une fois genere, donne-lui l'URL de telechargement renvoyee par \
+l'outil TELLE QUELLE dans ta reponse (jamais reformulee ni raccourcie), \
+en disant clairement que c'est un fichier a telecharger. Comme ailleurs, \
+aucun chiffre invente : si le document doit contenir des donnees de \
+l'application (factures, impayes, campagnes...), appelle d'abord l'outil \
+de lecture correspondant.
+
+Dossier comptable (outil generer_dossier_comptable, distinct de \
+verifier_rapprochement_bancaire qui ne fait que relancer le rapprochement \
+sans produire de fichier) : relance le rapprochement bancaire (payouts \
+Stripe ET factures fournisseurs) puis genere un PDF listant ce qui est \
+deja rapproche (resume chiffre) et surtout ce qui ne l'est PAS encore \
+(encaissements et factures fournisseurs en attente, mouvements bancaires \
+non expliques) - c'est ce qu'un comptable a besoin de voir pour faire son \
+travail. N'appelle cet outil que si l'utilisateur demande explicitement \
+un document/dossier pour son comptable, donne l'URL renvoyee telle \
+quelle.`;
 
 /**
  * Fait dialoguer l'historique fourni avec Claude, en executant les outils
@@ -1453,7 +1599,11 @@ demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.`;
  * tours de securite, pour eviter une boucle infinie en cas de comportement
  * inattendu du modele).
  */
-export async function repondreMorgane(prisma: PrismaClient, historique: MessageMorgane[]): Promise<string> {
+export async function repondreMorgane(
+  prisma: PrismaClient,
+  historique: MessageMorgane[],
+  pieceJointe?: PieceJointeMorgane
+): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("Morgane n'est pas encore configuree (cle ANTHROPIC_API_KEY manquante cote serveur).");
@@ -1473,6 +1623,28 @@ export async function repondreMorgane(prisma: PrismaClient, historique: MessageM
   const messages: Anthropic.MessageParam[] = historique
     .slice(-20)
     .map((m) => ({ role: m.role, content: m.content }));
+
+  // Piece jointe (photo/PDF) : ajoutee comme bloc supplementaire sur le
+  // DERNIER message seulement (forcement le plus recent message "user",
+  // voir la validation faite cote route) - jamais repassee aux tours
+  // suivants de cette meme reponse ni aux appels futurs, qui ne reverront
+  // que le texte conserve dans historique (voir PieceJointeMorgane).
+  if (pieceJointe) {
+    const dernier = messages[messages.length - 1];
+    if (dernier?.role === "user" && typeof dernier.content === "string") {
+      const blocPieceJointe: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam =
+        pieceJointe.mimeType === "application/pdf"
+          ? {
+              type: "document",
+              source: { type: "base64", media_type: "application/pdf", data: pieceJointe.donneesBase64 },
+            }
+          : {
+              type: "image",
+              source: { type: "base64", media_type: pieceJointe.mimeType as "image/jpeg" | "image/png", data: pieceJointe.donneesBase64 },
+            };
+      dernier.content = [{ type: "text", text: dernier.content || "(voir piece jointe)" }, blocPieceJointe];
+    }
+  }
 
   for (let tour = 0; tour < MAX_TOURS_OUTILS; tour++) {
     const reponse = await client.messages.create({
@@ -1504,7 +1676,7 @@ export async function repondreMorgane(prisma: PrismaClient, historique: MessageM
     const resultatsOutils: Anthropic.ToolResultBlockParam[] = [];
     for (const bloc of reponse.content) {
       if (bloc.type === "tool_use") {
-        const resultat = await executerOutil(prisma, bloc.name, bloc.input);
+        const resultat = await executerOutil(prisma, bloc.name, bloc.input, pieceJointe);
         resultatsOutils.push({ type: "tool_result", tool_use_id: bloc.id, content: JSON.stringify(resultat) });
       }
     }

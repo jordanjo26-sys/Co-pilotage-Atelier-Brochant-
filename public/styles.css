@@ -315,6 +315,67 @@ button:disabled { opacity: 0.4; cursor: default; }
   max-height: 132px;
   overflow-y: auto;
 }
+.morgane-bouton-joindre {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.morgane-bouton-joindre:hover { background: var(--surface-2); }
+.morgane-piece-jointe-apercu[hidden] { display: none; }
+.morgane-piece-jointe-apercu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+}
+.morgane-piece-jointe-apercu img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.morgane-piece-jointe-apercu span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.morgane-piece-jointe-apercu button {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--line-strong);
+  cursor: pointer;
+}
+.morgane-bulle-miniature {
+  display: block;
+  margin-top: 6px;
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.morgane-bulle-nom-fichier {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.85;
+}
 
 /* ---------- KPI grid ---------- */
 .grille-cockpit {

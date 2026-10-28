@@ -25,7 +25,11 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+// Limite par defaut (100kb) trop etroite pour la piece jointe base64
+// (photo/PDF) qu'un message Morgane peut transporter (section "assistante
+// administrative") - 15mb laisse une marge confortable au-dessus de la
+// limite de taille appliquee cote route (voir /morgane/message).
+app.use(express.json({ limit: "15mb" }));
 app.use("/api", buildRouter(prisma));
 app.use("/api/prospection", buildProspectionRouter(prisma));
 app.use("/api/prospection/suivi", buildProspectionTrackingRouter(prisma));

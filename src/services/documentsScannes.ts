@@ -61,7 +61,24 @@ export interface ParametresDocumentScanne {
   numero?: string | null;
 }
 
-export async function enregistrerDocumentScanne(prisma: PrismaClient, params: ParametresDocumentScanne) {
+interface ParametresCommuns {
+  type: string;
+  fournisseurNom: string;
+  numero?: string | null;
+}
+
+/**
+ * Finalise l'enregistrement d'un PDF deja pret (soit construit depuis une
+ * image scannee, soit une piece jointe deja au format PDF - voir
+ * enregistrerDocumentDepuisPieceJointe) : hash, ecriture disque, upsert du
+ * fournisseur, envoi automatique vers Dext si c'est une facture, puis
+ * creation de la ligne DocumentFournisseur. Extrait d'enregistrerDocumentScanne
+ * pour etre partage avec les pieces jointes recues dans la conversation
+ * Morgane, qui n'ont pas toujours besoin d'etre rasterisees (un PDF recu
+ * tel quel ne doit pas etre reconverti en image puis re-rendu en PDF, ce
+ * qui degraderait inutilement la qualite).
+ */
+async function finaliserDocument(prisma: PrismaClient, pdf: Buffer, params: ParametresCommuns, libellePrefixe: string) {
   if (!typeDocumentScanneValide(params.type)) {
     throw new DocumentScanneError(`Type de document invalide, attendu l'un de : ${TYPES_AUTORISES.join(", ")}.`);
   }
@@ -70,7 +87,6 @@ export async function enregistrerDocumentScanne(prisma: PrismaClient, params: Pa
     throw new DocumentScanneError("Le nom du fournisseur est obligatoire.");
   }
 
-  const pdf = await construirePdfDepuisImage(params.image);
   const hashFichier = sha256Hex(pdf);
 
   await fs.mkdir(DOSSIER_SCANS, { recursive: true });
@@ -84,7 +100,7 @@ export async function enregistrerDocumentScanne(prisma: PrismaClient, params: Pa
   });
 
   const maintenant = new Date();
-  const fichierNom = `Scan ${maintenant.toLocaleDateString("fr-FR")} - ${fournisseurNom}.pdf`;
+  const fichierNom = `${libellePrefixe} ${maintenant.toLocaleDateString("fr-FR")} - ${fournisseurNom}.pdf`;
 
   // Une fois le document rattache a un fournisseur, une facture suit la
   // meme regle que par e-mail (gmailSync.ts, cas standard) : envoi
@@ -105,7 +121,7 @@ export async function enregistrerDocumentScanne(prisma: PrismaClient, params: Pa
           nomFichier: fichierNom,
           mimeType: "application/pdf",
           donnees: pdf,
-          sujetOrigine: `Scan - ${fournisseurNom}`,
+          sujetOrigine: `${libellePrefixe} - ${fournisseurNom}`,
         });
         reinitialiserLimiteGmail();
         statutDext = "envoye";
@@ -136,7 +152,7 @@ export async function enregistrerDocumentScanne(prisma: PrismaClient, params: Pa
 
   await logEvenement(prisma, {
     evenement: "document_scanne",
-    action: `Document papier numerise : ${fournisseurNom}`,
+    action: `${libellePrefixe} : ${fournisseurNom}`,
     resultat:
       params.type !== "facture"
         ? `Type "${params.type}" enregistre, archive pour controle.`
@@ -146,4 +162,41 @@ export async function enregistrerDocumentScanne(prisma: PrismaClient, params: Pa
   });
 
   return document;
+}
+
+export async function enregistrerDocumentScanne(prisma: PrismaClient, params: ParametresDocumentScanne) {
+  const pdf = await construirePdfDepuisImage(params.image);
+  return finaliserDocument(prisma, pdf, params, "Document papier numerise");
+}
+
+// jpeg/png seulement : ce sont les deux seuls formats que pdfkit sait
+// mettre en page (doc.image()) - webp/heic echoueraient silencieusement a
+// la conversion.
+const MIME_IMAGES_AUTORISEES = ["image/jpeg", "image/png"];
+
+export interface ParametresDocumentPieceJointe extends ParametresCommuns {
+  buffer: Buffer;
+  mimeType: string;
+}
+
+/**
+ * Enregistre un document recu en piece jointe dans la conversation Morgane
+ * (section "assistante administrative" - photo ou fichier PDF envoye
+ * directement dans le chat). Contrairement a enregistrerDocumentScanne
+ * (toujours une image a mettre en page), une piece jointe deja au format
+ * PDF est conservee telle quelle plutot que rasterisee puis re-rendue, ce
+ * qui perdrait en qualite et en poids sans aucune raison.
+ */
+export async function enregistrerDocumentDepuisPieceJointe(prisma: PrismaClient, params: ParametresDocumentPieceJointe) {
+  let pdf: Buffer;
+  if (params.mimeType === "application/pdf") {
+    pdf = params.buffer;
+  } else if (MIME_IMAGES_AUTORISEES.includes(params.mimeType)) {
+    pdf = await construirePdfDepuisImage(params.buffer);
+  } else {
+    throw new DocumentScanneError(
+      `Type de fichier non pris en charge ("${params.mimeType}") : envoie une photo (jpeg/png/webp) ou un PDF.`
+    );
+  }
+  return finaliserDocument(prisma, pdf, params, "Document recu par Morgane");
 }

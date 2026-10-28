@@ -106,3 +106,63 @@ test("enregistrerDocumentScanne", async (t) => {
 
   await prisma.$disconnect();
 });
+
+// PDF minimal valide (vide), suffisant pour verifier que les octets sont
+// conserves tels quels (pas de rasterisation) quand la piece jointe est
+// deja un PDF.
+const PDF_MINIMAL = Buffer.from(
+  "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF",
+  "latin1"
+);
+
+test("enregistrerDocumentDepuisPieceJointe (piece jointe Morgane)", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } = await import("../src/services/documentsScannes");
+  const prisma = new PrismaClient();
+
+  await t.test("PDF deja pret -> conserve octet pour octet, pas rasterise", async () => {
+    const doc = await enregistrerDocumentDepuisPieceJointe(prisma, {
+      buffer: PDF_MINIMAL,
+      mimeType: "application/pdf",
+      type: "facture",
+      fournisseurNom: "Piece Jointe SA",
+    });
+    const octets = await fs.readFile(doc.cheminFichier!);
+    assert.deepEqual(octets, PDF_MINIMAL);
+  });
+
+  await t.test("image jpeg/png -> mise en page comme un scan classique", async () => {
+    const doc = await enregistrerDocumentDepuisPieceJointe(prisma, {
+      buffer: PNG_1X1,
+      mimeType: "image/png",
+      type: "devis",
+      fournisseurNom: "Piece Jointe SA",
+    });
+    assert.equal(doc.statutDext, "archive");
+    const octets = await fs.readFile(doc.cheminFichier!);
+    assert.equal(octets.subarray(0, 5).toString("latin1"), "%PDF-");
+  });
+
+  await t.test("type de fichier non pris en charge -> rejette", async () => {
+    await assert.rejects(
+      enregistrerDocumentDepuisPieceJointe(prisma, {
+        buffer: PNG_1X1,
+        mimeType: "image/webp",
+        type: "facture",
+        fournisseurNom: "Piece Jointe SA",
+      }),
+      DocumentScanneError
+    );
+  });
+
+  await prisma.$disconnect();
+});

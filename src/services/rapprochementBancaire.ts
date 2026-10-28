@@ -19,19 +19,40 @@ import { logEvenement } from "./journalService";
  * plusieurs payouts du meme montant la meme semaine), rien n'est
  * rapproche automatiquement - le payout reste signale "ambigu" pour un
  * choix manuel plutot qu'un rapprochement au hasard.
+ *
+ * Demande explicite de l'utilisateur ("rapprochement au Comptable") :
+ * couvrir aussi les factures fournisseurs, pas seulement les payouts
+ * Stripe, pour constituer un dossier comptable complet (voir
+ * dossierComptable.ts) plutot qu'une simple verification cote
+ * encaissements.
  */
 
 // Un virement Stripe initie a la date du payout arrive generalement sur le
 // compte bancaire sous 1 a 3 jours ouvres ; la fenetre est volontairement
 // un peu plus large pour absorber les week-ends/jours feries.
-const FENETRE_JOURS = 5;
+const FENETRE_JOURS_PAYOUT = 5;
+// Une facture fournisseur peut etre payee avant l'echeance (prelevement
+// anticipe) ou apres (retard) : fenetre volontairement plus large que pour
+// les payouts, dont la date est precise. La securite vient toujours de
+// l'unicite du montant dans cette fenetre, pas de sa largeur - un montant
+// ambigu reste "ambigu".
+const FENETRE_JOURS_FACTURE_FOURNISSEUR = 20;
 const TOLERANCE_MONTANT = 0.01; // arrondi centime
 
 export interface ResultatRapprochement {
   nbRapproches: number;
   nbAmbigus: number;
   nbSansCorrespondance: number;
+  nbRapprochesFournisseurs: number;
+  nbAmbigusFournisseurs: number;
+  nbSansCorrespondanceFournisseurs: number;
   details: Array<{ payoutRef: string; resultat: "rapproche" | "ambigu" | "sans_correspondance"; mouvementId?: string }>;
+  detailsFournisseurs: Array<{
+    factureId: string;
+    reference: string | null;
+    resultat: "rapproche" | "ambigu" | "sans_correspondance";
+    mouvementId?: string;
+  }>;
 }
 
 function differenceJours(a: Date, b: Date): number {
@@ -45,22 +66,32 @@ function differenceJours(a: Date, b: Date): number {
  * import de payouts ou de releve bancaire).
  */
 export async function executerRapprochementBancaire(prisma: PrismaClient): Promise<ResultatRapprochement> {
-  const [payoutsAtraiter, mouvementsDisponibles] = await Promise.all([
+  const resultat: ResultatRapprochement = {
+    nbRapproches: 0,
+    nbAmbigus: 0,
+    nbSansCorrespondance: 0,
+    nbRapprochesFournisseurs: 0,
+    nbAmbigusFournisseurs: 0,
+    nbSansCorrespondanceFournisseurs: 0,
+    details: [],
+    detailsFournisseurs: [],
+  };
+  // Un mouvement deja affecte au cours de cette meme execution (payout ou
+  // facture fournisseur) ne doit pas etre propose une seconde fois.
+  const dejaUtilises = new Set<string>();
+
+  // --- Payouts Stripe (credit) ---------------------------------------
+  const [payoutsAtraiter, mouvementsCredit] = await Promise.all([
     prisma.payout.findMany({ where: { mouvementBancaireId: null } }),
     prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche" } }),
   ]);
 
-  const resultat: ResultatRapprochement = { nbRapproches: 0, nbAmbigus: 0, nbSansCorrespondance: 0, details: [] };
-  // Un mouvement deja affecte au cours de cette meme execution ne doit pas
-  // etre propose une seconde fois a un autre payout.
-  const dejaUtilises = new Set<string>();
-
   for (const payout of payoutsAtraiter) {
-    const candidats = mouvementsDisponibles.filter(
+    const candidats = mouvementsCredit.filter(
       (m) =>
         !dejaUtilises.has(m.id) &&
         Math.abs(m.montant - payout.montantNet) < TOLERANCE_MONTANT &&
-        differenceJours(m.date, payout.date) <= FENETRE_JOURS
+        differenceJours(m.date, payout.date) <= FENETRE_JOURS_PAYOUT
     );
 
     if (candidats.length === 1) {
@@ -81,11 +112,57 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     }
   }
 
-  if (resultat.nbRapproches > 0 || resultat.nbAmbigus > 0) {
+  // --- Factures fournisseurs (debit) ----------------------------------
+  // Mouvements encore "non_rapproche" apres la passe payouts ci-dessus,
+  // et effectivement des debits (le solde d'une facture fournisseur part
+  // du compte, jamais n'y arrive) - un debit a montant 0 ne peut etre un
+  // candidat (ligne purement creditrice).
+  const [facturesAtraiter, mouvementsDebit] = await Promise.all([
+    prisma.factureFournisseur.findMany({ where: { statut: "a_payer", mouvementBancaireId: null } }),
+    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } }),
+  ]);
+
+  for (const facture of facturesAtraiter) {
+    if (facture.echeance === null) {
+      // Pas de date de reference exploitable : jamais de rapprochement a
+      // l'aveugle sur le montant seul (section 14).
+      resultat.nbSansCorrespondanceFournisseurs++;
+      resultat.detailsFournisseurs.push({ factureId: facture.id, reference: facture.reference, resultat: "sans_correspondance" });
+      continue;
+    }
+    const candidats = mouvementsDebit.filter(
+      (m) =>
+        !dejaUtilises.has(m.id) &&
+        Math.abs(m.debit - facture.montant) < TOLERANCE_MONTANT &&
+        differenceJours(m.date, facture.echeance as Date) <= FENETRE_JOURS_FACTURE_FOURNISSEUR
+    );
+
+    if (candidats.length === 1) {
+      const mouvement = candidats[0];
+      await prisma.$transaction([
+        prisma.factureFournisseur.update({
+          where: { id: facture.id },
+          data: { mouvementBancaireId: mouvement.id, statut: "payee" },
+        }),
+        prisma.mouvementBancaire.update({ where: { id: mouvement.id }, data: { rapprochementStatut: "rapproche" } }),
+      ]);
+      dejaUtilises.add(mouvement.id);
+      resultat.nbRapprochesFournisseurs++;
+      resultat.detailsFournisseurs.push({ factureId: facture.id, reference: facture.reference, resultat: "rapproche", mouvementId: mouvement.id });
+    } else if (candidats.length > 1) {
+      resultat.nbAmbigusFournisseurs++;
+      resultat.detailsFournisseurs.push({ factureId: facture.id, reference: facture.reference, resultat: "ambigu" });
+    } else {
+      resultat.nbSansCorrespondanceFournisseurs++;
+      resultat.detailsFournisseurs.push({ factureId: facture.id, reference: facture.reference, resultat: "sans_correspondance" });
+    }
+  }
+
+  if (resultat.nbRapproches > 0 || resultat.nbAmbigus > 0 || resultat.nbRapprochesFournisseurs > 0 || resultat.nbAmbigusFournisseurs > 0) {
     await logEvenement(prisma, {
       evenement: "rapprochement_bancaire",
-      action: "Rapprochement automatique payouts <-> mouvements bancaires",
-      resultat: `${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s) (plusieurs mouvements candidats), ${resultat.nbSansCorrespondance} sans mouvement correspondant pour l'instant.`,
+      action: "Rapprochement automatique payouts/factures fournisseurs <-> mouvements bancaires",
+      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance.`,
     });
   }
 
