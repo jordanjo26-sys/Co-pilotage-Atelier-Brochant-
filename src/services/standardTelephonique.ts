@@ -401,6 +401,55 @@ function texteDe(contenu: Anthropic.Beta.BetaContentBlock[]): string {
     .trim();
 }
 
+/** Duree pendant laquelle les nouveaux appels vont directement sur la messagerie apres une panne durable de l'IA. */
+const PAUSE_IA_INDISPONIBLE_MS = 10 * 60_000;
+let iaIndisponibleJusqua = 0;
+
+/**
+ * Erreur de l'API Claude qui ne se resoudra pas en reessayant pendant
+ * l'appel : plafond de depenses atteint (constate le 28/10), credit epuise,
+ * cle invalide. Morgane ne peut alors plus repondre du tout.
+ */
+export function erreurIaDurable(err: unknown): boolean {
+  const statut = (err as { status?: number } | null)?.status;
+  const message = String((err as Error | null)?.message ?? "");
+  return statut === 401 || statut === 402 || statut === 403 || /usage limits|credit balance|billing/i.test(message);
+}
+
+/** Vrai juste apres une panne durable : inutile de faire parler l'appelant, messagerie directe. */
+export function iaIndisponible(maintenant: number = Date.now()): boolean {
+  return maintenant < iaIndisponibleJusqua;
+}
+
+/**
+ * Panne durable de l'IA : les appels suivants partent directement sur la
+ * messagerie vocale (compte rendu par e-mail avec l'audio) et Jordan est
+ * prevenu par SMS, au plus une fois toutes les 6 heures.
+ */
+export async function signalerIaIndisponible(prisma: PrismaClient, err: unknown): Promise<void> {
+  iaIndisponibleJusqua = Date.now() + PAUSE_IA_INDISPONIBLE_MS;
+  const dejaSignale = await prisma.journalEvenement.findFirst({
+    where: { evenement: "standard_ia_indisponible", horodatage: { gte: new Date(Date.now() - 6 * 3600_000) } },
+  });
+  if (dejaSignale) return;
+  const detail = String((err as Error | null)?.message ?? err).slice(0, 300);
+  const plafond = /usage limits/i.test(detail);
+  let resultat = detail;
+  if (smsEstConfigure()) {
+    try {
+      await envoyerSms(
+        plafond
+          ? "Morgane : le plafond de depenses de l'API Claude est atteint, je ne peux plus converser. Les clients laissent un message vocal (envoye par e-mail). A relever sur console.anthropic.com > Settings > Limits."
+          : "Morgane : l'API Claude refuse mes requetes, je ne peux plus converser. Les clients laissent un message vocal (envoye par e-mail). Verifiez le compte sur console.anthropic.com."
+      );
+      resultat = `SMS envoye. ${detail}`;
+    } catch (e) {
+      resultat = `SMS en echec (${(e as Error).message}). ${detail}`;
+    }
+  }
+  await logEvenement(prisma, { evenement: "standard_ia_indisponible", action: "Standard telephonique", resultat });
+}
+
 /**
  * Traite une prise de parole de l'appelant et retourne ce que l'agent doit
  * dire. La conversation n'est enregistree qu'en cas de succes (historique
