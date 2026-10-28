@@ -1276,8 +1276,54 @@ function scanInitPoignees() {
 }
 scanInitPoignees();
 
-/** Etire le contraste (percentile 1-99 de la luminance) et, en mode noir et blanc, accentue le texte sur fond clair — l'effet "document scanné" plutôt qu'une simple photo. */
-function scanAmeliorerPixels(data, noirEtBlanc) {
+/**
+ * Estime l'eclairage local (fond flou tres fort, via un aller-retour
+ * downscale/upscale) pour pouvoir neutraliser ombres/gradient de lumiere
+ * avant tout etirement de contraste - un simple etirement global (version
+ * precedente) ne corrige pas une ombre qui traverse la page, le gradient
+ * reste visible apres. Demande explicite de l'utilisateur : obtenir un
+ * vrai fond blanc "comme un scan", pas juste une photo plus contrastee.
+ * Reduire a ~24px puis agrandir avec lissage efface le texte (details
+ * fins) mais conserve les variations lentes d'eclairage - exactement ce
+ * qu'il faut comme estimation de fond.
+ */
+function scanEstimerArrierePlan(canvasSource, largeur, hauteur) {
+  const diviseur = Math.max(largeur, hauteur) / 24;
+  const pw = Math.max(6, Math.round(largeur / diviseur));
+  const ph = Math.max(6, Math.round(hauteur / diviseur));
+
+  const petit = document.createElement("canvas");
+  petit.width = pw;
+  petit.height = ph;
+  petit.getContext("2d").drawImage(canvasSource, 0, 0, pw, ph);
+
+  const flou = document.createElement("canvas");
+  flou.width = largeur;
+  flou.height = hauteur;
+  const ctxFlou = flou.getContext("2d");
+  ctxFlou.imageSmoothingEnabled = true;
+  ctxFlou.imageSmoothingQuality = "high";
+  ctxFlou.drawImage(petit, 0, 0, pw, ph, 0, 0, largeur, hauteur);
+  return ctxFlou.getImageData(0, 0, largeur, hauteur).data;
+}
+
+/**
+ * Corrige l'eclairage inegal (division par le fond local estime ci-dessus,
+ * canal par canal - corrige aussi une dominante de couleur chaude due a
+ * l'eclairage, pas seulement les ombres), etire ensuite le contraste
+ * (percentile 1-99) et blanchit franchement ce qui est deja tres clair
+ * (le fond, une fois l'eclairage corrige, doit tourner autour de 255
+ * partout - le seuil nettoie le grain photo residuel). En mode noir et
+ * blanc, repasse en niveaux de gris avec un contraste accentue en plus.
+ */
+function scanAmeliorerPixels(data, arrierePlan, noirEtBlanc) {
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const fond = Math.max(arrierePlan[i + c], 1);
+      data[i + c] = Math.min(255, (data[i + c] * 255) / fond);
+    }
+  }
+
   const histogramme = new Array(256).fill(0);
   let total = 0;
   for (let i = 0; i < data.length; i += 4) {
@@ -1307,6 +1353,7 @@ function scanAmeliorerPixels(data, noirEtBlanc) {
   }
   const etendue = Math.max(p99 - p1, 1);
   const facteur = 255 / etendue;
+  const SEUIL_BLANCHIMENT = 235;
 
   for (let i = 0; i < data.length; i += 4) {
     if (noirEtBlanc) {
@@ -1314,11 +1361,14 @@ function scanAmeliorerPixels(data, noirEtBlanc) {
       let v = (lum - p1) * facteur;
       v = (v - 128) * 1.35 + 128; // accentue le contraste autour du milieu (texte plus net)
       v = Math.max(0, Math.min(255, v));
+      if (v >= SEUIL_BLANCHIMENT) v = 255;
       data[i] = data[i + 1] = data[i + 2] = v;
     } else {
-      data[i] = Math.max(0, Math.min(255, (data[i] - p1) * facteur));
-      data[i + 1] = Math.max(0, Math.min(255, (data[i + 1] - p1) * facteur));
-      data[i + 2] = Math.max(0, Math.min(255, (data[i + 2] - p1) * facteur));
+      for (let c = 0; c < 3; c++) {
+        let v = Math.max(0, Math.min(255, (data[i + c] - p1) * facteur));
+        if (v >= SEUIL_BLANCHIMENT) v = 255;
+        data[i + c] = v;
+      }
     }
   }
 }
@@ -1342,9 +1392,10 @@ function scanAppliquerRognageEtAmelioration() {
   const ctx = canvasResultat.getContext("2d");
   ctx.drawImage(scanImage, sx, sy, sw, sh, 0, 0, outW, outH);
 
+  const arrierePlan = scanEstimerArrierePlan(canvasResultat, outW, outH);
   const noirEtBlanc = document.getElementById("scan-noir-blanc").checked;
   const imageData = ctx.getImageData(0, 0, outW, outH);
-  scanAmeliorerPixels(imageData.data, noirEtBlanc);
+  scanAmeliorerPixels(imageData.data, arrierePlan, noirEtBlanc);
   ctx.putImageData(imageData, 0, 0);
 
   document.getElementById("scan-zone-edition").hidden = true;
