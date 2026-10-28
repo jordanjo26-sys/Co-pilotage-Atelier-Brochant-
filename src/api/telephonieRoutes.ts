@@ -2,7 +2,15 @@ import express, { NextFunction, Request, Response, Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import { direEtEcouter, direEtRaccrocher, messagerie, relaisVocal, signatureTwilioValide, twiml } from "../services/twilio";
 import { urlRelais } from "../services/relaisVocal";
-import { demarrerAppel, finaliserAppel, MAX_ERREURS_AVANT_MESSAGERIE, traiterTour } from "../services/standardTelephonique";
+import {
+  demarrerAppel,
+  erreurIaDurable,
+  finaliserAppel,
+  iaIndisponible,
+  MAX_ERREURS_AVANT_MESSAGERIE,
+  signalerIaIndisponible,
+  traiterTour,
+} from "../services/standardTelephonique";
 import { logEvenement } from "../services/journalService";
 
 /**
@@ -15,7 +23,7 @@ import { logEvenement } from "../services/journalService";
 
 const MESSAGE_ERREUR = "Pardon, je n'ai pas bien saisi. Pouvez-vous repeter ?";
 const MESSAGE_MESSAGERIE =
-  "Je rencontre un probleme technique. Laissez votre nom, votre numero et votre message apres le bip, nous vous rappellerons rapidement.";
+  "Pour être rappelé au plus vite, laissez votre nom, votre adresse, votre numéro de téléphone et la nature du problème après le bip. Un technicien vous rappelle dans les minutes qui suivent.";
 
 function baseUrl(req: Request): string {
   return (process.env.TELEPHONE_URL_PUBLIQUE || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
@@ -68,6 +76,7 @@ export function buildTelephonieRouter(prisma: PrismaClient): Router {
     try {
       // Sans cle API, inutile de faire parler l'appelant pour rien : messagerie directe.
       if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY manquante");
+      if (iaIndisponible()) throw new Error("IA momentanement indisponible (plafond de depenses, credit...)");
       const appel = await demarrerAppel(prisma, callSid, req.body.From ? String(req.body.From) : null);
       const transcription = appel.transcription as unknown as { texte: string }[];
       const accueil = transcription[0]?.texte ?? "Bonjour, que puis-je faire pour vous ?";
@@ -118,9 +127,11 @@ export function buildTelephonieRouter(prisma: PrismaClient): Router {
         action: `Appel ${callSid}`,
         resultat: (err as Error).message,
       }).catch(() => {});
+      const durable = erreurIaDurable(err);
+      if (durable) await signalerIaIndisponible(prisma, err).catch(() => {});
       envoyerTwiml(
         res,
-        appel.erreurs + 1 >= MAX_ERREURS_AVANT_MESSAGERIE
+        durable || appel.erreurs + 1 >= MAX_ERREURS_AVANT_MESSAGERIE
           ? messagerie(MESSAGE_MESSAGERIE, urlMessagerie(req))
           : direEtEcouter(MESSAGE_ERREUR, urlTour(req))
       );
@@ -145,6 +156,11 @@ export function buildTelephonieRouter(prisma: PrismaClient): Router {
       action: `Appel ${callSid}`,
       resultat: `raison=${fin.raison ?? ""} statut=${String(req.body.SessionStatus ?? "")} duree=${String(req.body.SessionDuration ?? "")} code=${String(req.body.ErrorCode ?? "")} ${String(req.body.ErrorMessage ?? "").slice(0, 200)}`,
     }).catch(() => {});
+
+    if (fin.raison === "messagerie") {
+      envoyerTwiml(res, messagerie(MESSAGE_MESSAGERIE, urlMessagerie(req)));
+      return;
+    }
 
     if (fin.raison === "fin") {
       envoyerTwiml(res, direEtRaccrocher(fin.messageFinal || "Merci pour votre appel, au revoir."));

@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 import Anthropic from "@anthropic-ai/sdk";
 import { PrismaClient } from "@prisma/client";
 import { WebSocket, WebSocketServer } from "ws";
-import { demarrerAppel, traiterTour } from "./standardTelephonique";
+import { demarrerAppel, erreurIaDurable, MAX_ERREURS_AVANT_MESSAGERIE, signalerIaIndisponible, traiterTour } from "./standardTelephonique";
 import { signatureTwilioValide } from "./twilio";
 import { logEvenement } from "./journalService";
 
@@ -112,6 +112,16 @@ function gererSession(ws: WebSocket, prisma: PrismaClient, client: Anthropic): v
     } catch (err) {
       console.error("Relais vocal - replique :", (err as Error).message);
       await logEvenement(prisma, { evenement: "appel_erreur_ia", action: `Appel ${callSid} (relais)`, resultat: (err as Error).message }).catch(() => {});
+      // IA hors service (plafond de depenses...) ou erreurs repetees : plutot
+      // que de faire repeter l'appelant en boucle, messagerie vocale (TwiML
+      // de la route /telephonie/fin-relais).
+      const durable = erreurIaDurable(err);
+      if (durable) await signalerIaIndisponible(prisma, err).catch(() => {});
+      const erreurs = (await prisma.appel.findUnique({ where: { callSid } }).catch(() => null))?.erreurs ?? 0;
+      if (durable || erreurs >= MAX_ERREURS_AVANT_MESSAGERIE) {
+        envoyer(ws, { type: "end", handoffData: JSON.stringify({ raison: "messagerie" }) });
+        return;
+      }
       envoyer(ws, { type: "text", token: "Pardon, je n'ai pas bien saisi. Pouvez-vous repeter ?", last: true });
     }
   };

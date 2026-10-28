@@ -32,10 +32,12 @@ test("relais vocal : WebSocket signee, reponse diffusee mot a mot", async (t) =>
 
   // Faux client Claude en mode flux : renvoie le texte par morceaux.
   const reponses: { stop_reason: string; content: unknown[] }[] = [];
+  let panne: (Error & { status?: number }) | null = null;
   const fauxClient = {
     beta: {
       messages: {
         stream: () => {
+          if (panne) return { on: () => {}, finalMessage: async () => Promise.reject(panne) };
           const r = reponses.shift()!;
           const ecouteurs: ((t: string) => void)[] = [];
           return {
@@ -96,6 +98,28 @@ test("relais vocal : WebSocket signee, reponse diffusee mot a mot", async (t) =>
     const appel = await prisma.appel.findUniqueOrThrow({ where: { callSid: "CA-R1" } });
     assert.equal(appel.motif, "Evier bouche");
     assert.equal(appel.numeroAppelant, "+33600000009");
+  });
+
+  await t.test("plafond de depenses de l'API atteint : fin du relais vers la messagerie vocale", async () => {
+    panne = Object.assign(new Error("400 You have reached your specified API usage limits."), { status: 400 });
+    const signature = signatureTwilio("jeton", `ws://127.0.0.1:${port}/telephonie/relais`, {});
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/telephonie/relais`, { headers: { "X-Twilio-Signature": signature } });
+    await new Promise((ok) => ws.on("open", ok));
+    const fin = new Promise<{ type: string; handoffData?: string }>((ok) =>
+      ws.on("message", (d) => {
+        const m = JSON.parse(d.toString());
+        if (m.type === "end") ok(m);
+      })
+    );
+    ws.send(JSON.stringify({ type: "setup", callSid: "CA-R2", from: "+33600000010" }));
+    ws.send(JSON.stringify({ type: "prompt", voicePrompt: "J'ai une fuite au niveau des WC", last: true }));
+    const m = await fin;
+    ws.close();
+    panne = null;
+    assert.equal(JSON.parse(m.handoffData!).raison, "messagerie");
+    const { iaIndisponible } = await import("../src/services/standardTelephonique");
+    assert.ok(iaIndisponible(), "appels suivants envoyes directement sur la messagerie");
+    assert.ok(await prisma.journalEvenement.findFirst({ where: { evenement: "standard_ia_indisponible" } }));
   });
 
   server.close();
