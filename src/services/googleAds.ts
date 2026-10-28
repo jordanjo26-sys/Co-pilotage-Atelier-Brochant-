@@ -1137,46 +1137,74 @@ export async function creerCampagne(prisma: PrismaClient, params: ParametresCrea
   if (!campagneResourceName) throw new Error("Echec de la creation de la campagne (aucun resource_name retourne).");
   const campagneId = campagneResourceName.split("/").pop()!;
 
-  const groupeResultat = await customer.adGroups.create([
-    {
-      name: `${params.nom} - groupe d'annonces`,
-      campaign: campagneResourceName,
-      status: enums.AdGroupStatus.ENABLED,
-      type: enums.AdGroupType.SEARCH_STANDARD,
-    },
-  ]);
-  const groupeResourceName = groupeResultat.results?.[0]?.resource_name;
-  if (!groupeResourceName) throw new Error("Echec de la creation du groupe d'annonces (aucun resource_name retourne).");
+  // Tout ce qui suit (groupe d'annonces, mots-cles, annonce) reste une
+  // etape CORE : sans elle, la campagne n'a aucune annonce ni mot-cle et
+  // ne sert a rien. Mais a ce stade la campagne EXISTE DEJA sur Google
+  // Ads (budget depense en configuration, campagne creee) - si l'une de
+  // ces etapes echoue, on se retrouve sans ca avec une coquille vide sur
+  // le compte, PAS avec "rien n'a ete cree". Bug reel (octobre 2026) :
+  // cette coquille n'etait ni supprimee ni meme signalee (l'erreur
+  // remontee ne contenait pas campagneId), si bien qu'une nouvelle
+  // tentative creait une DEUXIEME campagne a cote au lieu de nettoyer ou
+  // de reprendre la premiere - 3 campagnes "Fichet" orphelines
+  // accumulees ainsi avant d'etre repérées. On supprime donc
+  // automatiquement la coquille des qu'une de ces etapes echoue (best
+  // effort : si la suppression elle-meme echoue, on ne masque jamais
+  // l'erreur d'origine, l'identifiant reste visible dans le message pour
+  // un nettoyage manuel).
+  try {
+    const groupeResultat = await customer.adGroups.create([
+      {
+        name: `${params.nom} - groupe d'annonces`,
+        campaign: campagneResourceName,
+        status: enums.AdGroupStatus.ENABLED,
+        type: enums.AdGroupType.SEARCH_STANDARD,
+      },
+    ]);
+    const groupeResourceName = groupeResultat.results?.[0]?.resource_name;
+    if (!groupeResourceName) throw new Error("Echec de la creation du groupe d'annonces (aucun resource_name retourne).");
 
-  const typeCorrespondance = enums.KeywordMatchType[params.typeCorrespondance ?? "PHRASE"];
-  if (params.motsCles.length > 0) {
-    await creerMotsClesAvecExemption(
-      customer,
-      params.motsCles.map((texte) => ({
+    const typeCorrespondance = enums.KeywordMatchType[params.typeCorrespondance ?? "PHRASE"];
+    if (params.motsCles.length > 0) {
+      await creerMotsClesAvecExemption(
+        customer,
+        params.motsCles.map((texte) => ({
+          ad_group: groupeResourceName,
+          status: enums.AdGroupCriterionStatus.ENABLED,
+          keyword: { text: texte, match_type: typeCorrespondance },
+        }))
+      );
+    }
+
+    if (params.motsClesExclus.length > 0) {
+      await ajouterMotsClesExclusCampagne(customer, campagneResourceName, params.motsClesExclus);
+    }
+
+    await customer.adGroupAds.create([
+      {
         ad_group: groupeResourceName,
-        status: enums.AdGroupCriterionStatus.ENABLED,
-        keyword: { text: texte, match_type: typeCorrespondance },
-      }))
-    );
-  }
-
-  if (params.motsClesExclus.length > 0) {
-    await ajouterMotsClesExclusCampagne(customer, campagneResourceName, params.motsClesExclus);
-  }
-
-  await customer.adGroupAds.create([
-    {
-      ad_group: groupeResourceName,
-      status: enums.AdGroupAdStatus.ENABLED,
-      ad: {
-        final_urls: [params.urlFinale],
-        responsive_search_ad: {
-          headlines: params.titres.map((texte) => ({ text: texte })),
-          descriptions: params.descriptions.map((texte) => ({ text: texte })),
+        status: enums.AdGroupAdStatus.ENABLED,
+        ad: {
+          final_urls: [params.urlFinale],
+          responsive_search_ad: {
+            headlines: params.titres.map((texte) => ({ text: texte })),
+            descriptions: params.descriptions.map((texte) => ({ text: texte })),
+          },
         },
       },
-    },
-  ]);
+    ]);
+  } catch (err) {
+    let nettoyee = false;
+    try {
+      await customer.campaigns.remove([campagneResourceName]);
+      nettoyee = true;
+    } catch {
+      // Suppression best-effort : voir le commentaire ci-dessus.
+    }
+    throw new Error(
+      `${messageErreurGoogleAds(err)} (campagne ${campagneId} creee incomplete suite a cet echec, ${nettoyee ? "supprimee automatiquement" : "NON supprimee - a nettoyer manuellement dans Google Ads"})`
+    );
+  }
 
   if (params.ciblesGeographiques && params.ciblesGeographiques.length > 0) {
     try {
