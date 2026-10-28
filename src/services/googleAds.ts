@@ -410,6 +410,15 @@ export async function changerStatutCampagne(prisma: PrismaClient, campagneId: st
  * JAMAIS appelee directement par Morgane : uniquement par
  * googleAdsActions.ts, apres validation explicite de l'utilisateur sur
  * l'ecran dedie.
+ *
+ * Passe par customer.campaigns.remove() (operation "remove" dediee, qui ne
+ * prend que le resource_name), PAS customer.campaigns.update() avec
+ * status: REMOVED - bug reel trouve en production (octobre 2026) : Google
+ * Ads rejette explicitement REMOVED comme valeur de "status" dans une
+ * operation "update" ("Enum value 'REMOVED' cannot be used"
+ * /INVALID_ENUM_VALUE), REMOVED n'etant accessible qu'via l'operation
+ * "remove" elle-meme. Les 3 premieres tentatives de nettoyage des
+ * campagnes "Fichet" en double ont echoue a cause de cette confusion.
  */
 export async function supprimerCampagne(prisma: PrismaClient, campagneId: string): Promise<void> {
   const customer = await obtenirClientAds(prisma);
@@ -419,12 +428,7 @@ export async function supprimerCampagne(prisma: PrismaClient, campagneId: string
   if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
 
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
-  await customer.campaigns.update([
-    {
-      resource_name: ResourceNames.campaign(customerId, campagneId),
-      status: enums.CampaignStatus.REMOVED,
-    },
-  ]);
+  await customer.campaigns.remove([ResourceNames.campaign(customerId, campagneId)]);
 }
 
 /**
