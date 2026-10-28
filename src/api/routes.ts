@@ -37,7 +37,8 @@ import {
 } from "../services/demandesIntervention";
 import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
-import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds } from "../services/googleAdsActions";
+import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds, creerPropositionAds } from "../services/googleAdsActions";
+import { listerCampagnesAds } from "../services/googleAds";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -703,6 +704,35 @@ export function buildRouter(prisma: PrismaClient): Router {
   // proposition (voir /morgane/message, outil proposer_action_ads), que
   // l'utilisateur accepte ou refuse ici, hors conversation. Voir
   // src/services/googleAdsActions.ts.
+
+  // Liste en direct les campagnes Google Ads existantes (lecture seule) :
+  // manquait jusqu'ici pour tout diagnostic/nettoyage manuel (ex. retrouver
+  // l'identifiant d'une campagne pour la supprimer via une proposition),
+  // le reste de l'application n'ayant jamais eu besoin que de la liste des
+  // propositions elles-memes, pas des campagnes reelles.
+  router.get("/google-ads/campagnes", async (req, res) => {
+    try {
+      const jours = req.query.jours ? Number(req.query.jours) : undefined;
+      res.json(await listerCampagnesAds(prisma, jours));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Depot direct d'une proposition (hors conversation avec Morgane, qui
+  // passe par l'outil proposer_action_ads de /morgane/message) : utile pour
+  // une action ponctuelle demandee explicitement par l'utilisateur en
+  // dehors du chat (ex. nettoyage de campagnes en double). Rejoint ensuite
+  // le meme ecran de validation/refus que toute autre proposition - rien
+  // n'est applique ici, uniquement deposee en attente.
+  router.post("/google-ads/propositions", async (req, res) => {
+    try {
+      const proposition = await creerPropositionAds(prisma, req.body);
+      res.status(201).json(proposition);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
 
   router.get("/google-ads/propositions", async (req, res) => {
     const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
