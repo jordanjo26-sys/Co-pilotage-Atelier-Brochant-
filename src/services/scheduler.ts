@@ -190,11 +190,21 @@ export function demarrerAnalyseQuotidienneAds(prisma: PrismaClient): void {
       const messageErreur = (err as Error).message;
       // eslint-disable-next-line no-console
       console.error("Analyse quotidienne Google Ads en echec :", messageErreur);
-      const dateReprise = signalerLimiteGmail(messageErreur);
+      // Bug reel trouve en diagnostiquant un plafond d'usage de l'API
+      // Claude (repondreMorgane, appelee bien avant l'envoi Gmail) : cette
+      // erreur n'a rien a voir avec Gmail, mais etait quand meme passee a
+      // signalerLimiteGmail, qui mettait alors en pause TOUT le reste
+      // (sync Gmail, envoi vers Dext...) pendant 15 minutes a chaque
+      // nouvelle tentative (toutes les 5 min pendant l'heure cible) - un
+      // echec sans rapport avec Gmail finissait par bloquer Gmail aussi.
+      // Ne signaler une pause Gmail que sur un vrai signal de quota Gmail
+      // (meme regex que documentsScannes.ts/gmailSync.ts).
+      const estQuotaGmail = /User-rate limit exceeded|Quota exceeded/i.test(messageErreur);
+      const dateReprise = estQuotaGmail ? signalerLimiteGmail(messageErreur) : null;
       await logEvenement(prisma, {
         evenement: "analyse_ads_erreur",
         action: "Analyse quotidienne Google Ads",
-        resultat: `Echec : ${messageErreur} (nouvelle tentative apres ${dateReprise.toISOString()})`,
+        resultat: `Echec : ${messageErreur}${dateReprise ? ` (Gmail en pause jusqu'a ${dateReprise.toISOString()})` : ""}`,
       }).catch(() => {});
     }
   }, INTERVALLE_VERIF_RECAP_MS);
