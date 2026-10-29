@@ -49,6 +49,7 @@ import {
   diagnosticLienGestionnaire,
   listerObjectifsConversionCampagne,
 } from "../services/googleAds";
+import { diagnostiquerRejetsDext } from "../services/dextDiagnostic";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -229,6 +230,21 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="paiements-${new Date().toISOString().slice(0, 10)}.pdf"`);
     res.send(pdf);
+  });
+
+  // Diagnostic ponctuel (demande explicite de l'utilisateur, plusieurs
+  // notifications Dext "Telechargement de documents rejete" recues en
+  // vidant le backlog de factures en attente) : lit les notifications de
+  // rejet directement dans Gmail et croise chaque document cite avec notre
+  // base, pour distinguer un vrai doublon de notre cote d'un document deja
+  // present sur Dext par un autre canal. Lecture seule.
+  router.get("/dext/rejets", async (req, res) => {
+    try {
+      const jours = req.query.jours ? Number(req.query.jours) : undefined;
+      res.json(await diagnostiquerRejetsDext(prisma, jours));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   // --- Synec : recuperation automatique des factures (aucune API chez
