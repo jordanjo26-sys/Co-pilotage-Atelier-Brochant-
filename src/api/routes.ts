@@ -49,7 +49,7 @@ import {
   diagnosticLienGestionnaire,
   listerObjectifsConversionCampagne,
 } from "../services/googleAds";
-import { diagnostiquerRejetsDext } from "../services/dextDiagnostic";
+import { diagnostiquerRejetsDext, listerRejetsDext } from "../services/dextDiagnostic";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -241,7 +241,14 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/dext/rejets", async (req, res) => {
     try {
       const jours = req.query.jours ? Number(req.query.jours) : undefined;
-      res.json(await diagnostiquerRejetsDext(prisma, jours));
+      const q = typeof req.query.q === "string" ? req.query.q : undefined;
+      // ?brut=true : tous les e-mails Dext trouves (sujet inclus), sans le
+      // filtre "rejet" - utile pour diagnostiquer la bonne requete Gmail
+      // avant de se fier au filtrage normal.
+      if (req.query.brut === "true") {
+        return res.json(await listerRejetsDext(prisma, jours, q));
+      }
+      res.json(await diagnostiquerRejetsDext(prisma, jours, q));
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }

@@ -23,6 +23,7 @@ export interface DocumentRejeteDext {
 
 export interface MessageRejetDext {
   gmailMessageId: string;
+  sujet: string;
   dateReception: Date | null;
   documents: DocumentRejeteDext[];
 }
@@ -46,21 +47,26 @@ function extraireTexteCorps(payload: gmail_v1.Schema$MessagePart | undefined): s
 // diagnostic sans faire saisir chaque capture d'ecran a la main.
 const REGEX_LIGNE_REJET = /([\w().,'’àâäéèêëïîôöùûüçÀÂÄÉÈÊËÏÎÔÖÙÛÜÇ_-]+\.(?:pdf|jpe?g|png))\s*-\s*([^\n]+)/giu;
 
-export async function listerRejetsDext(prisma: PrismaClient, jours = 14): Promise<MessageRejetDext[]> {
+// requete : override de recherche Gmail pour le diagnostic (debug) - par
+// defaut un domaine expediteur large ("dext", pas seulement "dext.cc" qui
+// s'est revele ne retrouver aucun message malgre une notification reelle
+// recue, signe que l'adresse exacte de Dext differe de celle utilisee pour
+// l'envoi des factures).
+export async function listerRejetsDext(prisma: PrismaClient, jours = 14, requete?: string): Promise<MessageRejetDext[]> {
   const connexionGmail = await getGmailClient(prisma);
   if (!connexionGmail) {
     throw new Error("Aucune boite Gmail active (reconnexion necessaire via /auth/google).");
   }
   const { gmail } = connexionGmail;
 
-  const liste = await gmail.users.messages.list({ userId: "me", q: `from:dext.cc newer_than:${jours}d`, maxResults: 50 });
+  const q = requete || `from:dext newer_than:${jours}d`;
+  const liste = await gmail.users.messages.list({ userId: "me", q, maxResults: 50 });
 
   const resultats: MessageRejetDext[] = [];
   for (const ref of liste.data.messages ?? []) {
     if (!ref.id) continue;
     const msg = await gmail.users.messages.get({ userId: "me", id: ref.id, format: "full" });
     const sujet = extraireEntete(msg.data.payload?.headers, "Subject");
-    if (!/rejet/i.test(sujet)) continue; // uniquement les notifications de rejet, pas les confirmations/autres e-mails Dext
 
     const corpsSansBalises = extraireTexteCorps(msg.data.payload).replace(/<[^>]+>/g, "\n");
     const documents: DocumentRejeteDext[] = [];
@@ -75,6 +81,7 @@ export async function listerRejetsDext(prisma: PrismaClient, jours = 14): Promis
 
     resultats.push({
       gmailMessageId: ref.id,
+      sujet,
       dateReception: msg.data.internalDate ? new Date(Number(msg.data.internalDate)) : null,
       documents,
     });
@@ -101,8 +108,8 @@ export interface CroisementRejetDext extends DocumentRejeteDext {
  * le meme fichier) d'un document deja present sur Dext par un autre
  * canal (une seule ligne chez nous, donc pas notre erreur).
  */
-export async function diagnostiquerRejetsDext(prisma: PrismaClient, jours = 14): Promise<CroisementRejetDext[]> {
-  const messages = await listerRejetsDext(prisma, jours);
+export async function diagnostiquerRejetsDext(prisma: PrismaClient, jours = 14, requete?: string): Promise<CroisementRejetDext[]> {
+  const messages = (await listerRejetsDext(prisma, jours, requete)).filter((m) => /rejet|reject/i.test(m.sujet));
   const croisements: CroisementRejetDext[] = [];
 
   for (const message of messages) {
