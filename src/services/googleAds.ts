@@ -1817,6 +1817,88 @@ export async function changerComptageActionConversion(prisma: PrismaClient, conv
   ]);
 }
 
+export interface ObjectifConversionCampagneAds {
+  campagneId: string;
+  campagneNom: string;
+  categorie: string;
+  origine: string;
+  comptePourEncheres: boolean; // biddable
+}
+
+/**
+ * Objectifs de conversion propres a UNE campagne (CampaignConversionGoal),
+ * distincts du reglage de compte "primary_for_goal" (voir
+ * listerActionsConversion/changerComptageActionConversion) : une campagne
+ * peut restreindre quelles categories de conversion comptent pour SES
+ * propres encheres. Google Ads affiche "il manque une action de
+ * conversion principale a l'objectif ciblé" precisement quand AUCUNE
+ * categorie biddable=true ici n'a d'action de conversion compatible et
+ * active sur le compte - trouve en diagnostiquant ce message exact signale
+ * par l'utilisateur sur "Serrurerie Fichet - Search v6". Lecture seule.
+ */
+export async function listerObjectifsConversionCampagne(prisma: PrismaClient, campagneId?: string): Promise<ObjectifConversionCampagneAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+
+  const lignes = await customer.query(`
+    SELECT
+      campaign.id,
+      campaign.name,
+      campaign_conversion_goal.category,
+      campaign_conversion_goal.origin,
+      campaign_conversion_goal.biddable
+    FROM campaign_conversion_goal
+    ${campagneId ? `WHERE campaign.id = ${campagneId}` : ""}
+  `);
+
+  return lignes.map((ligne) => ({
+    campagneId: String(ligne.campaign?.id ?? ""),
+    campagneNom: ligne.campaign?.name ?? "",
+    categorie: decoderEnum(enums.ConversionActionCategory as unknown as Record<string, string | number>, ligne.campaign_conversion_goal?.category),
+    origine: decoderEnum(enums.ConversionOrigin as unknown as Record<string, string | number>, ligne.campaign_conversion_goal?.origin),
+    comptePourEncheres: Boolean(ligne.campaign_conversion_goal?.biddable),
+  }));
+}
+
+/**
+ * Active/desactive une categorie d'objectif de conversion pour UNE
+ * campagne precise (CampaignConversionGoal.biddable) - le correctif exact
+ * du message "il manque une action de conversion principale a l'objectif
+ * ciblé". JAMAIS appelee directement par Morgane : uniquement par
+ * googleAdsActions.ts, lors de l'application d'une PropositionAds deja
+ * validee par l'utilisateur.
+ */
+export async function definirObjectifConversionCampagne(
+  prisma: PrismaClient,
+  campagneId: string,
+  categorie: string,
+  origine: string,
+  comptePourEncheres: boolean
+): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  // Le nom de ressource exige la valeur NUMERIQUE de l'enum (ex. 12), pas
+  // son libelle ("PHONE_CALL_LEAD") - enums.* est un enum numerique compile
+  // (bidirectionnel : nom->numero ET numero->nom), d'ou cette conversion
+  // explicite plutot que d'interpoler directement le libelle recu.
+  const categorieNum = (enums.ConversionActionCategory as unknown as Record<string, number>)[categorie];
+  const origineNum = (enums.ConversionOrigin as unknown as Record<string, number>)[origine];
+  if (categorieNum === undefined || origineNum === undefined) {
+    throw new Error(`Categorie ("${categorie}") ou origine ("${origine}") de conversion inconnue.`);
+  }
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.campaignConversionGoals.update([
+    {
+      resource_name: ResourceNames.campaignConversionGoal(customerId, campagneId, categorieNum, origineNum),
+      biddable: comptePourEncheres,
+    },
+  ]);
+}
+
 export interface ExtensionAppelAds {
   campagneId: string;
   campagneNom: string;

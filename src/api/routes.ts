@@ -47,6 +47,7 @@ import {
   diagnosticConfigurationAds,
   diagnosticScopesJeton,
   diagnosticLienGestionnaire,
+  listerObjectifsConversionCampagne,
 } from "../services/googleAds";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -734,12 +735,14 @@ export function buildRouter(prisma: PrismaClient): Router {
   // Claude atteint) mais qu'un diagnostic est quand meme necessaire :
   // annonces/extensions refusees par une politique, actions de conversion
   // configurees, et etat des scopes/de la liaison du jeton.
-  router.get("/google-ads/diagnostic", async (_req, res) => {
+  router.get("/google-ads/diagnostic", async (req, res) => {
     try {
-      const [politiqueAnnonces, politiqueAssets, actionsConversion, scopesJeton, lienGestionnaire] = await Promise.all([
-        verifierPolitiqueAnnonces(prisma).catch((e) => ({ erreur: (e as Error).message })),
+      const campagneId = typeof req.query.campagneId === "string" ? req.query.campagneId : undefined;
+      const [politiqueAnnonces, politiqueAssets, actionsConversion, objectifsConversionCampagne, scopesJeton, lienGestionnaire] = await Promise.all([
+        verifierPolitiqueAnnonces(prisma, campagneId).catch((e) => ({ erreur: (e as Error).message })),
         verifierPolitiqueAssets(prisma).catch((e) => ({ erreur: (e as Error).message })),
         listerActionsConversion(prisma).catch((e) => ({ erreur: (e as Error).message })),
+        listerObjectifsConversionCampagne(prisma, campagneId).catch((e) => ({ erreur: (e as Error).message })),
         diagnosticScopesJeton(prisma).catch((e) => (e as Error).message),
         diagnosticLienGestionnaire(prisma).catch((e) => (e as Error).message),
       ]);
@@ -750,6 +753,7 @@ export function buildRouter(prisma: PrismaClient): Router {
         politiqueAnnonces,
         politiqueAssets,
         actionsConversion,
+        objectifsConversionCampagne,
       });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
