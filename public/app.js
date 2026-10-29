@@ -470,6 +470,15 @@ async function chargerStatutStripe() {
     <button type="button" id="btn-sync-stripe" class="ghost">Synchroniser maintenant</button>
     <div id="resultat-sync-stripe"></div>
     <details class="fournisseur-documents">
+      <summary>Synchronisation historique (au-delà des 30 derniers jours)</summary>
+      <p class="aide-inline">La synchronisation automatique ne regarde que les 30 derniers jours : un paiement plus ancien que ça n'a jamais été récupéré s'il datait d'avant la mise en route de Stripe sur cette application. Pour le faire venir, choisis une date de départ et synchronise une fois.</p>
+      <div class="ligne-boutons" style="margin: 10px 0; flex-wrap: wrap; align-items: center; gap: 8px;">
+        <label class="aide-inline">Depuis le <input type="date" id="stripe-sync-historique-depuis" /></label>
+        <button type="button" id="btn-sync-stripe-historique" class="ghost">Synchroniser depuis cette date</button>
+      </div>
+      <div id="resultat-sync-stripe-historique"></div>
+    </details>
+    <details class="fournisseur-documents">
       <summary>Voir les paiements captés</summary>
       <div class="ligne-boutons" style="margin: 10px 0; flex-wrap: wrap; align-items: center; gap: 8px;">
         <label class="aide-inline">Du <input type="date" id="paiements-stripe-depuis" /></label>
@@ -501,6 +510,35 @@ async function chargerStatutStripe() {
         `${d.payoutsNouveaux} payout(s) nouveau(x), ${d.paiementsNouveaux} paiement(s) nouveau(x), ${d.erreurs.length} erreur(s).` +
         (d.erreurs.length > 0 ? `<br/><span class="anomalie-meta">${d.erreurs.map(echapper).join("<br/>")}</span>` : "");
       await rafraichirTout();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+
+  document.getElementById("btn-sync-stripe-historique").addEventListener("click", async () => {
+    const depuis = document.getElementById("stripe-sync-historique-depuis").value;
+    const resultatDiv = document.getElementById("resultat-sync-stripe-historique");
+    if (!depuis) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Choisis d'abord une date</span>`;
+      return;
+    }
+    resultatDiv.textContent = "Synchronisation historique en cours (peut prendre un moment selon la période)…";
+    try {
+      const r = await fetch("/api/stripe/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ depuis }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+        return;
+      }
+      resultatDiv.innerHTML =
+        `${d.payoutsNouveaux} payout(s) nouveau(x), ${d.paiementsNouveaux} paiement(s) nouveau(x), ${d.erreurs.length} erreur(s).` +
+        (d.erreurs.length > 0 ? `<br/><span class="anomalie-meta">${d.erreurs.map(echapper).join("<br/>")}</span>` : "");
+      await rafraichirTout();
+      await chargerPaiementsStripe();
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }

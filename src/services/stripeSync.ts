@@ -72,18 +72,33 @@ function obtenirClientStripe(): Stripe {
  * Idempotent (upsert par payoutRef/paymentRef, comme l'import CSV) :
  * peut etre rejouee sans jamais dupliquer une donnee deja connue, y
  * compris si elle a d'abord ete recue via un fichier CSV depose a la main.
+ *
+ * depuisUnix est optionnel : par defaut, fenetre glissante de 30 jours
+ * (comme la synchronisation Gmail - la deduplication par cle unique rend
+ * le re-balayage sans consequence, et evite de manquer un payout en cas
+ * d'arret prolonge du service entre deux syncs). Cette fenetre glissante
+ * ne peut PAS a elle seule reconstituer un historique plus ancien que le
+ * jour ou la synchronisation a ete activee pour la premiere fois - un
+ * payout d'il y a plusieurs mois n'est jamais rattrape automatiquement.
+ * Passer un depuisUnix plus ancien declenche une synchronisation
+ * historique ponctuelle (voir POST /api/stripe/sync avec un corps
+ * {"depuis": "AAAA-MM-JJ"} - trouve en diagnostiquant un export incomplet
+ * signale par l'utilisateur : la base ne contenait tout simplement aucun
+ * paiement avant la date de premiere connexion de l'API Stripe).
  */
-export async function synchroniserStripe(prisma: PrismaClient): Promise<ResultatSyncStripe> {
+export async function synchroniserStripe(prisma: PrismaClient, depuisUnix?: number): Promise<ResultatSyncStripe> {
   const stripe = obtenirClientStripe();
   const resultat: ResultatSyncStripe = { payoutsExamines: 0, payoutsNouveaux: 0, paiementsExamines: 0, paiementsNouveaux: 0, erreurs: [] };
 
-  // Fenetre large (comme la synchronisation Gmail) : la deduplication par
-  // cle unique rend le re-balayage sans consequence, et evite de manquer
-  // un payout en cas d'arret prolonge du service entre deux syncs.
-  const depuis = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-  const payouts = await stripe.payouts.list({ created: { gte: depuis }, limit: 100, expand: ["data.destination"] });
+  const depuis = depuisUnix ?? Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
 
-  for (const payout of payouts.data) {
+  // Pagination automatique du SDK (for await) plutot qu'un seul appel
+  // .list() limite a sa premiere page de 100 resultats : sans consequence
+  // sur la fenetre glissante habituelle de 30 jours (toujours restee sous
+  // 100 payouts en pratique), mais indispensable des qu'un depuisUnix
+  // ancien fait remonter plus de 100 payouts - silencieusement tronque
+  // auparavant.
+  for await (const payout of stripe.payouts.list({ created: { gte: depuis }, limit: 100, expand: ["data.destination"] })) {
     resultat.payoutsExamines++;
     try {
       const destination = payout.destination;
@@ -111,13 +126,15 @@ export async function synchroniserStripe(prisma: PrismaClient): Promise<Resultat
       // "source" expanse en une seule fois pour tout le lot : evite un
       // appel API supplementaire par transaction pour recuperer la
       // description de la charge (utilisee ensuite pour retrouver une
-      // reference de bon de commande, section 4.4).
-      const transactions = await stripe.balanceTransactions.list({
+      // reference de bon de commande, section 4.4). Pagination automatique
+      // ici aussi (meme raison que pour les payouts ci-dessus) : un payout
+      // qui regroupe plus de 100 transactions individuelles existe en
+      // pratique (grosse journee).
+      for await (const bt of stripe.balanceTransactions.list({
         payout: payout.id,
         limit: 100,
         expand: ["data.source"],
-      });
-      for (const bt of transactions.data) {
+      })) {
         if (!TYPES_PAIEMENT.has(bt.type)) continue; // frais, remboursements, ajustements... pas des paiements clients
         resultat.paiementsExamines++;
 

@@ -154,9 +154,20 @@ export function buildRouter(prisma: PrismaClient): Router {
     );
   });
 
-  router.post("/stripe/sync", async (_req, res) => {
+  // Corps optionnel {"depuis": "AAAA-MM-JJ"} : synchronisation historique
+  // ponctuelle au-dela de la fenetre glissante habituelle de 30 jours
+  // (voir synchroniserStripe) - trouve en diagnostiquant un export
+  // incomplet signale par l'utilisateur, la base ne contenant aucun
+  // paiement avant la date de premiere connexion de l'API Stripe.
+  router.post("/stripe/sync", async (req, res) => {
     try {
-      res.json(await synchroniserStripe(prisma));
+      const brutDepuis = typeof req.body?.depuis === "string" ? req.body.depuis : "";
+      const depuisDate = brutDepuis ? new Date(`${brutDepuis}T00:00:00`) : null;
+      if (brutDepuis && (!depuisDate || Number.isNaN(depuisDate.getTime()))) {
+        return res.status(400).json({ erreur: `Date "depuis" invalide : "${brutDepuis}".` });
+      }
+      const depuisUnix = depuisDate ? Math.floor(depuisDate.getTime() / 1000) : undefined;
+      res.json(await synchroniserStripe(prisma, depuisUnix));
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
