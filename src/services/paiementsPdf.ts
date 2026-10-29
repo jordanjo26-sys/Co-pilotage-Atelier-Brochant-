@@ -21,11 +21,15 @@ const LIBELLE_MOYEN_PAIEMENT: Record<string, string> = {
   card: "Carte en ligne",
 };
 
-export function genererPdfPaiements(paiements: LignePaiementPdf[]): Promise<Buffer> {
+export function genererPdfPaiements(paiements: LignePaiementPdf[], periode?: { depuis?: Date; jusqua?: Date }): Promise<Buffer> {
   const totalNet = paiements.reduce((s, p) => s + p.net, 0);
+  const libellePeriode =
+    periode?.depuis || periode?.jusqua
+      ? ` — période du ${periode.depuis ? fmtDatePdf(periode.depuis) : "début"} au ${periode.jusqua ? fmtDatePdf(periode.jusqua) : "aujourd'hui"}`
+      : "";
   return genererPdfTableau(
     "Paiements captés — Atelier Brochant",
-    `Généré le ${new Date().toLocaleDateString("fr-FR")} — ${paiements.length} paiement(s)`,
+    `Généré le ${new Date().toLocaleDateString("fr-FR")} — ${paiements.length} paiement(s)${libellePeriode}`,
     [
       { label: "Date", largeur: 60, valeur: (p: LignePaiementPdf) => fmtDatePdf(p.date) },
       { label: "Montant net", largeur: 75, valeur: (p: LignePaiementPdf) => fmtMontantPdf(p.net) },

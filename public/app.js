@@ -471,8 +471,12 @@ async function chargerStatutStripe() {
     <div id="resultat-sync-stripe"></div>
     <details class="fournisseur-documents">
       <summary>Voir les paiements captés</summary>
-      <div class="ligne-boutons" style="margin: 10px 0;">
-        <a class="ghost bouton-lien" href="/api/stripe/paiements/export-pdf">Exporter en PDF</a>
+      <div class="ligne-boutons" style="margin: 10px 0; flex-wrap: wrap; align-items: center; gap: 8px;">
+        <label class="aide-inline">Du <input type="date" id="paiements-stripe-depuis" /></label>
+        <label class="aide-inline">au <input type="date" id="paiements-stripe-jusqua" /></label>
+        <button type="button" id="btn-filtrer-paiements-stripe" class="ghost">Filtrer</button>
+        <button type="button" id="btn-reinitialiser-paiements-stripe" class="ghost">Réinitialiser</button>
+        <a class="ghost bouton-lien" id="lien-export-paiements-stripe" href="/api/stripe/paiements/export-pdf">Exporter en PDF</a>
       </div>
       <div id="liste-paiements-stripe">Chargement…</div>
     </details>
@@ -500,6 +504,13 @@ async function chargerStatutStripe() {
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }
+  });
+
+  document.getElementById("btn-filtrer-paiements-stripe").addEventListener("click", () => chargerPaiementsStripe());
+  document.getElementById("btn-reinitialiser-paiements-stripe").addEventListener("click", () => {
+    document.getElementById("paiements-stripe-depuis").value = "";
+    document.getElementById("paiements-stripe-jusqua").value = "";
+    chargerPaiementsStripe();
   });
 }
 
@@ -981,11 +992,29 @@ const LIBELLE_MOYEN_PAIEMENT = {
   card: "Carte en ligne",
 };
 
+// Periode (champs #paiements-stripe-depuis/#paiements-stripe-jusqua, demande
+// explicite de l'utilisateur de pouvoir filtrer/exporter sur une plage de
+// dates precise plutot que seulement les 100 paiements les plus recents).
+// Construit la query string partagee par la liste et par le lien d'export
+// PDF, et met ce dernier a jour a chaque chargement pour qu'il reflete
+// toujours la periode actuellement affichee a l'ecran.
+function querystringPeriodePaiementsStripe() {
+  const depuis = document.getElementById("paiements-stripe-depuis")?.value || "";
+  const jusqua = document.getElementById("paiements-stripe-jusqua")?.value || "";
+  const params = new URLSearchParams();
+  if (depuis) params.set("depuis", depuis);
+  if (jusqua) params.set("jusqua", jusqua);
+  return params.toString();
+}
+
 async function chargerPaiementsStripe() {
   const conteneur = document.getElementById("liste-paiements-stripe");
   if (!conteneur) return;
+  const qs = querystringPeriodePaiementsStripe();
+  const lienExport = document.getElementById("lien-export-paiements-stripe");
+  if (lienExport) lienExport.href = `/api/stripe/paiements/export-pdf${qs ? `?${qs}` : ""}`;
   try {
-    const res = await fetch("/api/stripe/paiements");
+    const res = await fetch(`/api/stripe/paiements${qs ? `?${qs}` : ""}`);
     const paiements = await res.json();
     conteneur.innerHTML =
       paiements

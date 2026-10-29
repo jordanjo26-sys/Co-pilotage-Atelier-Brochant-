@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
@@ -171,24 +171,50 @@ export function buildRouter(prisma: PrismaClient): Router {
   // ces tables alimentent le rapprochement bancaire (Payout <-> releve),
   // jamais directement le statut payee/impayee d'une Facture client - celui-ci
   // vient exclusivement du champ reglements de l'export Synec (section 4.4).
-  router.get("/stripe/paiements", async (_req, res) => {
+  // Periode optionnelle (?depuis=AAAA-MM-JJ&jusqua=AAAA-MM-JJ) : demande
+  // explicite de l'utilisateur, qui n'avait jusqu'ici aucun moyen de
+  // filtrer/exporter les paiements captes sur une plage de dates precise
+  // (ex. "du 1er janvier au 30 octobre 2026"). jusqua est inclusif
+  // (23:59:59) pour couvrir toute la journee choisie, pas seulement minuit.
+  function periodePaiementsDepuisRequete(req: Request): { depuis?: Date; jusqua?: Date } {
+    const brutDepuis = typeof req.query.depuis === "string" ? req.query.depuis : "";
+    const brutJusqua = typeof req.query.jusqua === "string" ? req.query.jusqua : "";
+    const depuis = brutDepuis ? new Date(`${brutDepuis}T00:00:00`) : undefined;
+    const jusqua = brutJusqua ? new Date(`${brutJusqua}T23:59:59.999`) : undefined;
+    return {
+      depuis: depuis && !Number.isNaN(depuis.getTime()) ? depuis : undefined,
+      jusqua: jusqua && !Number.isNaN(jusqua.getTime()) ? jusqua : undefined,
+    };
+  }
+
+  router.get("/stripe/paiements", async (req, res) => {
+    const { depuis, jusqua } = periodePaiementsDepuisRequete(req);
+    const filtrePeriode = depuis || jusqua ? { date: { ...(depuis ? { gte: depuis } : {}), ...(jusqua ? { lte: jusqua } : {}) } } : {};
     const paiements = await prisma.paiement.findMany({
+      where: filtrePeriode,
       orderBy: { date: "desc" },
-      take: 100,
+      // Sans periode : apercu rapide des plus recents (comportement
+      // d'origine). Avec periode : l'utilisateur veut TOUT ce qui est
+      // dans la plage choisie, pas seulement les 100 plus recents.
+      take: depuis || jusqua ? 5000 : 100,
       include: { facture: { select: { reference: true, clientNom: true } } },
     });
     res.json(paiements);
   });
 
   // Export PDF des paiements captés (demande explicite de l'utilisateur,
-  // même logique que l'export PDF des factures impayées).
-  router.get("/stripe/paiements/export-pdf", async (_req, res) => {
+  // même logique que l'export PDF des factures impayées), avec la même
+  // période optionnelle que /stripe/paiements ci-dessus.
+  router.get("/stripe/paiements/export-pdf", async (req, res) => {
+    const { depuis, jusqua } = periodePaiementsDepuisRequete(req);
+    const filtrePeriode = depuis || jusqua ? { date: { ...(depuis ? { gte: depuis } : {}), ...(jusqua ? { lte: jusqua } : {}) } } : {};
     const paiements = await prisma.paiement.findMany({
-      orderBy: { date: "desc" },
-      take: 100,
+      where: filtrePeriode,
+      orderBy: { date: "asc" },
+      take: 5000,
       include: { facture: { select: { reference: true, clientNom: true } } },
     });
-    const pdf = await genererPdfPaiements(paiements);
+    const pdf = await genererPdfPaiements(paiements, { depuis, jusqua });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="paiements-${new Date().toISOString().slice(0, 10)}.pdf"`);
     res.send(pdf);
