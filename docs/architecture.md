@@ -327,13 +327,18 @@ fichier prioritaire sur le mimeType declare.** `fileType.ts` -
 **Interrupteur `DEXT_AUTO_FORWARD`.** A la suite de l'incident ci-dessus,
 l'utilisateur a demande une periode d'observation avant de refaire
 confiance a l'envoi automatique. Mis a `false` (dans `scripts/deploy/bootstrap.sh`,
-controle par le code — pas un secret), les factures reconnues ne sont plus
-transmises a Dext : elles sont etiquetees dans Gmail sous
-`Copilote/Factures a transferer/<Mois Annee>` (libelle cree automatiquement
-au premier document du mois) et enregistrees avec `statutDext: "a_valider"`,
-pour un envoi manuel groupe en fin de mois. Pour reactiver le transfert
-automatique une fois la confiance retablie : repasser `DEXT_AUTO_FORWARD`
-a `"true"` dans `bootstrap.sh` puis redeployer.
+controle par le code — pas un secret) a partir de septembre : les factures
+reconnues n'etaient plus transmises a Dext, seulement etiquetees dans Gmail
+sous `Copilote/Factures a transferer/<Mois Annee>` (libelle cree
+automatiquement au premier document du mois) et enregistrees avec
+`statutDext: "a_valider"`, pour un envoi manuel groupe. Reactive (`"true"`)
+le 29/10 a la demande explicite de l'utilisateur, plus d'un mois apres
+l'incident et apres la correction du probleme de qualite du scanner
+(fond non blanc, voir plus bas) qui faisait revenir des factures
+numerisees "non conformes" cote Dext - les ~105 documents deja en attente
+a cette date sont restes `"a_valider"` volontairement (envoi manuel groupe,
+jamais retroactif), seules les nouvelles factures recues apres cette
+reactivation partent desormais automatiquement.
 
 **Transfert par recomposition, pas par "Forward" natif.** Plutot que de
 reconstruire une chaine de reponse/transfert Gmail (fragile pour les pieces

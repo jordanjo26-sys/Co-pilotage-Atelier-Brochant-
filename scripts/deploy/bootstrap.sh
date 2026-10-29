@@ -73,11 +73,14 @@ WWW_DOMAIN="www.copilotage-brochant.fr"
 ADMIN_EMAIL="jordan.jo26@icloud.com"
 CERTBOT_WEBROOT="$APP_DIR/certbot-webroot"
 CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
-# Transfert automatique des factures vers Dext : "false" = en pause (mis en
-# place a la demande de l'utilisateur le temps d'observer prudemment le
-# systeme sur le mois de septembre) — repasser a "true" ici puis redeployer
-# pour reactiver l'envoi automatique.
-DEXT_AUTO_FORWARD="false"
+# Transfert automatique des factures vers Dext. Avait ete mis a "false" en
+# septembre le temps d'observer prudemment le systeme suite a un incident
+# de classification (documents non-factures envoyes a tort, rejetes en
+# nombre par Dext - corrige depuis, voir docs/architecture.md). Reactive
+# le 29/10 a la demande explicite de l'utilisateur, apres plus d'un mois
+# d'observation et la correction du probleme de qualite du scanner
+# (fond non blanc faisant revenir des factures "non conformes").
+DEXT_AUTO_FORWARD="true"
 # Numero Twilio du standard telephonique IA (Morgane), vers lequel le
 # portable de l'atelier renvoie les appels non decroches.
 TWILIO_NUMERO="+33973921009"
