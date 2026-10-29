@@ -423,6 +423,15 @@ async function chargerStatutGmail() {
     </p>
     <button type="button" id="btn-sync-gmail" class="ghost">Synchroniser maintenant</button>
     <div id="resultat-sync-gmail"></div>
+    <details class="fournisseur-documents">
+      <summary>Synchronisation historique (au-delà des 14 derniers jours)</summary>
+      <p class="aide-inline">La synchronisation automatique ne regarde que les 14 derniers jours (fenêtre volontairement limitée, une fenêtre plus large a déjà provoqué un dépassement du quota Gmail). Pour retrouver des factures plus anciennes et les envoyer vers Dext, choisis une date de départ — ça peut prendre du temps sur une longue période, c'est normal.</p>
+      <div class="ligne-boutons" style="margin: 10px 0; flex-wrap: wrap; align-items: center; gap: 8px;">
+        <label class="aide-inline">Depuis le <input type="date" id="gmail-sync-historique-depuis" /></label>
+        <button type="button" id="btn-sync-gmail-historique" class="ghost">Synchroniser depuis cette date</button>
+      </div>
+      <div id="resultat-sync-gmail-historique"></div>
+    </details>
   `;
   etatIndicateurs.gmailMotif = null;
   mettreAJourBadges();
@@ -432,6 +441,34 @@ async function chargerStatutGmail() {
     resultatDiv.textContent = "Synchronisation en cours…";
     try {
       const r = await fetch("/api/gmail/sync", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) {
+        resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+        return;
+      }
+      resultatDiv.innerHTML =
+        `${d.messagesExamines} message(s) examiné(s), ${d.documentsTraites} document(s) traité(s), ${d.documentsDoublons} doublon(s), ${d.documentsAmbigus} ambigu(s), ${d.erreurs.length} erreur(s).` +
+        (d.resumeErreurs ? `<br/><span class="anomalie-meta">${echapper(d.resumeErreurs)}</span>` : "");
+      await rafraichirTout();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+
+  document.getElementById("btn-sync-gmail-historique").addEventListener("click", async () => {
+    const depuis = document.getElementById("gmail-sync-historique-depuis").value;
+    const resultatDiv = document.getElementById("resultat-sync-gmail-historique");
+    if (!depuis) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Choisis d'abord une date</span>`;
+      return;
+    }
+    resultatDiv.textContent = "Synchronisation historique en cours (peut prendre plusieurs minutes sur une longue période)…";
+    try {
+      const r = await fetch("/api/gmail/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ depuis }),
+      });
       const d = await r.json();
       if (!r.ok) {
         resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;

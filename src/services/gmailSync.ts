@@ -209,7 +209,20 @@ async function obtenirOuCreerLabel(gmail: gmail_v1.Gmail, nom: string, cache: Ma
  * depuis un planificateur externe (cron) toutes les quelques minutes, sans
  * jamais retransmettre un document deja envoye a Dext.
  */
-export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatSyncGmail> {
+/**
+ * depuis (optionnel) : synchronisation historique ponctuelle au-dela de la
+ * fenetre glissante habituelle de 14 jours (meme principe que
+ * synchroniserStripe) - demande explicite de l'utilisateur pour retrouver
+ * et envoyer vers Dext des factures recues avant la mise en route de
+ * l'automatisation. ⚠️ Risque documente plus haut : une fenetre trop large
+ * a deja provoque un depassement soutenu du quota Gmail en conditions
+ * reelles (204 messages, 119 erreurs en un seul passage) - meme avec la
+ * pagination et les nouvelles tentatives deja en place, une fenetre de
+ * plusieurs mois peut rester lente et necessiter plusieurs appels
+ * successifs (les messages deja examines sont ignores des le prochain
+ * appel, voir idsTraites plus bas - jamais retraites en double).
+ */
+export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Promise<ResultatSyncGmail> {
   const resultat: ResultatSyncGmail = {
     messagesExamines: 0,
     documentsTraites: 0,
@@ -251,12 +264,13 @@ export async function synchroniserGmail(prisma: PrismaClient): Promise<ResultatS
   // message et des nouvelles tentatives automatiques en cas de quota
   // depasse (voir appelAvecRetryQuota) plutot que de se reposer uniquement
   // sur une fenetre large.
+  const filtreDate = depuis ? `after:${depuis.toISOString().slice(0, 10).replace(/-/g, "/")}` : "newer_than:14d";
   const messages: gmail_v1.Schema$Message[] = [];
   let pageToken: string | undefined;
   do {
     const liste = await gmail.users.messages.list({
       userId: "me",
-      q: "has:attachment newer_than:14d -from:dext.cc",
+      q: `has:attachment ${filtreDate} -from:dext.cc`,
       maxResults: 100,
       pageToken,
     });

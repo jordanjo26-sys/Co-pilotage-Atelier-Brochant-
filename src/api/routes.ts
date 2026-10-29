@@ -372,7 +372,10 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   // Synchronisation manuelle, en attendant la planification automatique
   // (cron) sur le serveur de production (section 16).
-  router.post("/gmail/sync", async (_req, res) => {
+  // Corps optionnel {"depuis": "AAAA-MM-JJ"} : synchronisation historique
+  // ponctuelle au-dela de la fenetre glissante habituelle de 14 jours (voir
+  // synchroniserGmail) - demande explicite de l'utilisateur.
+  router.post("/gmail/sync", async (req, res) => {
     // Meme pause partagee que les planificateurs (voir gmailRateLimit.ts) :
     // un declenchement manuel repete (bouton "Synchroniser") pendant une
     // interdiction Google en cours relancerait lui aussi le quota.
@@ -381,7 +384,12 @@ export function buildRouter(prisma: PrismaClient): Router {
       return res.status(400).json({ erreur: `Google a temporairement limite ce compte. Nouvelle tentative possible apres ${pause.toISOString()}.` });
     }
     try {
-      const resultat = await synchroniserGmail(prisma);
+      const brutDepuis = typeof req.body?.depuis === "string" ? req.body.depuis : "";
+      const depuisDate = brutDepuis ? new Date(`${brutDepuis}T00:00:00`) : undefined;
+      if (brutDepuis && (!depuisDate || Number.isNaN(depuisDate.getTime()))) {
+        return res.status(400).json({ erreur: `Date "depuis" invalide : "${brutDepuis}".` });
+      }
+      const resultat = await synchroniserGmail(prisma, depuisDate);
       reinitialiserLimiteGmail();
       // resumeErreurs : version groupee/lisible de "erreurs" pour
       // l'affichage direct dans l'interface (une meme panne affectant de
