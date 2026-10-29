@@ -39,7 +39,15 @@ import {
 import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
 import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds, creerPropositionAds } from "../services/googleAdsActions";
-import { listerCampagnesAds } from "../services/googleAds";
+import {
+  listerCampagnesAds,
+  verifierPolitiqueAnnonces,
+  verifierPolitiqueAssets,
+  listerActionsConversion,
+  diagnosticConfigurationAds,
+  diagnosticScopesJeton,
+  diagnosticLienGestionnaire,
+} from "../services/googleAds";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -715,6 +723,34 @@ export function buildRouter(prisma: PrismaClient): Router {
     try {
       const jours = req.query.jours ? Number(req.query.jours) : undefined;
       res.json(await listerCampagnesAds(prisma, jours));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Controle de sante du compte Google Ads, independant de Morgane/Claude
+  // (lecture seule, directement sur l'API Google Ads) - utile quand
+  // Morgane elle-meme est indisponible (ex. plafond d'usage de l'API
+  // Claude atteint) mais qu'un diagnostic est quand meme necessaire :
+  // annonces/extensions refusees par une politique, actions de conversion
+  // configurees, et etat des scopes/de la liaison du jeton.
+  router.get("/google-ads/diagnostic", async (_req, res) => {
+    try {
+      const [politiqueAnnonces, politiqueAssets, actionsConversion, scopesJeton, lienGestionnaire] = await Promise.all([
+        verifierPolitiqueAnnonces(prisma).catch((e) => ({ erreur: (e as Error).message })),
+        verifierPolitiqueAssets(prisma).catch((e) => ({ erreur: (e as Error).message })),
+        listerActionsConversion(prisma).catch((e) => ({ erreur: (e as Error).message })),
+        diagnosticScopesJeton(prisma).catch((e) => (e as Error).message),
+        diagnosticLienGestionnaire(prisma).catch((e) => (e as Error).message),
+      ]);
+      res.json({
+        configuration: diagnosticConfigurationAds(),
+        scopesJeton,
+        lienGestionnaire,
+        politiqueAnnonces,
+        politiqueAssets,
+        actionsConversion,
+      });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
