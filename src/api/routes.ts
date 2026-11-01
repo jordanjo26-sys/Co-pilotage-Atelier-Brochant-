@@ -37,6 +37,7 @@ import {
   DemandeInterventionValidationError,
 } from "../services/demandesIntervention";
 import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
+import { explorerFormulaireDevis, CHEMIN_CAPTURE_EXPLORATION as CHEMIN_CAPTURE_EXPLORATION_DEVIS } from "../services/synecDevis";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
 import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds, creerPropositionAds } from "../services/googleAdsActions";
 import {
@@ -286,6 +287,24 @@ export function buildRouter(prisma: PrismaClient): Router {
       return res.status(404).send("Aucune capture d'echec disponible pour le moment.");
     }
     res.sendFile(CHEMIN_CAPTURE_ECHEC);
+  });
+
+  // Exploration ponctuelle (lecture seule, ne soumet jamais rien) de
+  // l'ecran "Devis" de Synec - voir synecDevis.ts. A retirer une fois la
+  // creation de devis elle-meme construite et confirmee.
+  router.get("/synec/exploration-devis", async (_req, res) => {
+    try {
+      res.type("text/plain").send(await explorerFormulaireDevis(prisma));
+    } catch (err) {
+      res.status(400).type("text/plain").send(`Erreur : ${(err as Error).message}`);
+    }
+  });
+
+  router.get("/synec/exploration-devis-capture", (_req, res) => {
+    if (!existsSync(CHEMIN_CAPTURE_EXPLORATION_DEVIS)) {
+      return res.status(404).send("Aucune capture d'exploration disponible pour le moment.");
+    }
+    res.sendFile(CHEMIN_CAPTURE_EXPLORATION_DEVIS);
   });
 
   router.get("/recapitulatifs-solde", async (_req, res) => {
