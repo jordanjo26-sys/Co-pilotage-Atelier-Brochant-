@@ -159,4 +159,76 @@ export async function explorerFormulaireDevis(_prisma: PrismaClient): Promise<st
   }
 }
 
+/**
+ * Dump de tous les boutons/liens de la page, ICONES SEULES INCLUSES (sans
+ * texte visible - exclues de dumperFormulaire ci-dessus) : classe complète,
+ * title, aria-label, et classe du premier enfant <i>/<svg> le cas échéant -
+ * nécessaire pour identifier de façon fiable un bouton-icône (ex. "Produits
+ * du devis") qu'aucun texte ne permet de cibler par getByText.
+ */
+async function dumperBoutonsIcones(page: import("playwright").Page): Promise<string> {
+  return page.evaluate(`(() => {
+    const els = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+    return els.map((el, i) => {
+      const r = el.getBoundingClientRect();
+      const visible = r.width > 0 && r.height > 0;
+      if (!visible) return null;
+      const texte = (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 30);
+      const classes = typeof el.className === 'string' ? el.className : '';
+      const title = el.getAttribute('title') || '';
+      const aria = el.getAttribute('aria-label') || '';
+      const enfantIcone = el.querySelector('i, svg');
+      const classeIcone = enfantIcone && typeof enfantIcone.className === 'string' ? enfantIcone.className : (enfantIcone ? String(enfantIcone.className) : '');
+      return i + ':' + el.tagName + '.' + classes.slice(0,70).replace(/ /g,'.') + (title ? ' title="'+title+'"' : '') + (aria ? ' aria="'+aria+'"' : '') + (classeIcone ? ' icone="'+classeIcone.slice(0,50)+'"' : '') + (texte ? ' texte="'+texte+'"' : ' texte=(vide)') + ' pos=(' + Math.round(r.x) + ',' + Math.round(r.y) + ')';
+    }).filter(Boolean).join('\\n');
+  })()`) as Promise<string>;
+}
+
+/**
+ * Exploration en lecture seule (aucune création, aucune sauvegarde) du
+ * detail d'un devis EXISTANT : clique sur sa ligne pour deplier les
+ * icones d'action, puis sur l'icone "Produits du devis" (reperee parmi
+ * les icones dumpees) pour reveler la section d'ajout de produit - sert a
+ * identifier un selecteur fiable pour cette icone (sans texte visible,
+ * donc invisible pour dumperFormulaire) avant d'ecrire la creation reelle.
+ */
+export async function explorerDetailDevis(_prisma: PrismaClient, nomClientDevisExistant: string): Promise<string> {
+  const { url, identifiant, motDePasse } = obtenirIdentifiants();
+  const navigateur = await chromium.launch({ headless: true });
+  let page: import("playwright").Page | undefined;
+  try {
+    page = await navigateur.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    await seConnecter(page, identifiant, motDePasse);
+    await allerAuxDevis(page);
+
+    let ligne: import("playwright").Locator | null = null;
+    const candidats = page.getByText(nomClientDevisExistant, { exact: false });
+    for (let essai = 0; essai < 10 && !ligne; essai++) {
+      const nombre = await candidats.count().catch(() => 0);
+      for (let i = 0; i < nombre; i++) {
+        if (await candidats.nth(i).isVisible().catch(() => false)) {
+          ligne = candidats.nth(i);
+          break;
+        }
+      }
+      if (!ligne) await page.waitForTimeout(1000);
+    }
+    if (!ligne) throw new SynecDevisError(`Devis pour "${nomClientDevisExistant}" introuvable dans la liste.`);
+    await ligne.click();
+    await page.waitForTimeout(1000);
+
+    const boutonsApresExpansion = await dumperBoutonsIcones(page);
+
+    await page.screenshot({ path: CHEMIN_CAPTURE_EXPLORATION, fullPage: true }).catch(() => {});
+
+    return [`--- Boutons/icônes après clic sur la ligne "${nomClientDevisExistant}" ---`, boutonsApresExpansion].join("\n\n");
+  } catch (err) {
+    await page?.screenshot({ path: CHEMIN_CAPTURE_EXPLORATION, fullPage: true }).catch(() => {});
+    throw err;
+  } finally {
+    await navigateur.close();
+  }
+}
+
 export { CHEMIN_CAPTURE_EXPLORATION };

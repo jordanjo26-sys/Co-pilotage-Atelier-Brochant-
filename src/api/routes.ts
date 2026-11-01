@@ -37,7 +37,11 @@ import {
   DemandeInterventionValidationError,
 } from "../services/demandesIntervention";
 import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
-import { explorerFormulaireDevis, CHEMIN_CAPTURE_EXPLORATION as CHEMIN_CAPTURE_EXPLORATION_DEVIS } from "../services/synecDevis";
+import {
+  explorerFormulaireDevis,
+  explorerDetailDevis,
+  CHEMIN_CAPTURE_EXPLORATION as CHEMIN_CAPTURE_EXPLORATION_DEVIS,
+} from "../services/synecDevis";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
 import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds, creerPropositionAds } from "../services/googleAdsActions";
 import {
@@ -295,6 +299,16 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/synec/exploration-devis", async (_req, res) => {
     try {
       res.type("text/plain").send(await explorerFormulaireDevis(prisma));
+    } catch (err) {
+      res.status(400).type("text/plain").send(`Erreur : ${(err as Error).message}`);
+    }
+  });
+
+  router.get("/synec/exploration-devis-detail", async (req, res) => {
+    const nomClient = typeof req.query.client === "string" ? req.query.client : "";
+    if (!nomClient) return res.status(400).type("text/plain").send("Paramètre ?client= requis (nom d'un devis existant).");
+    try {
+      res.type("text/plain").send(await explorerDetailDevis(prisma, nomClient));
     } catch (err) {
       res.status(400).type("text/plain").send(`Erreur : ${(err as Error).message}`);
     }
