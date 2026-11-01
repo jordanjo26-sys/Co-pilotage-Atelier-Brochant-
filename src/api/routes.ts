@@ -40,6 +40,8 @@ import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEc
 import {
   explorerFormulaireDevis,
   explorerDetailDevis,
+  creerDevisSynec,
+  SynecDevisError,
   CHEMIN_CAPTURE_EXPLORATION as CHEMIN_CAPTURE_EXPLORATION_DEVIS,
 } from "../services/synecDevis";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
@@ -311,6 +313,19 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.type("text/plain").send(await explorerDetailDevis(prisma, nomClient));
     } catch (err) {
       res.status(400).type("text/plain").send(`Erreur : ${(err as Error).message}`);
+    }
+  });
+
+  // Declenchement manuel de la creation de devis (meme fonction que l'outil
+  // Morgane creer_devis_synec) - utile pour un test direct sans passer par
+  // le chat, ou en secours si Morgane est indisponible. Memes validations
+  // que synecDevis.ts (client existant requis, au moins une ligne).
+  router.post("/synec/devis", async (req, res) => {
+    try {
+      res.json(await creerDevisSynec(prisma, req.body));
+    } catch (err) {
+      if (err instanceof SynecDevisError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
     }
   });
 

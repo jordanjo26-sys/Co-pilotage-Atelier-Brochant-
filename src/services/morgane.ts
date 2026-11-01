@@ -39,6 +39,7 @@ import { obtenirConnexionMeta } from "./metaAuth";
 import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./documentsScannes";
 import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
 import { genererDossierComptable } from "./dossierComptable";
+import { creerDevisSynec, SynecDevisError, LigneDevis } from "./synecDevis";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -628,6 +629,37 @@ const OUTILS: Anthropic.Tool[] = [
       "Relance le rapprochement bancaire (payouts Stripe + factures fournisseurs, voir verifier_rapprochement_bancaire) puis genere un PDF pret a transmettre au comptable : resume chiffre, encaissements/factures encore en attente de rapprochement, et mouvements bancaires non expliques. Retourne une URL de telechargement a donner telle quelle a l'utilisateur. N'appelle cet outil que si l'utilisateur demande explicitement un dossier/document pour son comptable - une simple verification de rapprochement reste verifier_rapprochement_bancaire, sans fichier.",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "creer_devis_synec",
+    description:
+      "Cree reellement un devis dans Synec (en-tete + lignes de produits), pas seulement un PDF genere par generer_document_pdf - demande explicite de l'utilisateur. Le client doit DEJA EXISTER dans Synec (recherche par nom exact) : si introuvable, l'outil renvoie une erreur plutot que d'en creer un nouveau, a faire creer a l'utilisateur dans Synec au prealable. TOUJOURS confirmer avec l'utilisateur, dans la conversation, le nom du client, chaque ligne (designation, prix HT, TVA) et le total avant d'appeler cet outil - une fois cree le devis existe reellement dans Synec, ce n'est pas une proposition revocable. Ne jamais inventer un prix ou une ligne : chaque montant doit venir de ce que l'utilisateur a donne explicitement dans la conversation. Renvoie le numero de devis et les totaux HT/TTC une fois cree, a rapporter tels quels a l'utilisateur.",
+    input_schema: {
+      type: "object",
+      properties: {
+        clientNom: { type: "string", description: "Nom exact du client, tel qu'il apparait dans la fiche client Synec." },
+        marque: { type: "string", enum: ["Atelier Brochant", "France Degorgement"], description: "Par defaut Atelier Brochant si omis." },
+        lignes: {
+          type: "array",
+          description: "Au moins une ligne.",
+          items: {
+            type: "object",
+            properties: {
+              nom: { type: "string", description: "Designation de la ligne (ex. \"Robinetterie\", \"Main d'oeuvre\")." },
+              description: { type: "string", description: "Description detaillee optionnelle de la ligne." },
+              quantite: { type: "number", description: "Par defaut 1." },
+              prixHT: { type: "number", description: "Prix unitaire HT en euros." },
+              tva: { type: "string", enum: ["20", "10", "5.5", "2.1", "8.5", "non_applicable", "non_defini"], description: "Par defaut non_defini (defaut Synec) si omis." },
+            },
+            required: ["nom", "prixHT"],
+          },
+        },
+        validiteJours: { type: "number", description: "Nombre de jours de validite du devis, optionnel (laisse le defaut Synec si omis)." },
+        acompteDemandeEuros: { type: "number", description: "Acompte demande en euros, optionnel." },
+        signataire: { type: "string", description: "Nom du signataire (\"M. Prenom NOM\"), optionnel." },
+      },
+      required: ["clientNom", "lignes"],
+    },
+  },
 ];
 
 async function executerOutil(
@@ -1170,6 +1202,34 @@ async function executerOutil(
 
     case "generer_dossier_comptable":
       return genererDossierComptable(prisma);
+
+    case "creer_devis_synec": {
+      const clientNom = typeof params.clientNom === "string" ? params.clientNom : "";
+      const lignesEntree = Array.isArray(params.lignes) ? params.lignes : [];
+      if (!clientNom || lignesEntree.length === 0) {
+        return { erreur: "clientNom et au moins une ligne (nom + prixHT) sont requis." };
+      }
+      const lignes: LigneDevis[] = lignesEntree.map((l: Record<string, unknown>) => ({
+        nom: String(l.nom ?? ""),
+        description: typeof l.description === "string" ? l.description : undefined,
+        quantite: typeof l.quantite === "number" ? l.quantite : undefined,
+        prixHT: Number(l.prixHT),
+        tva: typeof l.tva === "string" ? (l.tva as LigneDevis["tva"]) : undefined,
+      }));
+      try {
+        return await creerDevisSynec(prisma, {
+          clientNom,
+          marque: params.marque === "France Degorgement" ? "France Degorgement" : params.marque === "Atelier Brochant" ? "Atelier Brochant" : undefined,
+          lignes,
+          validiteJours: typeof params.validiteJours === "number" ? params.validiteJours : undefined,
+          acompteDemandeEuros: typeof params.acompteDemandeEuros === "number" ? params.acompteDemandeEuros : undefined,
+          signataire: typeof params.signataire === "string" ? params.signataire : undefined,
+        });
+      } catch (err) {
+        if (err instanceof SynecDevisError) return { erreur: err.message };
+        return { erreur: `Échec de la création du devis Synec : ${(err as Error).message}` };
+      }
+    }
 
     default:
       return { erreur: `Outil inconnu : ${nom}` };

@@ -55,7 +55,11 @@ export class SynecEcritureError extends Error {}
  * sous-texte) ne suffit PAS à réutiliser une fiche : seule l'égalité exacte
  * du texte compte, pour ne jamais rattacher par erreur à un homonyme.
  */
-async function chercherEtSelectionnerClient(page: import("playwright").Page, nom: string): Promise<boolean> {
+export async function chercherEtSelectionnerClient(
+  page: import("playwright").Page,
+  nom: string,
+  libelle: RegExp = /^client$/i
+): Promise<boolean> {
   const normalise = (s: string) => s.trim().toLowerCase();
 
   // Echec reel (demande "Jouot") : le libelle "Client" et le bouton "+
@@ -67,9 +71,11 @@ async function chercherEtSelectionnerClient(page: import("playwright").Page, nom
   // remonte sinon sur le select2 cache du champ multi-valeurs "Liste des
   // utilisateurs affectes a cette tache" plus bas dans la page (classe
   // select2-selection--multiple, confirme par un echec reel : "resolved to
-  // hidden <span ... select2-selection--multiple>").
+  // hidden <span ... select2-selection--multiple>"). Libelle parametrable
+  // (ex. "Client à facturer" sur le formulaire de devis) : meme widget
+  // select2, meme risque de piege, seul le texte du libelle change.
   const selecteur = page
-    .getByText(/^client$/i)
+    .getByText(libelle)
     .first()
     .locator("xpath=following::*[contains(@class,'select2-selection--single')][1]");
   await selecteur.waitFor({ state: "visible", timeout: 8000 });
@@ -103,7 +109,7 @@ async function chercherEtSelectionnerClient(page: import("playwright").Page, nom
   return false;
 }
 
-async function remplirApresLibelle(page: import("playwright").Page, libelle: RegExp, valeur: string): Promise<void> {
+export async function remplirApresLibelle(page: import("playwright").Page, libelle: RegExp, valeur: string): Promise<void> {
   const label = page.getByText(libelle).first();
   await label.waitFor({ state: "visible", timeout: 5000 });
   const champ = label.locator("xpath=following::input[1] | following::textarea[1]").first();
@@ -510,7 +516,11 @@ function formaterDateHeureSynec(d: Date): string {
  * en lecture (innerText) avant de considérer l'essai réussi - sinon passe
  * au suivant plutôt que de s'arrêter sur un faux succès.
  */
-async function remplirDescriptionEvenement(page: import("playwright").Page, texte: string): Promise<boolean> {
+export async function remplirDescriptionEvenement(
+  page: import("playwright").Page,
+  texte: string,
+  libelleChamp: RegExp = /^description$/i
+): Promise<boolean> {
   const essayer = async (zone: import("playwright").Locator): Promise<boolean> => {
     const visible = await zone.isVisible().catch(() => false);
     if (!visible) return false;
@@ -520,7 +530,7 @@ async function remplirDescriptionEvenement(page: import("playwright").Page, text
     return contenu.length > 0;
   };
 
-  const libelle = page.getByText(/^description$/i).first();
+  const libelle = page.getByText(libelleChamp).first();
   const libelleVisible = await libelle
     .waitFor({ state: "visible", timeout: 5000 })
     .then(() => true)
@@ -580,7 +590,7 @@ async function fermerSelecteurDateSiOuvert(page: import("playwright").Page): Pro
  * choisie (ou null si aucune ne correspond), a comparer insensible a la
  * casse plutot que par egalite stricte.
  */
-async function selectionnerOptionInsensibleCasse(select: import("playwright").Locator, texteCible: string): Promise<string | null> {
+export async function selectionnerOptionInsensibleCasse(select: import("playwright").Locator, texteCible: string): Promise<string | null> {
   // Echec reel decisif (demande "TEST-CLAUDE9") : le bon <select> etait
   // pourtant correctement identifie (index confirme par un diagnostic
   // separe), mais cette lecture de ses options renvoyait quand meme [] -
