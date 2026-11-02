@@ -310,20 +310,40 @@ function analyserNombreFr(texte: string | null): number | null {
  * synecEcriture.ts (remplirEvenement) : un échec silencieux sur un champ
  * financier serait bien pire qu'une erreur explicite qui bloque tout.
  */
+/**
+ * Échecs réels constatés en production (devis "Estacaille") : un essai
+ * sur six lignes a échoué sur la ligne 1 (180 -> relu "0"), un autre sur
+ * la ligne 6 (3700 -> relu "0") - jamais la même ligne, jamais la même
+ * valeur, et un essai complet (les six mêmes lignes) a totalement
+ * réussi juste avant. Signe classique (déjà rencontré ailleurs dans ce
+ * fichier/synecEcriture.ts pour d'autres champs Synec) d'un champ dont
+ * le formatage/la validation cotée client est asynchrone et pas encore
+ * retombée au moment de la lecture juste après Tab, plutôt qu'un bug
+ * déterministe de saisie - une pause courte avant de relire, puis
+ * jusqu'à 3 essais complets (nouvelle saisie a chaque fois) avant
+ * d'abandonner, comme pour le statut "PLANIFIER" ou le menu TVA/
+ * Occupation ailleurs dans ce depot.
+ */
 async function remplirEtVerifierMontant(page: import("playwright").Page, libelle: RegExp, montant: number): Promise<void> {
   const texteAEnvoyer = formaterMontantFr(montant);
   const label = page.getByText(libelle).first();
   await label.waitFor({ state: "visible", timeout: 5000 });
   const champ = label.locator("xpath=following::input[1]").first();
-  await champ.click();
-  await champ.press("Control+A").catch(() => {});
-  await champ.press("Backspace").catch(() => {});
-  await champ.pressSequentially(texteAEnvoyer, { delay: 15 });
-  await champ.press("Tab").catch(() => {});
 
-  const relu = analyserNombreFr(await champ.inputValue().catch(() => null));
+  let relu: number | null = null;
+  for (let essai = 1; essai <= 3 && (relu === null || Math.abs(relu - montant) > 0.01); essai++) {
+    await champ.click();
+    await champ.press("Control+A").catch(() => {});
+    await champ.press("Backspace").catch(() => {});
+    await champ.pressSequentially(texteAEnvoyer, { delay: 15 });
+    await page.waitForTimeout(300);
+    await champ.press("Tab").catch(() => {});
+    await page.waitForTimeout(300);
+    relu = analyserNombreFr(await champ.inputValue().catch(() => null));
+  }
+
   if (relu === null || Math.abs(relu - montant) > 0.01) {
-    throw new SynecDevisError(`Le champ correspondant à /${libelle.source}/ contient "${relu}" au lieu de ${montant} attendu.`);
+    throw new SynecDevisError(`Le champ correspondant à /${libelle.source}/ contient "${relu}" au lieu de ${montant} attendu (après 3 essais).`);
   }
 }
 
@@ -576,6 +596,50 @@ export async function creerDevisSynec(prisma: PrismaClient, params: ParametresDe
       resultat: `Échec : ${(err as Error).message}`,
     }).catch(() => {});
     throw err;
+  } finally {
+    await navigateur.close();
+  }
+}
+
+/**
+ * Lecture seule : liste tous les devis correspondant à un nom de client
+ * (recherche texte via le champ "Recherche" de l'écran Devis), avec leur
+ * numéro et le nombre apparent de lignes/produits - sert à diagnostiquer
+ * l'état réel dans Synec après un échec de creerDevisSynec (plusieurs
+ * tentatives créent chacune un nouvel en-tête de devis, voir
+ * remplirEtEnregistrerEnTeteDevis), sans jamais rien modifier.
+ */
+export async function listerDevisPourClient(_prisma: PrismaClient, nomClient: string): Promise<string> {
+  const { url, identifiant, motDePasse } = obtenirIdentifiants();
+  const navigateur = await chromium.launch({ headless: true });
+  let page: import("playwright").Page | undefined;
+  try {
+    page = await navigateur.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    await seConnecter(page, identifiant, motDePasse);
+    await allerAuxDevis(page);
+
+    const champRecherche = page.getByPlaceholder(/recherche/i).first();
+    if (await champRecherche.isVisible().catch(() => false)) {
+      await champRecherche.fill(nomClient);
+      await page.waitForTimeout(1200);
+    }
+
+    await page.screenshot({ path: CHEMIN_CAPTURE_EXPLORATION, fullPage: true }).catch(() => {});
+
+    const texte = (await page.evaluate(`(() => {
+      const motif = ${JSON.stringify(nomClient)};
+      const lignes = Array.from(document.querySelectorAll('body *')).filter((el) => {
+        if (el.children.length > 25) return false;
+        const t = el.textContent || '';
+        return t.includes(motif) && t.includes('DEVIS-');
+      });
+      // Garde les plus "petits" conteneurs correspondants (evite les doublons imbriqués)
+      const feuilles = lignes.filter((el) => !lignes.some((autre) => autre !== el && el.contains(autre)));
+      return feuilles.map((el) => el.textContent.replace(/\\s+/g, ' ').trim().slice(0, 300)).join('\\n---\\n');
+    })()`)) as string;
+
+    return texte || `Aucun devis trouvé pour "${nomClient}".`;
   } finally {
     await navigateur.close();
   }

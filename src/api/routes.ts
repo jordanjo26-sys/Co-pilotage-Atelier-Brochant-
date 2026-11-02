@@ -40,6 +40,7 @@ import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEc
 import {
   explorerFormulaireDevis,
   explorerDetailDevis,
+  listerDevisPourClient,
   creerDevisSynec,
   SynecDevisError,
   CHEMIN_CAPTURE_EXPLORATION as CHEMIN_CAPTURE_EXPLORATION_DEVIS,
@@ -326,6 +327,19 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       if (err instanceof SynecDevisError) return res.status(400).json({ erreur: err.message });
       res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Diagnostic en lecture seule : liste les devis existants pour un nom de
+  // client (voir synecDevis.ts) - sert a verifier l'etat reel dans Synec
+  // apres un echec de creation (chaque tentative cree un nouvel en-tete).
+  router.get("/synec/devis-client", async (req, res) => {
+    const nomClient = typeof req.query.client === "string" ? req.query.client : "";
+    if (!nomClient) return res.status(400).type("text/plain").send("Paramètre ?client= requis.");
+    try {
+      res.type("text/plain").send(await listerDevisPourClient(prisma, nomClient));
+    } catch (err) {
+      res.status(400).type("text/plain").send(`Erreur : ${(err as Error).message}`);
     }
   });
 
