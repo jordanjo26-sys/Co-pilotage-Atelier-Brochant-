@@ -10,6 +10,8 @@ import {
   DocumentFournisseurEnvoiError,
   classerAnomalieCommeFacture,
   AnomalieClassificationError,
+  extrairePiecesJointes,
+  extraireEntete,
 } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
@@ -462,6 +464,60 @@ export function buildRouter(prisma: PrismaClient): Router {
       const messageErreur = (err as Error).message;
       if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);
       res.status(400).json({ erreur: messageErreur });
+    }
+  });
+
+  // Diagnostic en lecture seule (aucun envoi, aucune ecriture) : interroge
+  // directement Gmail pour un expediteur donne, sans passer par le filtre
+  // "has:attachment" ni aucune classification - utile pour comprendre
+  // pourquoi une facture precise n'a jamais ete vue par synchroniserGmail
+  // (ex. recue sans piece jointe detectable, lien a cliquer, etc.), plutot
+  // que de deviner depuis le Journal seul (demande explicite de
+  // l'utilisateur, novembre 2026 : factures Leroy Merlin manquantes).
+  router.get("/gmail/diagnostic-expediteur", async (req, res) => {
+    const requete = typeof req.query.q === "string" ? req.query.q : "";
+    if (!requete) return res.status(400).json({ erreur: "Parametre 'q' requis (ex. leroymerlin)." });
+    try {
+      const connexionGmail = await getGmailClient(prisma);
+      if (!connexionGmail) return res.status(400).json({ erreur: "Gmail non connecte." });
+      const { gmail } = connexionGmail;
+
+      const liste = await gmail.users.messages.list({
+        userId: "me",
+        q: `from:${requete} newer_than:30d`,
+        maxResults: 50,
+      });
+
+      const details = [];
+      for (const ref of liste.data.messages || []) {
+        if (!ref.id) continue;
+        const msg = await gmail.users.messages.get({ userId: "me", id: ref.id, format: "full" });
+        const headers = msg.data.payload?.headers;
+        const sujet = extraireEntete(headers, "Subject");
+        const expediteur = extraireEntete(headers, "From");
+        const date = msg.data.internalDate ? new Date(Number(msg.data.internalDate)).toISOString() : null;
+        const pieces = extrairePiecesJointes(msg.data.payload);
+        const dejaTraite = await prisma.gmailMessageTraite.findUnique({ where: { gmailMessageId: ref.id } });
+        const documents = await prisma.documentFournisseur.findMany({
+          where: { gmailMessageId: ref.id },
+          select: { type: true, statutDext: true, fichierNom: true },
+        });
+        details.push({
+          messageId: ref.id,
+          date,
+          sujet,
+          expediteur,
+          labels: msg.data.labelIds || [],
+          piecesJointesDetectees: pieces.map((p) => ({ nom: p.nomFichier, mimeType: p.mimeType })),
+          piecesJointesBrutesAuTotal: pieces.length,
+          marqueTraiteParLePipeline: Boolean(dejaTraite),
+          documentsFournisseurAssocies: documents,
+        });
+      }
+
+      res.json({ nombreMessages: details.length, messages: details });
+    } catch (err) {
+      res.status(502).json({ erreur: (err as Error).message });
     }
   });
 
