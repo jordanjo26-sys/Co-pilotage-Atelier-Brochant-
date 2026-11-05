@@ -467,6 +467,32 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
+  /**
+   * Dump complet de TOUTES les parts MIME portant un nom de fichier, filtrees
+   * ou non par extrairePiecesJointes (diagnostic uniquement) : verifie que le
+   * filtre "inline/Content-ID" (voir le commentaire d'extrairePiecesJointes
+   * dans gmailSync.ts) n'ecarte pas a tort un vrai document.
+   */
+  function dumperToutesLesPartsDiag(payload: import("googleapis").gmail_v1.Schema$MessagePart | undefined): Array<Record<string, string | number | boolean>> {
+    if (!payload) return [];
+    const parts: Array<Record<string, string | number | boolean>> = [];
+    function visiter(part: import("googleapis").gmail_v1.Schema$MessagePart) {
+      if (part.filename) {
+        parts.push({
+          nomFichier: part.filename,
+          mimeType: part.mimeType || "",
+          aUnAttachmentId: Boolean(part.body?.attachmentId),
+          tailleOctets: part.body?.size || 0,
+          contentId: extraireEntete(part.headers, "Content-ID"),
+          contentDisposition: extraireEntete(part.headers, "Content-Disposition"),
+        });
+      }
+      (part.parts || []).forEach(visiter);
+    }
+    visiter(payload);
+    return parts;
+  }
+
   /** Concatene le corps HTML de toutes les parts MIME (usage diagnostic uniquement). */
   function extraireCorpsHtmlDiag(payload: import("googleapis").gmail_v1.Schema$MessagePart | undefined): string {
     if (!payload) return "";
@@ -522,6 +548,7 @@ export function buildRouter(prisma: PrismaClient): Router {
         // plutot que de joindre le document directement.
         const corpsHtml = extraireCorpsHtmlDiag(msg.data.payload);
         const liens = [...corpsHtml.matchAll(/href="(https?:\/\/[^"]+)"/g)].map((m) => m[1]).slice(0, 15);
+        const toutesLesParts = dumperToutesLesPartsDiag(msg.data.payload);
         details.push({
           messageId: ref.id,
           date,
@@ -531,6 +558,7 @@ export function buildRouter(prisma: PrismaClient): Router {
           snippet: msg.data.snippet || "",
           piecesJointesDetectees: pieces.map((p) => ({ nom: p.nomFichier, mimeType: p.mimeType })),
           piecesJointesBrutesAuTotal: pieces.length,
+          toutesLesPartsAvecNomFichier: toutesLesParts,
           liensDansLeCorps: liens,
           marqueTraiteParLePipeline: Boolean(dejaTraite),
           documentsFournisseurAssocies: documents,
