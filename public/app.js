@@ -405,10 +405,15 @@ function afficherFacturesImpayeesFiltrees() {
   const clientRecherche = document.getElementById("filtre-facture-client").value.trim().toLowerCase();
   const statutFiltre = document.getElementById("filtre-facture-statut").value;
 
+  // Filtre par date d'EMISSION, pas d'echeance : verifie en production
+  // qu'aucune facture impayee reelle n'a de date d'echeance renseignee
+  // (Synec n'exporte pas cette donnee) - un filtre sur l'echeance
+  // n'aurait jamais rien retenu (voir getImpayesSerieTemporelle cote
+  // serveur, meme constat).
   const factures = facturesImpayeesBrutes.filter((f) => {
-    const echeance = f.dateEcheance ? f.dateEcheance.slice(0, 10) : null;
-    if (dateDebut && (!echeance || echeance < dateDebut)) return false;
-    if (dateFin && (!echeance || echeance > dateFin)) return false;
+    const emission = f.dateEmission ? f.dateEmission.slice(0, 10) : null;
+    if (dateDebut && (!emission || emission < dateDebut)) return false;
+    if (dateFin && (!emission || emission > dateFin)) return false;
     if (montantMin !== null && !(f.montantTTC >= montantMin)) return false;
     if (montantMax !== null && !(f.montantTTC <= montantMax)) return false;
     if (clientRecherche && !(f.clientNom || "").toLowerCase().includes(clientRecherche)) return false;
@@ -424,7 +429,7 @@ function afficherFacturesImpayeesFiltrees() {
     <tr>
       <td>${echapper(f.reference)}</td>
       <td>${echapper(f.clientNom)}</td>
-      <td>${fmtDate(f.dateEcheance)}</td>
+      <td>${fmtDate(f.dateEmission)}</td>
       <td>${fmtMontant(f.montantTTC)}</td>
       <td>${echapper(LIBELLE_STATUT_FACTURE[f.statut] || f.statut)}</td>
     </tr>`

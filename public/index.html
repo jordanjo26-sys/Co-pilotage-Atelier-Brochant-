@@ -87,10 +87,10 @@
           <div id="resume-factures-impayees" class="grille-cockpit-compacte"></div>
         </div>
         <div id="graphique-impayes" class="graphique-ca"></div>
-        <p class="aide">Montant restant dû, regroupé par mois d'échéance (12 derniers mois).</p>
+        <p class="aide">Montant restant dû, regroupé par mois d'émission (12 derniers mois) — Synec ne transmet pas de date d'échéance.</p>
 
         <div class="barre-filtres">
-          <label class="aide-inline">Échéance du <input type="date" id="filtre-facture-date-debut" /></label>
+          <label class="aide-inline">Émise du <input type="date" id="filtre-facture-date-debut" /></label>
           <label class="aide-inline">au <input type="date" id="filtre-facture-date-fin" /></label>
           <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" placeholder="Montant min." />
           <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" placeholder="Montant max." />
@@ -109,7 +109,7 @@
         <div class="table-scroll">
           <table id="table-factures">
             <thead>
-              <tr><th>Référence</th><th>Client</th><th>Échéance</th><th>Montant TTC</th><th>Statut</th></tr>
+              <tr><th>Référence</th><th>Client</th><th>Émission</th><th>Montant TTC</th><th>Statut</th></tr>
             </thead>
             <tbody></tbody>
           </table>

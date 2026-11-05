@@ -101,13 +101,15 @@ export async function getCaSerieTemporelle(
  * courbe + un resume chiffre). Fenetre fixe de 12 mois, memes principes
  * que getCaSerieTemporelle (buckets a zero explicites, jamais de trou).
  *
- * Regroupe par mois d'ECHEANCE (pas d'emission) : montre quand l'argent
- * aurait du rentrer, pas seulement quand la facture a ete emise - plus
- * utile pour une relance. Le montant retenu est le reste a percevoir
- * (montantTTC - montantRegle), jamais le montant brut de la facture : une
- * facture partiellement payee ne doit compter que pour ce qu'il en reste.
- * Les factures sans date d'echeance sont exclues (rien a rattacher a un
- * mois), au meme titre qu'une facture sans dateEmission pour le CA.
+ * Regroupe par mois d'EMISSION, pas d'echeance : verifie en production
+ * (novembre 2026) qu'aucune des factures impayees reelles n'a de date
+ * d'echeance renseignee (Synec n'exporte pas cette donnee) - un
+ * regroupement par echeance produirait une courbe vide en permanence. Le
+ * montant retenu est le reste a percevoir (montantTTC - montantRegle),
+ * jamais le montant brut de la facture : une facture partiellement payee
+ * ne doit compter que pour ce qu'il en reste. Les factures sans date
+ * d'emission sont exclues (rien a rattacher a un mois), au meme titre que
+ * pour le CA (getCaSerieTemporelle).
  */
 export async function getImpayesSerieTemporelle(prisma: PrismaClient, maintenant: Date = new Date()): Promise<PointCa[]> {
   const fin = startOfDay(maintenant);
@@ -121,15 +123,15 @@ export async function getImpayesSerieTemporelle(prisma: PrismaClient, maintenant
   }
 
   const factures = await prisma.facture.findMany({
-    where: { statut: { in: ["impayee", "partiellement_payee"] }, dateEcheance: { not: null } },
-    select: { dateEcheance: true, montantTTC: true, montantRegle: true },
+    where: { statut: { in: ["impayee", "partiellement_payee"] }, dateEmission: { not: null } },
+    select: { dateEmission: true, montantTTC: true, montantRegle: true },
   });
 
   const totaux = new Map<string, number>();
   for (const f of factures) {
-    if (!f.dateEcheance) continue; // exclu par le where ci-dessus, garde-fou de type uniquement
+    if (!f.dateEmission) continue; // exclu par le where ci-dessus, garde-fou de type uniquement
     const reste = Math.max(f.montantTTC - f.montantRegle, 0);
-    const cle = cleBucket(f.dateEcheance, "mois");
+    const cle = cleBucket(f.dateEmission, "mois");
     totaux.set(cle, (totaux.get(cle) || 0) + reste);
   }
 
