@@ -81,18 +81,30 @@
 
     <!-- ===== Factures ===== -->
     <div class="onglet-panneau" data-panneau="factures" hidden>
-      <section class="carte accent-critique">
-        <h2>Factures impayées</h2>
-        <div class="ligne-boutons" style="margin-bottom: 10px;">
-          <a class="ghost bouton-lien" href="/api/factures/export-pdf">Exporter en PDF</a>
+      <section class="carte accent-critique carte-graphique-ca">
+        <div class="graphique-entete">
+          <h2>Factures impayées</h2>
+          <div id="resume-factures-impayees" class="grille-cockpit-compacte"></div>
         </div>
-        <div class="ligne-boutons filtres-factures-impayees" style="flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px;">
+        <div id="graphique-impayes" class="graphique-ca"></div>
+        <p class="aide">Montant restant dû, regroupé par mois d'échéance (12 derniers mois).</p>
+
+        <div class="barre-filtres">
           <label class="aide-inline">Échéance du <input type="date" id="filtre-facture-date-debut" /></label>
           <label class="aide-inline">au <input type="date" id="filtre-facture-date-fin" /></label>
-          <label class="aide-inline">Montant min. <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" style="width: 100px;" /></label>
-          <label class="aide-inline">max. <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" style="width: 100px;" /></label>
-          <button type="button" class="ghost" id="btn-reinitialiser-filtres-factures">Réinitialiser</button>
-          <span class="aide-inline" id="compte-factures-filtrees"></span>
+          <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" placeholder="Montant min." />
+          <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" placeholder="Montant max." />
+          <input id="filtre-facture-client" placeholder="Rechercher un client…" />
+          <select id="filtre-facture-statut">
+            <option value="">Impayées et partiellement payées</option>
+            <option value="impayee">Impayées seulement</option>
+            <option value="partiellement_payee">Partiellement payées seulement</option>
+          </select>
+        </div>
+        <div class="ligne-boutons" style="margin-bottom: 10px;">
+          <button type="button" class="ghost" id="btn-reinitialiser-filtres-factures">Réinitialiser les filtres</button>
+          <a class="ghost bouton-lien" href="/api/factures/export-pdf">Exporter en PDF</a>
+          <span class="aide-inline" id="compte-factures-filtrees" style="margin-left: auto;"></span>
         </div>
         <div class="table-scroll">
           <table id="table-factures">

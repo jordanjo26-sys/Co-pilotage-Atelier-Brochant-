@@ -96,6 +96,47 @@ export async function getCaSerieTemporelle(
 }
 
 /**
+ * Serie temporelle des impayes (demande explicite de l'utilisateur,
+ * novembre 2026 : remplacer le pavé brut des factures impayées par une
+ * courbe + un resume chiffre). Fenetre fixe de 12 mois, memes principes
+ * que getCaSerieTemporelle (buckets a zero explicites, jamais de trou).
+ *
+ * Regroupe par mois d'ECHEANCE (pas d'emission) : montre quand l'argent
+ * aurait du rentrer, pas seulement quand la facture a ete emise - plus
+ * utile pour une relance. Le montant retenu est le reste a percevoir
+ * (montantTTC - montantRegle), jamais le montant brut de la facture : une
+ * facture partiellement payee ne doit compter que pour ce qu'il en reste.
+ * Les factures sans date d'echeance sont exclues (rien a rattacher a un
+ * mois), au meme titre qu'une facture sans dateEmission pour le CA.
+ */
+export async function getImpayesSerieTemporelle(prisma: PrismaClient, maintenant: Date = new Date()): Promise<PointCa[]> {
+  const fin = startOfDay(maintenant);
+  const debut = new Date(fin);
+  debut.setMonth(debut.getMonth() - 11, 1);
+  const buckets: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(debut);
+    d.setMonth(d.getMonth() + i, 1);
+    buckets.push(cleBucket(d, "mois"));
+  }
+
+  const factures = await prisma.facture.findMany({
+    where: { statut: { in: ["impayee", "partiellement_payee"] }, dateEcheance: { not: null } },
+    select: { dateEcheance: true, montantTTC: true, montantRegle: true },
+  });
+
+  const totaux = new Map<string, number>();
+  for (const f of factures) {
+    if (!f.dateEcheance) continue; // exclu par le where ci-dessus, garde-fou de type uniquement
+    const reste = Math.max(f.montantTTC - f.montantRegle, 0);
+    const cle = cleBucket(f.dateEcheance, "mois");
+    totaux.set(cle, (totaux.get(cle) || 0) + reste);
+  }
+
+  return buckets.map((periode) => ({ periode, montant: totaux.get(periode) || 0 }));
+}
+
+/**
  * Construit le resume du cockpit quotidien (section 9.1) a partir des
  * donnees deja recues par imports CSV : CA de la veille et impayes, comme
  * demande explicitement par le critere d'acceptation V1 correspondant.

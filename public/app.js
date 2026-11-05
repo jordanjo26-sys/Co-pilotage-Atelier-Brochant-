@@ -382,12 +382,18 @@ async function chargerImports() {
     .join("");
 }
 
-// Liste brute conservee en memoire : le filtre (date d'echeance + montant,
-// voir afficherFacturesImpayeesFiltrees) s'applique cote client sur les
-// donnees deja chargees, sans redemander le serveur a chaque changement de
-// filtre (demande explicite de l'utilisateur : le pavé des factures
-// impayées était "pas très pratique et lisible" d'un seul bloc).
+// Liste brute conservee en memoire : les filtres (date d'echeance, montant,
+// client, statut - voir afficherFacturesImpayeesFiltrees) s'appliquent cote
+// client sur les donnees deja chargees, sans redemander le serveur a chaque
+// changement. Toujours impayee+partiellement_payee (jamais filtree par
+// statut cote serveur) : le resume/la courbe ci-dessous portent sur
+// l'ensemble reel, le filtre "Statut" ne fait que restreindre l'affichage
+// du tableau (demande explicite de l'utilisateur, novembre 2026 : "petite
+// courbe avec les montants... et le nombre de factures" plutot qu'un pavé
+// brut, avec un filtre par periode/montant/client en plus).
 let facturesImpayeesBrutes = [];
+
+const LIBELLE_STATUT_FACTURE = { impayee: "Impayée", partiellement_payee: "Partiellement payée" };
 
 function afficherFacturesImpayeesFiltrees() {
   const dateDebut = document.getElementById("filtre-facture-date-debut").value;
@@ -396,6 +402,8 @@ function afficherFacturesImpayeesFiltrees() {
   const montantMaxBrut = document.getElementById("filtre-facture-montant-max").value;
   const montantMin = montantMinBrut === "" ? null : Number(montantMinBrut);
   const montantMax = montantMaxBrut === "" ? null : Number(montantMaxBrut);
+  const clientRecherche = document.getElementById("filtre-facture-client").value.trim().toLowerCase();
+  const statutFiltre = document.getElementById("filtre-facture-statut").value;
 
   const factures = facturesImpayeesBrutes.filter((f) => {
     const echeance = f.dateEcheance ? f.dateEcheance.slice(0, 10) : null;
@@ -403,6 +411,8 @@ function afficherFacturesImpayeesFiltrees() {
     if (dateFin && (!echeance || echeance > dateFin)) return false;
     if (montantMin !== null && !(f.montantTTC >= montantMin)) return false;
     if (montantMax !== null && !(f.montantTTC <= montantMax)) return false;
+    if (clientRecherche && !(f.clientNom || "").toLowerCase().includes(clientRecherche)) return false;
+    if (statutFiltre && f.statut !== statutFiltre) return false;
     return true;
   });
 
@@ -416,7 +426,7 @@ function afficherFacturesImpayeesFiltrees() {
       <td>${echapper(f.clientNom)}</td>
       <td>${fmtDate(f.dateEcheance)}</td>
       <td>${fmtMontant(f.montantTTC)}</td>
-      <td>${f.statut}</td>
+      <td>${echapper(LIBELLE_STATUT_FACTURE[f.statut] || f.statut)}</td>
     </tr>`
       )
       .join("") || `<tr><td colspan="5" class="liste-vide">Aucune facture impayée.</td></tr>`;
@@ -428,20 +438,47 @@ function afficherFacturesImpayeesFiltrees() {
       : `${factures.length} sur ${facturesImpayeesBrutes.length} facture(s)`;
 }
 
+const ID_FILTRES_FACTURES_IMPAYEES = [
+  "filtre-facture-date-debut",
+  "filtre-facture-date-fin",
+  "filtre-facture-montant-min",
+  "filtre-facture-montant-max",
+  "filtre-facture-client",
+  "filtre-facture-statut",
+];
+
+async function chargerGraphiqueImpayes() {
+  const res = await fetch("/api/dashboard/impayes-serie");
+  const points = await res.json();
+  // Meme fonction de dessin que le graphique du chiffre d'affaires (voir
+  // dessinerGraphiqueCa plus haut) : forme de donnees identique
+  // ({periode, montant}), presentation coherente dans toute l'appli.
+  dessinerGraphiqueCa(document.getElementById("graphique-impayes"), points, "mois");
+}
+
 async function chargerFacturesImpayees() {
-  const res = await fetch("/api/factures?statut=impayee");
+  const res = await fetch("/api/factures?statut=impayee,partiellement_payee");
   facturesImpayeesBrutes = await res.json();
   afficherFacturesImpayeesFiltrees();
+  await chargerGraphiqueImpayes();
+
+  const montantTotal = facturesImpayeesBrutes.reduce((somme, f) => somme + Math.max(f.montantTTC - (f.montantRegle || 0), 0), 0);
+  document.getElementById("resume-factures-impayees").innerHTML = `
+    <div class="tuile tuile-impayes${facturesImpayeesBrutes.length > 0 ? " alerte" : ""}">
+      <div class="tuile-icone">${ICONES_TUILE.impayes}</div>
+      <div class="valeur">${facturesImpayeesBrutes.length}</div>
+      <div class="label">facture(s) · ${fmtMontant(montantTotal)}</div>
+    </div>`;
 
   // Ecouteurs attaches une seule fois (chargerFacturesImpayees n'est
   // appelee qu'au chargement initial de la page) : re-filtre a la volee a
   // chaque changement, sans bouton "Appliquer" a cliquer.
   if (!document.getElementById("filtre-facture-date-debut").dataset.initialise) {
-    ["filtre-facture-date-debut", "filtre-facture-date-fin", "filtre-facture-montant-min", "filtre-facture-montant-max"].forEach((id) => {
+    ID_FILTRES_FACTURES_IMPAYEES.forEach((id) => {
       document.getElementById(id).addEventListener("input", afficherFacturesImpayeesFiltrees);
     });
     document.getElementById("btn-reinitialiser-filtres-factures").addEventListener("click", () => {
-      ["filtre-facture-date-debut", "filtre-facture-date-fin", "filtre-facture-montant-min", "filtre-facture-montant-max"].forEach((id) => {
+      ID_FILTRES_FACTURES_IMPAYEES.forEach((id) => {
         document.getElementById(id).value = "";
       });
       afficherFacturesImpayeesFiltrees();

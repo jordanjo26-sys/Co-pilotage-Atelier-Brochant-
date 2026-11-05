@@ -2,7 +2,7 @@ import { Router, Request } from "express";
 import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
-import { getDashboardSummary, getCaSerieTemporelle, GranulariteCa } from "../services/dashboardService";
+import { getDashboardSummary, getCaSerieTemporelle, getImpayesSerieTemporelle, GranulariteCa } from "../services/dashboardService";
 import {
   synchroniserGmail,
   resumerErreurs,
@@ -92,10 +92,15 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.json(clients);
   });
 
+  // 'statut' accepte une liste separee par des virgules (ex.
+  // "impayee,partiellement_payee") depuis l'onglet Factures, qui regroupe
+  // desormais les deux dans la meme vue filtrable - retro-compatible avec
+  // un statut unique (export PDF, etc.).
   router.get("/factures", async (req, res) => {
-    const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
+    const statutBrut = typeof req.query.statut === "string" ? req.query.statut : undefined;
+    const statuts = statutBrut ? statutBrut.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     const factures = await prisma.facture.findMany({
-      where: statut ? { statut } : undefined,
+      where: statuts ? { statut: statuts.length > 1 ? { in: statuts } : statuts[0] } : undefined,
       orderBy: { dateEcheance: "asc" },
       take: 500,
     });
@@ -381,6 +386,13 @@ export function buildRouter(prisma: PrismaClient): Router {
       return res.status(400).json({ erreur: `granularite invalide, attendu l'un de : ${GRANULARITES_CA_VALIDES.join(", ")}` });
     }
     res.json(await getCaSerieTemporelle(prisma, granularite as GranulariteCa));
+  });
+
+  // Serie temporelle des impayes pour le graphique de l'onglet Factures
+  // (demande explicite de l'utilisateur, novembre 2026 : une courbe plutot
+  // qu'un simple tableau brut).
+  router.get("/dashboard/impayes-serie", async (_req, res) => {
+    res.json(await getImpayesSerieTemporelle(prisma));
   });
 
   // --- Gmail -> Dext (section 7) ------------------------------------------

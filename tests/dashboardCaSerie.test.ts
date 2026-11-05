@@ -88,3 +88,49 @@ test("getCaSerieTemporelle : agregation par jour, mois et annee, buckets vides a
 
   await prisma.$disconnect();
 });
+
+test("getImpayesSerieTemporelle : regroupe par mois d'echeance, montant restant du uniquement, buckets vides a zero", async (t) => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { getImpayesSerieTemporelle } = await import("../src/services/dashboardService");
+  const prisma = new PrismaClient();
+
+  const maintenant = new Date("2026-10-21T12:00:00");
+
+  await prisma.facture.createMany({
+    data: [
+      // Deux impayees echues le meme mois : agregees ensemble.
+      { reference: "F-IMP-1", clientNom: "Client A", montantTTC: 100, montantRegle: 0, statut: "impayee", dateEcheance: auJour(maintenant, -5) },
+      { reference: "F-IMP-2", clientNom: "Client B", montantTTC: 200, montantRegle: 0, statut: "impayee", dateEcheance: auJour(maintenant, -2) },
+      // Partiellement payee : seul le reste (300 - 120 = 180) doit compter.
+      { reference: "F-PART", clientNom: "Client C", montantTTC: 300, montantRegle: 120, statut: "partiellement_payee", dateEcheance: auJour(maintenant, -10) },
+      // Payee : ne doit jamais apparaitre, meme avec une echeance dans la fenetre.
+      { reference: "F-PAYEE", clientNom: "Client D", montantTTC: 999, montantRegle: 999, statut: "payee", dateEcheance: auJour(maintenant, -1) },
+      // Cloturee : ne doit jamais apparaitre non plus.
+      { reference: "F-CLOT", clientNom: "Client E", montantTTC: 500, montantRegle: 0, statut: "cloturee", dateEcheance: auJour(maintenant, -3) },
+      // Sans date d'echeance : exclue (rien a rattacher a un mois).
+      { reference: "F-SANS-ECHEANCE", clientNom: "Client F", montantTTC: 777, montantRegle: 0, statut: "impayee" },
+      // Hors fenetre des 12 mois : ne doit jamais apparaitre.
+      {
+        reference: "F-HORS-FENETRE",
+        clientNom: "Client G",
+        montantTTC: 9999,
+        montantRegle: 0,
+        statut: "impayee",
+        dateEcheance: new Date(new Date(maintenant).setFullYear(maintenant.getFullYear() - 2)),
+      },
+    ],
+  });
+
+  const serie = await getImpayesSerieTemporelle(prisma, maintenant);
+  assert.equal(serie.length, 12);
+
+  const moisEnCours = serie.find((p) => p.periode === "2026-10")!;
+  assert.equal(moisEnCours.montant, 100 + 200 + 180);
+
+  const moisPrecedent = serie.find((p) => p.periode === "2026-09")!;
+  assert.equal(moisPrecedent.montant, 0);
+
+  assert.ok(!serie.some((p) => p.montant >= 500), "payee/cloturee/sans echeance/hors fenetre ne doivent jamais apparaitre");
+
+  await prisma.$disconnect();
+});

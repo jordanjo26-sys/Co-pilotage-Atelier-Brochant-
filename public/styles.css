@@ -413,6 +413,12 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .tuile-ca { --tuile-couleur: var(--graphique-ligne); }
 .tuile-impayes { --tuile-couleur: var(--warning); }
+/* Variante compacte (en-tete de carte, a cote d'un h2, jamais dans la
+   grille 2 colonnes du cockpit) : un seul chiffre + libelle, moins de
+   padding, jamais plus large que son contenu. */
+.grille-cockpit-compacte { display: flex; gap: 10px; }
+.grille-cockpit-compacte .tuile { padding: 8px 12px; }
+.grille-cockpit-compacte .tuile .valeur { font-size: 17px; }
 .tuile-imports { --tuile-couleur: var(--brand-blue); }
 .tuile-anomalies { --tuile-couleur: var(--brand-violet); }
 .tuile.alerte { --tuile-couleur: var(--critical); }
