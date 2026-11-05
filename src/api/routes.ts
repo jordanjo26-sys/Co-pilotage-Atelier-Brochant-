@@ -516,7 +516,11 @@ export function buildRouter(prisma: PrismaClient): Router {
   // l'utilisateur, novembre 2026 : factures Leroy Merlin manquantes).
   router.get("/gmail/diagnostic-expediteur", async (req, res) => {
     const requete = typeof req.query.q === "string" ? req.query.q : "";
-    if (!requete) return res.status(400).json({ erreur: "Parametre 'q' requis (ex. leroymerlin)." });
+    // brut (optionnel) : requete Gmail complete, prioritaire sur 'q' - pour
+    // chercher autre chose qu'un expediteur (ex. un accuse de non-livraison
+    // "Mail Delivery Subsystem", ou une recherche "to:dext.cc").
+    const brut = typeof req.query.brut === "string" ? req.query.brut : "";
+    if (!requete && !brut) return res.status(400).json({ erreur: "Parametre 'q' ou 'brut' requis." });
     try {
       const connexionGmail = await getGmailClient(prisma);
       if (!connexionGmail) return res.status(400).json({ erreur: "Gmail non connecte." });
@@ -524,7 +528,7 @@ export function buildRouter(prisma: PrismaClient): Router {
 
       const liste = await gmail.users.messages.list({
         userId: "me",
-        q: `from:${requete} newer_than:30d`,
+        q: brut || `from:${requete} newer_than:30d`,
         maxResults: 50,
       });
 
