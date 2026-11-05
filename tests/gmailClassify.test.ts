@@ -136,3 +136,24 @@ test("une vraie facture au sujet generique n'est pas detournee en avoir/devis/re
   );
   assert.equal(type, "facture");
 });
+
+test("un CV envoye par l'agence d'interim connue est 'autre', jamais ambigu ni facture (demande explicite de l'utilisateur, encombrait le centre de validation)", () => {
+  const e = email({
+    expediteur: "Federico RICHICHI <frichichi@le-cercle-interimaire.fr>",
+    sujet: "CV Guy - électricien chef équipe en recherche active",
+  });
+  const type = classifierPieceJointe(e, { nomFichier: "CV Guy.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "autre");
+});
+
+test("la regle de l'agence d'interim s'applique aussi a une image (pas seulement un PDF)", () => {
+  const e = email({ expediteur: "contact@le-cercle-interimaire.fr", sujet: "CV Photo" });
+  const type = classifierPieceJointe(e, { nomFichier: "photo.jpg", mimeType: "image/jpeg" });
+  assert.equal(type, "autre");
+});
+
+test("le mot 'facture' dans le sujet d'un e-mail de l'agence d'interim ne devient pas une facture (le filtre expediteur passe avant tout)", () => {
+  const e = email({ expediteur: "contact@le-cercle-interimaire.fr", sujet: "Votre facture d'honoraires" });
+  const type = classifierPieceJointe(e, { nomFichier: "doc.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "autre");
+});

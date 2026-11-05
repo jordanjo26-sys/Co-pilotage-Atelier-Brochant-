@@ -7,7 +7,7 @@
  * au centre de validation plutot que d'etre devine (section 7.2, 14).
  */
 
-export type TypeDocument = "facture" | "avoir" | "bon_enlevement" | "releve" | "devis" | "ambigu";
+export type TypeDocument = "facture" | "avoir" | "bon_enlevement" | "releve" | "devis" | "autre" | "ambigu";
 
 export interface PieceJointe {
   nomFichier: string;
@@ -41,6 +41,19 @@ const MOTIF_AVOIR =
 const MOTIF_FACTURE = /\bfacture\b|\binvoice\b|\bfattura\b/i;
 const MOTIF_DEVIS = /\bdevis\b|offre[\s.-]*de[\s.-]*prix|offre[\s.-]*commerciale|\bquote\b|\bquotation\b|\bestimate\b/i;
 
+// Expediteurs connus et explicitement non-fournisseurs (demande de
+// l'utilisateur, novembre 2026) : une agence d'interim envoyant des CV de
+// candidats (electriciens, plombiers...) pour des missions - jamais une
+// facture, jamais a valider manuellement, contrairement a "ambigu" qui
+// suppose un doute reel. Liste fermee et explicite plutot qu'une detection
+// de contenu ("CV", "candidature"...) trop susceptible de faux positifs sur
+// un vrai document fournisseur qui mentionnerait incidemment ces mots.
+const DOMAINES_EXPEDITEURS_NON_FOURNISSEURS = [/@le-cercle-interimaire\.fr/i];
+
+function estExpediteurNonFournisseurConnu(expediteur: string): boolean {
+  return DOMAINES_EXPEDITEURS_NON_FOURNISSEURS.some((motif) => motif.test(expediteur));
+}
+
 export function estPieceDocument(piece: PieceJointe): boolean {
   return MIME_TYPES_DOCUMENT.includes(piece.mimeType.toLowerCase());
 }
@@ -61,6 +74,11 @@ function estPdf(piece: PieceJointe): boolean {
  * tombaient a tort en ambigu (signale par l'utilisateur en production).
  */
 export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJointe, contenuExtrait?: string): TypeDocument {
+  // Verifie l'expediteur avant toute chose, meme avant le filtre MIME : un
+  // CV peut arriver en PDF comme en image, peu importe, jamais une facture
+  // ni meme un cas ambigu dans ce cas precis (voir le commentaire de
+  // DOMAINES_EXPEDITEURS_NON_FOURNISSEURS).
+  if (estExpediteurNonFournisseurConnu(email.expediteur)) return "autre";
   if (!estPieceDocument(piece)) return "ambigu";
 
   // Contexte "sûr" (sujet, corps, nom de fichier) : ces quatre autres types

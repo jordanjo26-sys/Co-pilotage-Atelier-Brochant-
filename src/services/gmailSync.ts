@@ -452,7 +452,11 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
       // vrai fournisseur (newsletter, notification...) — lui creer une
       // fiche aurait pollue la liste des fournisseurs (signale par
       // l'utilisateur en production).
-      const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu");
+      // "autre" (ex. CV d'une agence d'interim, voir
+      // DOMAINES_EXPEDITEURS_NON_FOURNISSEURS dans gmailClassify.ts) exclu au
+      // meme titre que "ambigu" : ce n'est jamais un vrai fournisseur, lui
+      // creer une fiche polluerait la liste des fournisseurs.
+      const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu" && p.type !== "autre");
       const fournisseurId = auMoinsUnDocumentReconnu ? await resoudreFournisseur(prisma, expediteur, cacheFournisseurs) : null;
 
       for (const { piece, type, donnees, hashFichier, numero, classifiePar } of piecesAtraiter) {
@@ -561,8 +565,8 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
                 `Transfert automatique en pause : etiquetee "${nomLabel}" dans Gmail pour envoi manuel en fin de mois.`,
             });
           } else {
-            // avoir | bon_enlevement | releve | devis : jamais envoyes a
-            // Dext, archives pour controle (sections 6.3, 6.4).
+            // avoir | bon_enlevement | releve | devis | autre : jamais
+            // envoyes a Dext, archives pour controle (sections 6.3, 6.4).
             await prisma.documentFournisseur.create({
               data: {
                 type,
