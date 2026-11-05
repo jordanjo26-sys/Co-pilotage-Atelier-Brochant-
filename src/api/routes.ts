@@ -467,6 +467,20 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
+  /** Concatene le corps HTML de toutes les parts MIME (usage diagnostic uniquement). */
+  function extraireCorpsHtmlDiag(payload: import("googleapis").gmail_v1.Schema$MessagePart | undefined): string {
+    if (!payload) return "";
+    let html = "";
+    function visiter(part: import("googleapis").gmail_v1.Schema$MessagePart) {
+      if (part.mimeType === "text/html" && part.body?.data) {
+        html += Buffer.from(part.body.data, "base64url").toString("utf-8");
+      }
+      (part.parts || []).forEach(visiter);
+    }
+    visiter(payload);
+    return html;
+  }
+
   // Diagnostic en lecture seule (aucun envoi, aucune ecriture) : interroge
   // directement Gmail pour un expediteur donne, sans passer par le filtre
   // "has:attachment" ni aucune classification - utile pour comprendre
@@ -502,14 +516,22 @@ export function buildRouter(prisma: PrismaClient): Router {
           where: { gmailMessageId: ref.id },
           select: { type: true, statutDext: true, fichierNom: true },
         });
+        // Extrait quelques liens http(s) du corps HTML (sans le corps entier,
+        // trop volumineux et potentiellement sensible) : confirme ou infirme
+        // l'hypothese d'un e-mail qui renvoie vers un lien de telechargement
+        // plutot que de joindre le document directement.
+        const corpsHtml = extraireCorpsHtmlDiag(msg.data.payload);
+        const liens = [...corpsHtml.matchAll(/href="(https?:\/\/[^"]+)"/g)].map((m) => m[1]).slice(0, 15);
         details.push({
           messageId: ref.id,
           date,
           sujet,
           expediteur,
           labels: msg.data.labelIds || [],
+          snippet: msg.data.snippet || "",
           piecesJointesDetectees: pieces.map((p) => ({ nom: p.nomFichier, mimeType: p.mimeType })),
           piecesJointesBrutesAuTotal: pieces.length,
+          liensDansLeCorps: liens,
           marqueTraiteParLePipeline: Boolean(dejaTraite),
           documentsFournisseurAssocies: documents,
         });
