@@ -34,6 +34,7 @@
       <form id="form-morgane" class="morgane-formulaire">
         <input type="file" id="morgane-fichier" accept="image/*,application/pdf" hidden />
         <button type="button" class="morgane-bouton-joindre" id="morgane-bouton-joindre" aria-label="Joindre une photo ou un fichier" title="Joindre une photo ou un fichier">📎</button>
+        <button type="button" class="morgane-bouton-micro" id="morgane-bouton-micro" aria-label="Dicter un message vocal" title="Dicter un message vocal">🎤</button>
         <textarea id="morgane-saisie" rows="1" placeholder="Écris à Morgane…"></textarea>
         <button type="submit">Envoyer</button>
       </form>
@@ -252,6 +253,111 @@
       alert("Impossible de lire cette image.");
     };
     image.src = urlObjet;
+  });
+
+  // --- Message vocal (devis dicte sur chantier, demande explicite de
+  // l'utilisateur : "je n'ai pas le temps de taper le devis sur place").
+  // Enregistre dans le navigateur, transcrit cote serveur (voir
+  // /api/morgane/transcrire-audio, OpenAI Whisper - l'API Claude n'a pas
+  // de bloc de contenu audio), puis depose le texte dans le champ de
+  // saisie : jamais envoye automatiquement, l'utilisateur relit/corrige
+  // la transcription avant d'envoyer comme un message tape normalement.
+  const boutonMicro = document.getElementById("morgane-bouton-micro");
+  let enregistreurAudio = null;
+  let morceauxAudio = [];
+  let pisteAudioActive = null;
+
+  function choisirMimeTypeAudioSupporte() {
+    // Safari/iOS ne supporte pas audio/webm (MediaRecorder.isTypeSupported
+    // renvoie false) mais accepte audio/mp4 ; Chrome/Android c'est
+    // l'inverse - on teste dans l'ordre et on laisse le navigateur decider
+    // si aucun des deux n'est reconnu (chaine vide = type par defaut).
+    const candidats = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
+    for (const candidat of candidats) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidat)) {
+        return candidat;
+      }
+    }
+    return "";
+  }
+
+  function extensionPourMimeType(mimeType) {
+    if (mimeType.includes("mp4")) return "m4a";
+    if (mimeType.includes("webm")) return "webm";
+    if (mimeType.includes("ogg")) return "ogg";
+    return "audio";
+  }
+
+  async function envoyerAudioPourTranscription(blob, mimeType) {
+    const saisie = document.getElementById("morgane-saisie");
+    const placeholderInitial = saisie.placeholder;
+    saisie.placeholder = "Transcription en cours…";
+    saisie.disabled = true;
+    boutonMicro.disabled = true;
+    try {
+      const formulaire = new FormData();
+      formulaire.append("audio", blob, `message-vocal.${extensionPourMimeType(mimeType)}`);
+      const res = await fetch("/api/morgane/transcrire-audio", { method: "POST", body: formulaire });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.erreur || "Transcription impossible.");
+      saisie.value = saisie.value ? `${saisie.value} ${data.texte}` : data.texte;
+      ajusterHauteurSaisie();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      saisie.placeholder = placeholderInitial;
+      saisie.disabled = false;
+      boutonMicro.disabled = false;
+      saisie.focus();
+    }
+  }
+
+  async function demarrerEnregistrementAudio() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      alert("La dictée vocale n'est pas disponible sur ce navigateur.");
+      return;
+    }
+    let flux;
+    try {
+      flux = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      alert("Impossible d'accéder au micro (autorisation refusée ou indisponible).");
+      return;
+    }
+    pisteAudioActive = flux;
+    morceauxAudio = [];
+    const mimeType = choisirMimeTypeAudioSupporte();
+    enregistreurAudio = mimeType ? new MediaRecorder(flux, { mimeType }) : new MediaRecorder(flux);
+    enregistreurAudio.addEventListener("dataavailable", (e) => {
+      if (e.data.size > 0) morceauxAudio.push(e.data);
+    });
+    enregistreurAudio.addEventListener("stop", () => {
+      pisteAudioActive.getTracks().forEach((piste) => piste.stop());
+      pisteAudioActive = null;
+      const typeFinal = enregistreurAudio.mimeType || mimeType || "audio/webm";
+      const blob = new Blob(morceauxAudio, { type: typeFinal });
+      morceauxAudio = [];
+      if (blob.size > 0) envoyerAudioPourTranscription(blob, typeFinal);
+    });
+    enregistreurAudio.start();
+    boutonMicro.classList.add("morgane-bouton-micro-actif");
+    boutonMicro.textContent = "⏹";
+    boutonMicro.title = "Arrêter l'enregistrement";
+  }
+
+  function arreterEnregistrementAudio() {
+    enregistreurAudio?.stop();
+    boutonMicro.classList.remove("morgane-bouton-micro-actif");
+    boutonMicro.textContent = "🎤";
+    boutonMicro.title = "Dicter un message vocal";
+  }
+
+  boutonMicro.addEventListener("click", () => {
+    if (enregistreurAudio && enregistreurAudio.state === "recording") {
+      arreterEnregistrementAudio();
+    } else {
+      demarrerEnregistrementAudio();
+    }
   });
 
   ajouterBulle("assistant", "Bonjour, je suis Morgane. Comment puis-je t'aider ?");

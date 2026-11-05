@@ -328,6 +328,32 @@ button:disabled { opacity: 0.4; cursor: default; }
   cursor: pointer;
 }
 .morgane-bouton-joindre:hover { background: var(--surface-2); }
+.morgane-bouton-micro {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.morgane-bouton-micro:hover { background: var(--surface-2); }
+.morgane-bouton-micro:disabled { opacity: 0.5; cursor: default; }
+/* Enregistrement en cours : pastille rouge clignotante, pour que ce soit
+   clair en un coup d'oeil sur un chantier bruyant/presse. */
+.morgane-bouton-micro-actif {
+  background: var(--critical);
+  border-color: var(--critical);
+  color: #fff;
+  animation: morgane-micro-pulse 1.2s ease-in-out infinite;
+}
+@keyframes morgane-micro-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
 .morgane-piece-jointe-apercu[hidden] { display: none; }
 .morgane-piece-jointe-apercu {
   display: flex;

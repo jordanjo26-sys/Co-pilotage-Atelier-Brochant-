@@ -64,6 +64,11 @@ GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG="${17:-}"
 # desactive (voir .env.example).
 META_APP_ID_ARG="${18:-}"
 META_APP_SECRET_ARG="${19:-}"
+# Cle API OpenAI, pour la transcription des messages vocaux envoyes a
+# Morgane (devis dictes sur chantier - voir .env.example). Absente, le
+# bouton micro de Morgane reste desactive (erreur explicite), le reste de
+# l'application n'est pas concerne.
+OPENAI_API_KEY_ARG="${20:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -231,6 +236,7 @@ definir_variable GOOGLE_ADS_CUSTOMER_ID "$GOOGLE_ADS_CUSTOMER_ID_ARG"
 definir_variable GOOGLE_ADS_LOGIN_CUSTOMER_ID "$GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG"
 definir_variable META_APP_ID "$META_APP_ID_ARG"
 definir_variable META_APP_SECRET "$META_APP_SECRET_ARG"
+definir_variable OPENAI_API_KEY "$OPENAI_API_KEY_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi

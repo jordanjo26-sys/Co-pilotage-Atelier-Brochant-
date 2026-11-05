@@ -16,6 +16,7 @@ import {
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane, PieceJointeMorgane, MIME_PIECES_JOINTES_AUTORISEES } from "../services/morgane";
+import { transcrireAudio, TranscriptionAudioError } from "../services/transcriptionAudio";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import {
   listerFournisseurs,
@@ -1109,6 +1110,26 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.send(contenu);
     } catch {
       res.status(404).json({ erreur: "Document introuvable (peut-etre deja supprime)." });
+    }
+  });
+
+  // Transcription d'un message vocal (devis dicte sur chantier, demande
+  // explicite de l'utilisateur) en texte, avant envoi normal a Morgane
+  // comme un message tape au clavier - voir transcriptionAudio.ts (aucun
+  // bloc audio natif cote API Claude). 503 si OPENAI_API_KEY absente,
+  // meme principe que les autres integrations optionnelles du depot.
+  router.post("/morgane/transcrire-audio", upload.single("audio"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ erreur: "Aucun enregistrement recu (champ attendu : 'audio')." });
+    }
+    try {
+      const texte = await transcrireAudio(req.file.buffer, req.file.mimetype, req.file.originalname || "message-vocal");
+      res.json({ texte });
+    } catch (err) {
+      if (err instanceof TranscriptionAudioError) {
+        return res.status(503).json({ erreur: err.message });
+      }
+      res.status(500).json({ erreur: (err as Error).message });
     }
   });
 

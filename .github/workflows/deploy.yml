@@ -81,7 +81,9 @@ jobs:
           # META_APP_SECRET la connexion Facebook/Instagram (module Reseaux
           # sociaux, voir .env.example) - META_REDIRECT_URI/PUBLIC_BASE_URL
           # ne sont pas des secrets, bootstrap.sh les deduit du domaine.
+          # OPENAI_API_KEY la transcription des messages vocaux envoyes a
+          # Morgane (devis dictes sur chantier, voir .env.example).
           # Absents, bootstrap.sh laisse la configuration existante inchangee.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}' '${{ secrets.META_APP_ID }}' '${{ secrets.META_APP_SECRET }}'"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}' '${{ secrets.META_APP_ID }}' '${{ secrets.META_APP_SECRET }}' '${{ secrets.OPENAI_API_KEY }}'"
