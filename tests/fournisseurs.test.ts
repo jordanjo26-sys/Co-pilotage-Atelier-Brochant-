@@ -163,3 +163,47 @@ test("renommage d'une fiche fournisseur", async (t) => {
 
   await prisma.$disconnect();
 });
+
+test("suppression d'un document isole rattache a tort a un fournisseur", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { supprimerDocumentFournisseur, DocumentDejaEnvoyeError } = await import("../src/services/fournisseurs");
+  const prisma = new PrismaClient();
+
+  await t.test("document non envoye a Dext -> suppression effective", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "Le Cercle Interimaire" } });
+    const doc = await prisma.documentFournisseur.create({
+      data: { type: "autre", statutDext: "archive", fournisseurId: f.id, fichierNom: "cv.pdf" },
+    });
+    await supprimerDocumentFournisseur(prisma, doc.id);
+    assert.equal(await prisma.documentFournisseur.findUnique({ where: { id: doc.id } }), null);
+  });
+
+  await t.test("document deja envoye a Dext -> suppression refusee", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "Cedeo" } });
+    const doc = await prisma.documentFournisseur.create({
+      data: { type: "facture", statutDext: "envoye", fournisseurId: f.id, fichierNom: "f.pdf" },
+    });
+    await assert.rejects(supprimerDocumentFournisseur(prisma, doc.id), DocumentDejaEnvoyeError);
+    assert.ok(await prisma.documentFournisseur.findUnique({ where: { id: doc.id } }), "le document envoye ne doit pas etre supprime");
+  });
+
+  await t.test("document inexistant -> erreur", async () => {
+    await assert.rejects(supprimerDocumentFournisseur(prisma, "inexistant"));
+  });
+
+  await prisma.$disconnect();
+});

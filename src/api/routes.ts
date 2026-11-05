@@ -17,7 +17,15 @@ import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dai
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane, PieceJointeMorgane, MIME_PIECES_JOINTES_AUTORISEES } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
-import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, renommerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
+import {
+  listerFournisseurs,
+  obtenirFournisseur,
+  supprimerFournisseur,
+  renommerFournisseur,
+  FournisseurAvecFacturesError,
+  supprimerDocumentFournisseur,
+  DocumentDejaEnvoyeError,
+} from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
 import { listerDecisions, terminerDecision } from "../services/decisions";
@@ -689,6 +697,22 @@ export function buildRouter(prisma: PrismaClient): Router {
       const resultat = await renommerFournisseur(prisma, req.params.id, nom);
       res.json(resultat);
     } catch (err) {
+      res.status(404).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Suppression manuelle d'un document rattache a tort (CV, photo, logo...
+  // visible dans la fiche fournisseur mais n'ayant rien a y faire) : refuse
+  // par le service si le document a deja ete envoye a Dext (voir
+  // supprimerDocumentFournisseur), jamais automatique.
+  router.delete("/documents-fournisseurs/:id", async (req, res) => {
+    try {
+      await supprimerDocumentFournisseur(prisma, req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof DocumentDejaEnvoyeError) {
+        return res.status(409).json({ erreur: err.message });
+      }
       res.status(404).json({ erreur: (err as Error).message });
     }
   });

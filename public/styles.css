@@ -570,6 +570,21 @@ button:disabled { opacity: 0.4; cursor: default; }
 .fournisseur-document-ligne { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
 .fournisseur-document-ligne:first-child { border-top: none; padding-top: 0; }
 
+/* Un encadrement par jour sur "Factures envoyees a Dext" (demande explicite
+   de l'utilisateur : la liste empilee sans separation visuelle entre les
+   jours etait difficile a lire) : chaque jour devient un bloc independant,
+   plutot qu'une simple liste continue. */
+.fournisseur-documents-encadre {
+  margin-top: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.fournisseur-documents-encadre + .fournisseur-documents-encadre { margin-top: 10px; }
+.fournisseur-documents-encadre .fournisseur-documents-liste { background: var(--surface); border-radius: 8px; padding: 8px 10px; }
+.fournisseur-documents-encadre .fournisseur-document-ligne { padding: 6px 0; }
+
 /* ---------- Memoire de Morgane (decisions) ---------- */
 /* Pave des propositions Ads/Reseaux sociaux (.decision-carte reutilisee
    telle quelle pour ces deux ecrans) : padding passe de 10px a 14px pour

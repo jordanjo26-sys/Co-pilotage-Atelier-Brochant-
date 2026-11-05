@@ -1784,7 +1784,7 @@ async function chargerFacturesDextEnvoyees() {
   conteneur.innerHTML = [...groupes.entries()]
     .map(
       ([jour, docs], index) => `
-    <details class="fournisseur-documents"${index === 0 ? " open" : ""}>
+    <details class="fournisseur-documents fournisseur-documents-encadre"${index === 0 ? " open" : ""}>
       <summary>${echapper(jour)} <span class="groupe-mois-compte">${docs.length}</span></summary>
       <div class="fournisseur-documents-liste">
         ${docs
@@ -1935,12 +1935,13 @@ async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
       documents
         .map(
           (d) => `
-      <div class="fournisseur-document-ligne">
+      <div class="fournisseur-document-ligne" id="document-ligne-${d.id}">
         <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_DOCUMENT[d.type] || d.type)}</span>
         ${d.classifiePar === "ia" ? `<span class="badge badge-palier-ambre">classé par IA</span>` : ""}
         <span>${echapper(d.fichierNom || "Document")}</span>
         ${d.dateReceptionMail ? `<span class="anomalie-meta">reçu le ${fmtDate(d.dateReceptionMail)}</span>` : ""}
         <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
+        <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this)">Supprimer</button>
       </div>`
         )
         .join("") || `<p class="aide-inline">Aucun document.</p>`;
@@ -1949,6 +1950,33 @@ async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
   }
 }
 window.chargerDocumentsFournisseur = chargerDocumentsFournisseur;
+
+// Supprime un document isole mal rattache a une fiche fournisseur (CV, photo,
+// logo...) sans toucher au reste de la fiche. Le serveur refuse si le
+// document a deja ete envoye a Dext (voir supprimerDocumentFournisseur cote
+// service) : erreur affichee telle quelle, jamais de suppression forcee.
+async function supprimerDocumentFournisseur(id, bouton) {
+  if (!confirm("Supprimer ce document ? Cette action est definitive.")) return;
+  bouton.disabled = true;
+  bouton.textContent = "Suppression…";
+  try {
+    const res = await fetch(`/api/documents-fournisseurs/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Suppression impossible.");
+    }
+    // Retrait direct de la ligne, sans recharger toute la liste des
+    // fournisseurs : un rechargement complet refermerait le "Voir les
+    // documents" en cours de nettoyage, genant pour supprimer plusieurs
+    // documents a la suite.
+    document.getElementById(`document-ligne-${id}`)?.remove();
+  } catch (err) {
+    bouton.disabled = false;
+    bouton.textContent = "Supprimer";
+    alert(err.message);
+  }
+}
+window.supprimerDocumentFournisseur = supprimerDocumentFournisseur;
 
 async function chargerFournisseurs() {
   const res = await fetch("/api/fournisseurs");
