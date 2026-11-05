@@ -395,6 +395,14 @@ let facturesImpayeesBrutes = [];
 
 const LIBELLE_STATUT_FACTURE = { impayee: "Impayée", partiellement_payee: "Partiellement payée" };
 
+// Sans aucun filtre actif, le tableau n'affiche que les N factures les plus
+// anciennes (deja triees par date d'emission croissante cote serveur,
+// donc les plus urgentes a relancer) : demande explicite de l'utilisateur
+// ("restreindre ce pavé à 2 ou 3 factures pour que l'affichage soit plus
+// ergonomique"), les filtres ci-dessus servant a aller chercher les autres
+// plutot qu'un bouton "voir tout".
+const LIMITE_FACTURES_SANS_FILTRE = 3;
+
 function afficherFacturesImpayeesFiltrees() {
   const dateDebut = document.getElementById("filtre-facture-date-debut").value;
   const dateFin = document.getElementById("filtre-facture-date-fin").value;
@@ -404,6 +412,7 @@ function afficherFacturesImpayeesFiltrees() {
   const montantMax = montantMaxBrut === "" ? null : Number(montantMaxBrut);
   const clientRecherche = document.getElementById("filtre-facture-client").value.trim().toLowerCase();
   const statutFiltre = document.getElementById("filtre-facture-statut").value;
+  const filtreActif = Boolean(dateDebut || dateFin || montantMin !== null || montantMax !== null || clientRecherche || statutFiltre);
 
   // Filtre par date d'EMISSION, pas d'echeance : verifie en production
   // qu'aucune facture impayee reelle n'a de date d'echeance renseignee
@@ -420,10 +429,11 @@ function afficherFacturesImpayeesFiltrees() {
     if (statutFiltre && f.statut !== statutFiltre) return false;
     return true;
   });
+  const facturesAffichees = filtreActif ? factures : factures.slice(0, LIMITE_FACTURES_SANS_FILTRE);
 
   const tbody = document.querySelector("#table-factures tbody");
   tbody.innerHTML =
-    factures
+    facturesAffichees
       .map(
         (f) => `
     <tr>
@@ -438,9 +448,11 @@ function afficherFacturesImpayeesFiltrees() {
 
   const compteEl = document.getElementById("compte-factures-filtrees");
   compteEl.textContent =
-    factures.length === facturesImpayeesBrutes.length
+    facturesAffichees.length === facturesImpayeesBrutes.length
       ? `${facturesImpayeesBrutes.length} facture(s)`
-      : `${factures.length} sur ${facturesImpayeesBrutes.length} facture(s)`;
+      : filtreActif
+        ? `${factures.length} sur ${facturesImpayeesBrutes.length} facture(s)`
+        : `${facturesAffichees.length} sur ${facturesImpayeesBrutes.length} facture(s) — filtre pour voir les autres`;
 }
 
 const ID_FILTRES_FACTURES_IMPAYEES = [

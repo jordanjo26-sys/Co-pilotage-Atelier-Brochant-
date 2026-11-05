@@ -99,9 +99,12 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/factures", async (req, res) => {
     const statutBrut = typeof req.query.statut === "string" ? req.query.statut : undefined;
     const statuts = statutBrut ? statutBrut.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    // Tri par date d'EMISSION, pas d'echeance (toujours nulle en pratique,
+    // voir getImpayesSerieTemporelle) : la plus ancienne facture impayee
+    // en premier, la plus urgente a relancer.
     const factures = await prisma.facture.findMany({
       where: statuts ? { statut: statuts.length > 1 ? { in: statuts } : statuts[0] } : undefined,
-      orderBy: { dateEcheance: "asc" },
+      orderBy: { dateEmission: "asc" },
       take: 500,
     });
     res.json(factures);
@@ -117,7 +120,7 @@ export function buildRouter(prisma: PrismaClient): Router {
     const statut = typeof req.query.statut === "string" ? req.query.statut : "impayee";
     const factures = await prisma.facture.findMany({
       where: { statut },
-      orderBy: { dateEcheance: "asc" },
+      orderBy: { dateEmission: "asc" },
       take: 500,
     });
     const pdf = await genererPdfFacturesImpayees(factures);
