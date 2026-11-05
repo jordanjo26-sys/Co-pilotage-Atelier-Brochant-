@@ -86,6 +86,14 @@
         <div class="ligne-boutons" style="margin-bottom: 10px;">
           <a class="ghost bouton-lien" href="/api/factures/export-pdf">Exporter en PDF</a>
         </div>
+        <div class="ligne-boutons filtres-factures-impayees" style="flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px;">
+          <label class="aide-inline">Échéance du <input type="date" id="filtre-facture-date-debut" /></label>
+          <label class="aide-inline">au <input type="date" id="filtre-facture-date-fin" /></label>
+          <label class="aide-inline">Montant min. <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" style="width: 100px;" /></label>
+          <label class="aide-inline">max. <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" style="width: 100px;" /></label>
+          <button type="button" class="ghost" id="btn-reinitialiser-filtres-factures">Réinitialiser</button>
+          <span class="aide-inline" id="compte-factures-filtrees"></span>
+        </div>
         <div class="table-scroll">
           <table id="table-factures">
             <thead>
@@ -155,6 +163,12 @@
         <h2>Factures fournisseurs reçues</h2>
         <p class="aide">Factures reconnues par e-mail mais pas encore transmises à Dext — transfert automatique en pause ou envoi manuel groupé en fin de mois. "Voir" prévisualise le document, "Envoyer à Dext" le transmet tout de suite.</p>
         <div id="liste-factures-fournisseurs"></div>
+      </section>
+
+      <section class="carte accent-teal">
+        <h2>Factures envoyées à Dext</h2>
+        <p class="aide">Historique jour par jour de ce que Morgane a déjà transmis à Dext, pour vérifier en un coup d'œil ce qui est parti.</p>
+        <div id="liste-factures-dext-envoyees"></div>
       </section>
 
       <section class="carte accent-violet">

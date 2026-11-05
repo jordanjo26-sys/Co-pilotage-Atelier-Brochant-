@@ -382,9 +382,30 @@ async function chargerImports() {
     .join("");
 }
 
-async function chargerFacturesImpayees() {
-  const res = await fetch("/api/factures?statut=impayee");
-  const factures = await res.json();
+// Liste brute conservee en memoire : le filtre (date d'echeance + montant,
+// voir afficherFacturesImpayeesFiltrees) s'applique cote client sur les
+// donnees deja chargees, sans redemander le serveur a chaque changement de
+// filtre (demande explicite de l'utilisateur : le pavé des factures
+// impayées était "pas très pratique et lisible" d'un seul bloc).
+let facturesImpayeesBrutes = [];
+
+function afficherFacturesImpayeesFiltrees() {
+  const dateDebut = document.getElementById("filtre-facture-date-debut").value;
+  const dateFin = document.getElementById("filtre-facture-date-fin").value;
+  const montantMinBrut = document.getElementById("filtre-facture-montant-min").value;
+  const montantMaxBrut = document.getElementById("filtre-facture-montant-max").value;
+  const montantMin = montantMinBrut === "" ? null : Number(montantMinBrut);
+  const montantMax = montantMaxBrut === "" ? null : Number(montantMaxBrut);
+
+  const factures = facturesImpayeesBrutes.filter((f) => {
+    const echeance = f.dateEcheance ? f.dateEcheance.slice(0, 10) : null;
+    if (dateDebut && (!echeance || echeance < dateDebut)) return false;
+    if (dateFin && (!echeance || echeance > dateFin)) return false;
+    if (montantMin !== null && !(f.montantTTC >= montantMin)) return false;
+    if (montantMax !== null && !(f.montantTTC <= montantMax)) return false;
+    return true;
+  });
+
   const tbody = document.querySelector("#table-factures tbody");
   tbody.innerHTML =
     factures
@@ -399,6 +420,34 @@ async function chargerFacturesImpayees() {
     </tr>`
       )
       .join("") || `<tr><td colspan="5" class="liste-vide">Aucune facture impayée.</td></tr>`;
+
+  const compteEl = document.getElementById("compte-factures-filtrees");
+  compteEl.textContent =
+    factures.length === facturesImpayeesBrutes.length
+      ? `${facturesImpayeesBrutes.length} facture(s)`
+      : `${factures.length} sur ${facturesImpayeesBrutes.length} facture(s)`;
+}
+
+async function chargerFacturesImpayees() {
+  const res = await fetch("/api/factures?statut=impayee");
+  facturesImpayeesBrutes = await res.json();
+  afficherFacturesImpayeesFiltrees();
+
+  // Ecouteurs attaches une seule fois (chargerFacturesImpayees n'est
+  // appelee qu'au chargement initial de la page) : re-filtre a la volee a
+  // chaque changement, sans bouton "Appliquer" a cliquer.
+  if (!document.getElementById("filtre-facture-date-debut").dataset.initialise) {
+    ["filtre-facture-date-debut", "filtre-facture-date-fin", "filtre-facture-montant-min", "filtre-facture-montant-max"].forEach((id) => {
+      document.getElementById(id).addEventListener("input", afficherFacturesImpayeesFiltrees);
+    });
+    document.getElementById("btn-reinitialiser-filtres-factures").addEventListener("click", () => {
+      ["filtre-facture-date-debut", "filtre-facture-date-fin", "filtre-facture-montant-min", "filtre-facture-montant-max"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      afficherFacturesImpayeesFiltrees();
+    });
+    document.getElementById("filtre-facture-date-debut").dataset.initialise = "1";
+  }
 }
 
 async function chargerStatutGmail() {
@@ -1613,7 +1662,7 @@ if (formScanDocument) {
             : " — visible ci-dessous, en attente d'envoi à Dext.";
       resultatDiv.innerHTML = `Document enregistré${suffixe}`;
       scanReinitialiser();
-      await Promise.all([chargerFacturesFournisseurs(), chargerFournisseurs(), chargerCockpit()]);
+      await Promise.all([chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerCockpit()]);
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     } finally {
@@ -1632,7 +1681,7 @@ async function envoyerFactureFournisseurVersDext(id, bouton) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.erreur || "Envoi impossible.");
     }
-    await chargerFacturesFournisseurs();
+    await Promise.all([chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees()]);
   } catch (err) {
     bouton.disabled = false;
     bouton.textContent = texteInitial;
@@ -1646,6 +1695,58 @@ window.envoyerFactureFournisseurVersDext = envoyerFactureFournisseurVersDext;
 function libelleMoisAnnee(date) {
   const texte = new Date(date).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
   return texte.charAt(0).toUpperCase() + texte.slice(1);
+}
+
+// "Mercredi 4 novembre 2026" - meme principe que libelleMoisAnnee, au jour
+// pres : demande explicite de l'utilisateur, besoin d'un visuel clair de ce
+// que Morgane a deja transmis a Dext, jour par jour.
+function libelleJour(date) {
+  const texte = new Date(date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  return texte.charAt(0).toUpperCase() + texte.slice(1);
+}
+
+async function chargerFacturesDextEnvoyees() {
+  const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=envoye");
+  const documents = await res.json();
+  const conteneur = document.getElementById("liste-factures-dext-envoyees");
+
+  if (documents.length === 0) {
+    conteneur.innerHTML = `<p class="liste-vide">Aucune facture envoyée à Dext pour le moment.</p>`;
+    return;
+  }
+
+  // Deja triees du plus recent au plus ancien par le serveur (voir
+  // /documents-fournisseurs) : les groupes par jour apparaissent eux aussi
+  // du plus recent au plus ancien dans l'ordre ou Map les rencontre. Seul
+  // le jour le plus recent est ouvert par defaut (<details open> sur le
+  // premier uniquement) pour ne pas noyer la page sous l'historique complet.
+  const groupes = new Map();
+  for (const d of documents) {
+    const cle = libelleJour(d.createdAt);
+    if (!groupes.has(cle)) groupes.set(cle, []);
+    groupes.get(cle).push(d);
+  }
+
+  conteneur.innerHTML = [...groupes.entries()]
+    .map(
+      ([jour, docs], index) => `
+    <details class="fournisseur-documents"${index === 0 ? " open" : ""}>
+      <summary>${echapper(jour)} <span class="groupe-mois-compte">${docs.length}</span></summary>
+      <div class="fournisseur-documents-liste">
+        ${docs
+          .map(
+            (d) => `
+        <div class="fournisseur-document-ligne">
+          <span>${echapper(d.fichierNom || "Document")}</span>
+          <span class="anomalie-meta">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")} · ${new Date(d.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+          <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
+        </div>`
+          )
+          .join("")}
+      </div>
+    </details>`
+    )
+    .join("");
 }
 
 async function chargerFacturesFournisseurs() {
@@ -1956,7 +2057,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

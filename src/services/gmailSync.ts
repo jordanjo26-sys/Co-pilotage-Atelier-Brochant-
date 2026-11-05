@@ -11,7 +11,7 @@ import {
   PieceJointe,
   TypeDocument,
 } from "./gmailClassify";
-import { classifierParIA } from "./gmailClassifyIA";
+import { classifierParIA, classifierImageParIA } from "./gmailClassifyIA";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
@@ -423,7 +423,13 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
           // recuperes en plus.
           if (type === "ambigu" && estPieceDocument(piece)) {
             const texteComplet = `Sujet : ${sujet}\nExtrait du corps : ${emailContexte.extraitCorps}\nNom du fichier : ${piece.nomFichier}\n${contenuExtrait ? `Contenu du document :\n${contenuExtrait}` : ""}`;
-            const typeIA = await classifierParIA(texteComplet);
+            // Une image n'a aucun contenu textuel exploitable (contrairement
+            // a un PDF) : seul un veritable coup d'oeil sur l'image (vision)
+            // permet de distinguer un logo/une signature d'un vrai document
+            // photographie, voir classifierImageParIA.
+            const typeIA = piece.mimeType.toLowerCase().startsWith("image/")
+              ? await classifierImageParIA(donnees, piece.mimeType, texteComplet)
+              : await classifierParIA(texteComplet);
             if (typeIA && typeIA !== "ambigu") {
               type = typeIA;
               classifiePar = "ia";

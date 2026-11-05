@@ -38,6 +38,27 @@ test("adresse illisible -> repli sur la chaine brute", () => {
   assert.equal(r.email, null);
 });
 
+test("nom affiche 'Prenom NOM' (contact commercial individuel) -> nom derive du domaine, pas le contact (demande explicite de l'utilisateur)", () => {
+  const r = extraireIdentiteExpediteur("Alexandre CECCARELLO <aceccarello@incomm.fr>");
+  assert.equal(r.nom, "Incomm");
+  assert.equal(r.email, "aceccarello@incomm.fr");
+});
+
+test("nom affiche 'Nom, Prenom' (avec virgule) -> nom derive du domaine", () => {
+  const r = extraireIdentiteExpediteur('"Khelifa, Redouan" <redouan.khelifa@cedeo.fr>');
+  assert.equal(r.nom, "Cedeo");
+});
+
+test("'Prenom Nom' (nom de famille PAS tout en majuscules) reste tel quel : trop proche d'une vraie raison sociale pour trancher a coup sur (ex. 'Cedeo Paris')", () => {
+  const r = extraireIdentiteExpediteur('"Cedeo Paris" <contact@cedeo.fr>');
+  assert.equal(r.nom, "Cedeo Paris");
+});
+
+test("'Prenom NOM' chez une messagerie grand public -> nom affiche conserve tel quel (aucune raison sociale fiable a en deriver)", () => {
+  const r = extraireIdentiteExpediteur("Jean DUPONT <jean.dupont@gmail.com>");
+  assert.equal(r.nom, "Jean DUPONT");
+});
+
 test("suppression d'une fiche fournisseur", async (t) => {
   // Base de test dediee a ce seul test (contrairement aux autres tests de ce
   // fichier, purement unitaires) : prepare ici plutot que dans un before()

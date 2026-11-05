@@ -107,3 +107,104 @@ export async function classifierParIA(contexte: string): Promise<TypeDocument | 
     return null;
   }
 }
+
+// Pour une image, le texte seul (sujet/corps/nom de fichier) ne dit rien de
+// fiable sur son contenu visuel - contrairement a classifierParIA ci-dessus,
+// qui lit du texte extrait d'un PDF. Demande explicite de l'utilisateur
+// (novembre 2026) : des logos, signatures et bannieres publicitaires
+// recus par e-mail encombraient le centre de validation au meme titre que
+// de vrais documents non reconnus. Une taille de fichier ne suffit pas a
+// les distinguer (verifie en production : une bannière promotionnelle peut
+// peser plus lourd qu'une vraie photo de document) - seul un veritable
+// coup d'oeil sur l'image permet de trancher.
+//
+// Vocabulaire volontairement restreint a deux reponses, plus etroit que
+// classifierParIA : jamais "facture" ni aucun autre type pour une image
+// (regle deja en place avant cette fonction, voir gmailClassify.ts :
+// "une facture n'est jamais transmise a Dext si ce n'est pas un PDF") -
+// seulement de quoi decider si l'image merite ou non l'attention de
+// l'utilisateur.
+//  - "autre" : visiblement un logo, une signature de mail, une image de
+//    mise en forme/publicitaire - jamais un document a traiter.
+//  - "ambigu" : pourrait raisonnablement etre un document (facture, bon,
+//    ticket de caisse photographie...) - reste dans le centre de
+//    validation, comportement actuel inchange.
+const TYPES_VALIDES_IMAGE = ["autre", "ambigu"] as const;
+type TypeImageIA = (typeof TYPES_VALIDES_IMAGE)[number];
+
+const OUTIL_CLASSIFICATION_IMAGE: Anthropic.Tool = {
+  name: "classer_image",
+  description: "Enregistre si l'image est un document potentiel ou une image decorative/publicitaire.",
+  input_schema: {
+    type: "object",
+    properties: {
+      type: {
+        type: "string",
+        enum: [...TYPES_VALIDES_IMAGE],
+        description:
+          "autre : logo, signature de mail, biniere publicitaire, capture d'ecran ou toute autre image qui n'est manifestement pas un document comptable. " +
+          "ambigu : pourrait raisonnablement etre un document (facture, ticket de caisse, bon de livraison...) photographie ou scanne.",
+      },
+    },
+    required: ["type"],
+  },
+};
+
+const PROMPT_SYSTEME_IMAGE = `Tu regardes une image jointe a un e-mail recu par un artisan plombier \
+francais, pour decider si elle merite une verification humaine ou non.
+
+Regle absolue : en cas de moindre doute, reponds "ambigu" - une image qui \
+part a tort en "ambigu" n'a aucune consequence (elle reste simplement \
+visible pour verification), alors qu'une vraie facture/ticket/bon classee \
+a tort "autre" disparaitrait silencieusement. Ne reponds "autre" que si \
+l'image est MANIFESTEMENT un logo, une signature de mail, une biniere \
+publicitaire ou une capture d'ecran sans rapport avec un document \
+comptable. Appelle systematiquement l'outil classer_image avec ta \
+conclusion.`;
+
+const MIME_TYPES_IMAGE_SUPPORTES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/**
+ * Tente de classer une IMAGE jointe (logo/signature vs document potentiel)
+ * a partir de son contenu visuel. Retourne null si aucun avis fiable n'a pu
+ * etre obtenu (cle absente, type d'image non supporte par l'API vision,
+ * erreur d'appel, reponse invalide) - jamais une erreur qui remonterait
+ * jusqu'a l'appelant et interromprait la synchronisation Gmail.
+ */
+export async function classifierImageParIA(donnees: Buffer, mimeType: string, contexte: string): Promise<TypeImageIA | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const mime = mimeType.toLowerCase();
+  if (!apiKey || !MIME_TYPES_IMAGE_SUPPORTES.has(mime)) return null;
+  // Garde-fou cote cout/latence : une image demesuree n'apporte aucun
+  // signal supplementaire utile a cette seule decision binaire.
+  if (donnees.length > 15 * 1024 * 1024) return null;
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const reponse = await client.messages.create({
+      model: MODELE,
+      max_tokens: 200,
+      system: PROMPT_SYSTEME_IMAGE,
+      tools: [OUTIL_CLASSIFICATION_IMAGE],
+      tool_choice: { type: "tool", name: "classer_image" },
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mime as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: donnees.toString("base64") } },
+            { type: "text", text: contexte.trim().slice(0, 1000) || "(pas de contexte textuel disponible)" },
+          ],
+        },
+      ],
+    });
+
+    const appel = reponse.content.find((bloc): bloc is Anthropic.ToolUseBlock => bloc.type === "tool_use");
+    const type = (appel?.input as { type?: string } | undefined)?.type;
+    if (type && (TYPES_VALIDES_IMAGE as readonly string[]).includes(type)) {
+      return type as TypeImageIA;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

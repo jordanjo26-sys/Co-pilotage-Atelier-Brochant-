@@ -64,6 +64,31 @@ export interface IdentiteExpediteur {
   email: string | null;
 }
 
+// Un "nom affiche" qui ressemble a une personne physique (le contact
+// commercial chez le fournisseur, pas le fournisseur lui-meme) plutot qu'a
+// une raison sociale : demande explicite de l'utilisateur (ex. "Alexandre
+// CECCARELLO" <aceccarello@incomm.fr> cree une fiche "Alexandre CECCARELLO"
+// au lieu de "Incomm"). Volontairement restreint a deux formes tres
+// specifiques et peu susceptibles de faux positifs sur une vraie raison
+// sociale (section 14 : jamais deviner au sens large) :
+//  - "Prenom NOM" (prenom en casse normale, nom de famille tout en
+//    majuscules) : convention de signature tres repandue en France, qu'une
+//    raison sociale ne prend quasiment jamais (ex. "Alexandre CECCARELLO",
+//    "Claire BARTHELET").
+//  - "Nom, Prenom" (avec virgule) : une raison sociale ne contient
+//    pratiquement jamais de virgule dans son nom affiche (ex. "Khelifa,
+//    Redouan").
+// Deliberement PAS "PRENOM NOM" (tout en majuscules) ni une detection de
+// mots-cles : ces formes recoupent trop de vraies raisons sociales (ex.
+// "GROUPE SAMSE", "CEDEO PARIS") pour rester surs sans une liste de mots
+// metier a maintenir indefiniment.
+const MOTIF_NOM_PRENOM_VIRGULE = /^[A-ZÀ-Ý][a-zà-ÿ'-]+,\s*[A-ZÀ-Ý][a-zà-ÿ'-]+$/;
+const MOTIF_PRENOM_NOM_MAJUSCULES = /^[A-ZÀ-Ý][a-zà-ÿ'-]+\s+[A-ZÀ-Ý]{2,}$/;
+
+function ressembleANomDePersonne(nom: string): boolean {
+  return MOTIF_NOM_PRENOM_VIRGULE.test(nom) || MOTIF_PRENOM_NOM_MAJUSCULES.test(nom);
+}
+
 /**
  * Extrait un nom de fournisseur exploitable a partir d'un en-tete "From"
  * Gmail (`"Cedeo Paris" <contact@cedeo.fr>` ou simplement `contact@cedeo.fr`).
@@ -84,6 +109,18 @@ export function extraireIdentiteExpediteur(expediteur: string): IdentiteExpedite
     email = avecNomAffiche[2].trim().toLowerCase();
   } else if (/^[^\s<>@]+@[^\s<>@]+$/.test(brut)) {
     email = brut.toLowerCase();
+  }
+
+  // Le nom affiche d'un contact commercial individuel (voir
+  // ressembleANomDePersonne) n'identifie pas le fournisseur lui-meme :
+  // prefere alors le nom derive du domaine, exactement comme en l'absence
+  // de nom affiche - sauf messagerie grand public, ou aucune raison
+  // sociale fiable ne peut en etre deduite.
+  if (nomAffiche && email && ressembleANomDePersonne(nomAffiche)) {
+    const domaine = email.split("@")[1] || "";
+    if (domaine && !FOURNISSEURS_MESSAGERIE_GRAND_PUBLIC.has(domaine)) {
+      return { nom: nomDepuisDomaine(domaine), email };
+    }
   }
 
   if (nomAffiche) return { nom: normaliserCasse(nomAffiche), email };
