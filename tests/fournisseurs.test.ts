@@ -108,3 +108,58 @@ test("suppression d'une fiche fournisseur", async (t) => {
 
   await prisma.$disconnect();
 });
+
+test("renommage d'une fiche fournisseur", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { renommerFournisseur } = await import("../src/services/fournisseurs");
+  const prisma = new PrismaClient();
+
+  await t.test("nom cible libre -> simple renommage", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "Alexandre CECCARELLO" } });
+    const resultat = await renommerFournisseur(prisma, f.id, "Incomm");
+    assert.equal(resultat.fusionneAvec, null);
+    const apres = await prisma.fournisseur.findUnique({ where: { id: f.id } });
+    assert.equal(apres?.nom, "Incomm");
+  });
+
+  await t.test("nom cible deja pris -> fusion, documents et factures reattaches, fiche source supprimee", async () => {
+    const source = await prisma.fournisseur.create({ data: { nom: "Khelifa, Redouan" } });
+    const cible = await prisma.fournisseur.create({ data: { nom: "Cedeo" } });
+    const doc = await prisma.documentFournisseur.create({ data: { type: "facture", fournisseurId: source.id, fichierNom: "f.pdf" } });
+    const facture = await prisma.factureFournisseur.create({ data: { fournisseurId: source.id, montant: 50 } });
+
+    const resultat = await renommerFournisseur(prisma, source.id, "Cedeo");
+
+    assert.equal(resultat.fusionneAvec, "Cedeo");
+    assert.equal(await prisma.fournisseur.findUnique({ where: { id: source.id } }), null, "la fiche source doit etre supprimee");
+    assert.ok(await prisma.fournisseur.findUnique({ where: { id: cible.id } }), "la fiche cible doit subsister");
+    assert.equal((await prisma.documentFournisseur.findUnique({ where: { id: doc.id } }))?.fournisseurId, cible.id);
+    assert.equal((await prisma.factureFournisseur.findUnique({ where: { id: facture.id } }))?.fournisseurId, cible.id);
+  });
+
+  await t.test("meme nom -> aucun changement", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "Ionos" } });
+    const resultat = await renommerFournisseur(prisma, f.id, "Ionos");
+    assert.equal(resultat.fusionneAvec, null);
+  });
+
+  await t.test("fournisseur inexistant -> erreur", async () => {
+    await assert.rejects(renommerFournisseur(prisma, "inexistant", "Nouveau nom"));
+  });
+
+  await prisma.$disconnect();
+});

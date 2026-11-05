@@ -17,7 +17,7 @@ import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dai
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane, PieceJointeMorgane, MIME_PIECES_JOINTES_AUTORISEES } from "../services/morgane";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
-import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
+import { listerFournisseurs, obtenirFournisseur, supprimerFournisseur, renommerFournisseur, FournisseurAvecFacturesError } from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
 import { listerDecisions, terminerDecision } from "../services/decisions";
@@ -656,6 +656,24 @@ export function buildRouter(prisma: PrismaClient): Router {
       if (err instanceof FournisseurAvecFacturesError) {
         return res.status(409).json({ erreur: err.message });
       }
+      res.status(404).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Correction manuelle du nom d'une fiche (ex. le contact commercial
+  // individuel affiche a la place de la raison sociale - voir
+  // ressembleANomDePersonne dans fournisseurs.ts) : fusionne automatiquement
+  // avec une fiche existante du meme nom plutot que d'echouer sur la
+  // contrainte d'unicite.
+  router.patch("/fournisseurs/:id", async (req, res) => {
+    const { nom } = req.body || {};
+    if (typeof nom !== "string" || !nom.trim()) {
+      return res.status(400).json({ erreur: "'nom' requis." });
+    }
+    try {
+      const resultat = await renommerFournisseur(prisma, req.params.id, nom);
+      res.json(resultat);
+    } catch (err) {
       res.status(404).json({ erreur: (err as Error).message });
     }
   });

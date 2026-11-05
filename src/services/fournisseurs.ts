@@ -239,3 +239,42 @@ export async function supprimerFournisseur(prisma: PrismaClient, fournisseurId: 
   }
   await prisma.fournisseur.delete({ where: { id: fournisseurId } });
 }
+
+/**
+ * Renomme une fiche fournisseur creee a tort sous le nom d'un contact
+ * commercial individuel plutot que la raison sociale elle-meme (voir
+ * ressembleANomDePersonne plus haut, et son usage dans
+ * extraireIdentiteExpediteur) - corrige retroactivement les fiches deja
+ * creees avant ce correctif, jamais automatique (demande explicite de
+ * l'utilisateur, depuis l'interface).
+ *
+ * Si une fiche porte deja le nom cible (ex. "Incomm" existe deja quand on
+ * corrige "Alexandre CECCARELLO"), fusionne au lieu d'entrer en conflit
+ * avec la contrainte d'unicite sur le nom : tous les documents et factures
+ * de la fiche source rejoignent la fiche cible existante (jamais
+ * l'inverse, pour conserver l'historique le plus ancien), puis la fiche
+ * source, desormais vide, est supprimee. Rien n'est jamais perdu, seul le
+ * doublon de fiche disparait.
+ */
+export async function renommerFournisseur(prisma: PrismaClient, fournisseurId: string, nouveauNomBrut: string): Promise<{ fusionneAvec: string | null }> {
+  const nouveauNom = nettoyerEspaces(nouveauNomBrut);
+  if (!nouveauNom) throw new Error("Nom vide.");
+
+  const fournisseur = await prisma.fournisseur.findUnique({ where: { id: fournisseurId } });
+  if (!fournisseur) throw new Error("Fournisseur introuvable.");
+  if (fournisseur.nom === nouveauNom) return { fusionneAvec: null };
+
+  const cible = await prisma.fournisseur.findUnique({ where: { nom: nouveauNom } });
+  if (!cible) {
+    await prisma.fournisseur.update({ where: { id: fournisseurId }, data: { nom: nouveauNom } });
+    return { fusionneAvec: null };
+  }
+  if (cible.id === fournisseurId) return { fusionneAvec: null };
+
+  await prisma.$transaction([
+    prisma.documentFournisseur.updateMany({ where: { fournisseurId }, data: { fournisseurId: cible.id } }),
+    prisma.factureFournisseur.updateMany({ where: { fournisseurId }, data: { fournisseurId: cible.id } }),
+    prisma.fournisseur.delete({ where: { id: fournisseurId } }),
+  ]);
+  return { fusionneAvec: cible.nom };
+}

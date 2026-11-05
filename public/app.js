@@ -1833,6 +1833,27 @@ async function supprimerFournisseur(id, bouton) {
 }
 window.supprimerFournisseur = supprimerFournisseur;
 
+// Corrige le nom d'une fiche (ex. le contact commercial individuel affiche
+// a la place de la raison sociale) : fusionne automatiquement cote serveur
+// si une fiche du nom cible existe deja, jamais de conflit a gerer ici.
+async function renommerFournisseur(id, nomActuel) {
+  const nouveauNom = prompt("Nouveau nom du fournisseur :", nomActuel);
+  if (!nouveauNom || !nouveauNom.trim() || nouveauNom.trim() === nomActuel) return;
+  try {
+    const res = await fetch(`/api/fournisseurs/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nom: nouveauNom.trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.erreur || "Renommage impossible.");
+    await chargerFournisseurs();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+window.renommerFournisseur = renommerFournisseur;
+
 // Libelles des types de document autres que "facture" (voir gmailClassify.ts) :
 // avoir/bon_enlevement/releve/devis ne sont jamais transmis a Dext ni
 // signales en anomalie (jamais ambigus, jamais a valider), donc totalement
@@ -1909,7 +1930,10 @@ async function chargerFournisseurs() {
       </details>`
           : ""
       }
-      ${f.nbFactures === 0 ? `<div class="fournisseur-actions"><button type="button" class="ghost" onclick="supprimerFournisseur('${f.id}', this)">Supprimer</button></div>` : ""}
+      <div class="fournisseur-actions fournisseur-actions-ligne">
+        <button type="button" class="ghost" onclick="renommerFournisseur('${f.id}', '${echapper(f.nom).replace(/'/g, "\\'")}')">Renommer</button>
+        ${f.nbFactures === 0 ? `<button type="button" class="ghost" onclick="supprimerFournisseur('${f.id}', this)">Supprimer</button>` : ""}
+      </div>
     </div>`
     )
     .join("");
