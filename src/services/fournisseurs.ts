@@ -279,24 +279,23 @@ export async function renommerFournisseur(prisma: PrismaClient, fournisseurId: s
   return { fusionneAvec: cible.nom };
 }
 
-export class DocumentDejaEnvoyeError extends Error {}
-
 /**
  * Supprime un document rattache a tort a une fiche fournisseur (ex. un CV ou
  * une photo mal classes qui restent visibles dans "Voir les documents" meme
- * s'ils n'ont jamais ete transmis a Dext - demande explicite de
- * l'utilisateur, depuis l'interface).
+ * s'ils n'ont jamais ete transmis a Dext), ou une facture envoyee a Dext par
+ * erreur (ex. doublon, mauvais fournisseur) - demande explicite de
+ * l'utilisateur, depuis l'interface.
  *
- * Refuse si le document a deja ete envoye a Dext (statutDext === "envoye") :
- * c'est alors une vraie piece comptable deja transmise, la supprimer ici
- * romprait la tracabilite sans rien defaire cote Dext. Rien d'autre n'est
- * protege (section 14 : jamais deviner si un document "a l'air" legitime).
+ * IMPORTANT (section 14 : jamais deviner) : l'application n'a aucun acces a
+ * l'API de Dext, seulement a l'adresse e-mail d'import
+ * (facturation-brochant@dext.cc, voir envoyerVersDext dans gmailSync.ts).
+ * Cette suppression ne retire donc QUE le suivi local - si le document a
+ * deja ete recu et traite par Dext, il faut aussi le supprimer directement
+ * dans Dext. Le frontend previent l'utilisateur de cette limite avant
+ * confirmation (voir supprimerDocumentFournisseur dans app.js).
  */
 export async function supprimerDocumentFournisseur(prisma: PrismaClient, documentId: string): Promise<void> {
   const document = await prisma.documentFournisseur.findUnique({ where: { id: documentId } });
   if (!document) throw new Error("Document introuvable.");
-  if (document.statutDext === "envoye") {
-    throw new DocumentDejaEnvoyeError("Ce document a deja ete envoye a Dext, suppression refusee.");
-  }
   await prisma.documentFournisseur.delete({ where: { id: documentId } });
 }

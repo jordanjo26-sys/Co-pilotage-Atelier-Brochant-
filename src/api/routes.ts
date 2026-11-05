@@ -24,7 +24,6 @@ import {
   renommerFournisseur,
   FournisseurAvecFacturesError,
   supprimerDocumentFournisseur,
-  DocumentDejaEnvoyeError,
 } from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
@@ -701,18 +700,15 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
-  // Suppression manuelle d'un document rattache a tort (CV, photo, logo...
-  // visible dans la fiche fournisseur mais n'ayant rien a y faire) : refuse
-  // par le service si le document a deja ete envoye a Dext (voir
-  // supprimerDocumentFournisseur), jamais automatique.
+  // Suppression manuelle d'un document rattache a tort (CV, photo, logo...)
+  // ou d'une facture envoyee a Dext par erreur : jamais automatique. Ne
+  // retire que le suivi local (voir supprimerDocumentFournisseur) - aucune
+  // API Dext n'est connectee ici pour agir sur Dext lui-meme.
   router.delete("/documents-fournisseurs/:id", async (req, res) => {
     try {
       await supprimerDocumentFournisseur(prisma, req.params.id);
       res.status(204).end();
     } catch (err) {
-      if (err instanceof DocumentDejaEnvoyeError) {
-        return res.status(409).json({ erreur: err.message });
-      }
       res.status(404).json({ erreur: (err as Error).message });
     }
   });

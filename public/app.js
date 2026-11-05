@@ -1790,10 +1790,11 @@ async function chargerFacturesDextEnvoyees() {
         ${docs
           .map(
             (d) => `
-        <div class="fournisseur-document-ligne">
+        <div class="fournisseur-document-ligne" id="document-ligne-${d.id}">
           <span>${echapper(d.fichierNom || "Document")}</span>
           <span class="anomalie-meta">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")} · ${new Date(d.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
           <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
+          <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this, true)">Supprimer</button>
         </div>`
           )
           .join("")}
@@ -1941,7 +1942,7 @@ async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
         <span>${echapper(d.fichierNom || "Document")}</span>
         ${d.dateReceptionMail ? `<span class="anomalie-meta">reçu le ${fmtDate(d.dateReceptionMail)}</span>` : ""}
         <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
-        <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this)">Supprimer</button>
+        <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this, ${d.statutDext === "envoye"})">Supprimer</button>
       </div>`
         )
         .join("") || `<p class="aide-inline">Aucun document.</p>`;
@@ -1951,12 +1952,17 @@ async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
 }
 window.chargerDocumentsFournisseur = chargerDocumentsFournisseur;
 
-// Supprime un document isole mal rattache a une fiche fournisseur (CV, photo,
-// logo...) sans toucher au reste de la fiche. Le serveur refuse si le
-// document a deja ete envoye a Dext (voir supprimerDocumentFournisseur cote
-// service) : erreur affichee telle quelle, jamais de suppression forcee.
-async function supprimerDocumentFournisseur(id, bouton) {
-  if (!confirm("Supprimer ce document ? Cette action est definitive.")) return;
+// Supprime un document isole mal rattache a une fiche fournisseur (CV,
+// photo, logo...), ou une facture envoyee a Dext par erreur. L'application
+// n'a aucun acces a l'API de Dext (seulement a l'adresse e-mail d'import,
+// voir envoyerVersDext dans gmailSync.ts) : la suppression ne retire donc
+// QUE le suivi local, jamais le document lui-meme dans Dext si celui-ci l'a
+// deja recu - d'ou l'avertissement explicite quand dejaEnvoye est vrai.
+async function supprimerDocumentFournisseur(id, bouton, dejaEnvoye) {
+  const message = dejaEnvoye
+    ? "Cette facture a deja ete envoyee a Dext. Cette suppression retire uniquement le suivi dans Copilote Atelier Brochant, PAS la facture dans Dext (l'application n'a pas d'acces direct a Dext, seulement a son adresse e-mail d'import) : si elle y a ete ajoutee par erreur, supprimez-la aussi directement dans Dext. Continuer ?"
+    : "Supprimer ce document ? Cette action est definitive.";
+  if (!confirm(message)) return;
   bouton.disabled = true;
   bouton.textContent = "Suppression…";
   try {

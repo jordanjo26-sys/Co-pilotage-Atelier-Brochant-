@@ -180,7 +180,7 @@ test("suppression d'un document isole rattache a tort a un fournisseur", async (
   });
 
   const { PrismaClient } = await import("@prisma/client");
-  const { supprimerDocumentFournisseur, DocumentDejaEnvoyeError } = await import("../src/services/fournisseurs");
+  const { supprimerDocumentFournisseur } = await import("../src/services/fournisseurs");
   const prisma = new PrismaClient();
 
   await t.test("document non envoye a Dext -> suppression effective", async () => {
@@ -192,13 +192,16 @@ test("suppression d'un document isole rattache a tort a un fournisseur", async (
     assert.equal(await prisma.documentFournisseur.findUnique({ where: { id: doc.id } }), null);
   });
 
-  await t.test("document deja envoye a Dext -> suppression refusee", async () => {
+  // Supprimable aussi apres envoi a Dext (ex. facture envoyee par erreur,
+  // demande explicite de l'utilisateur) : retire uniquement le suivi local,
+  // l'application n'ayant aucun acces a l'API de Dext pour agir la-bas.
+  await t.test("document deja envoye a Dext -> suppression autorisee (retire seulement le suivi local)", async () => {
     const f = await prisma.fournisseur.create({ data: { nom: "Cedeo" } });
     const doc = await prisma.documentFournisseur.create({
       data: { type: "facture", statutDext: "envoye", fournisseurId: f.id, fichierNom: "f.pdf" },
     });
-    await assert.rejects(supprimerDocumentFournisseur(prisma, doc.id), DocumentDejaEnvoyeError);
-    assert.ok(await prisma.documentFournisseur.findUnique({ where: { id: doc.id } }), "le document envoye ne doit pas etre supprime");
+    await supprimerDocumentFournisseur(prisma, doc.id);
+    assert.equal(await prisma.documentFournisseur.findUnique({ where: { id: doc.id } }), null);
   });
 
   await t.test("document inexistant -> erreur", async () => {
