@@ -22,12 +22,30 @@ export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 // ni de jeton separe a gerer, voir src/services/googleAds.ts.
 export const ADS_SCOPE = "https://www.googleapis.com/auth/adwords";
 
+// Fiche Google Business Profile ("page Google Maps", demande explicite de
+// l'utilisateur : avis, posts, infos de la fiche, statistiques). Meme
+// connexion Google reutilisee une fois ce scope accorde - mais ATTENTION,
+// deux conditions INDEPENDANTES du scope lui-meme doivent aussi etre
+// reunies avant que les appels API fonctionnent reellement (voir
+// googleBusinessProfile.ts) :
+//   1. Google doit avoir approuve une demande d'acces API Business Profile
+//      pour ce projet Google Cloud (acces non libre-service, contrairement
+//      a Ads/Gmail/Calendar - formulaire officiel, delai annonce ~14 jours).
+//   2. Le compte connecte (atelier.brochant@gmail.com) doit avoir ete
+//      ajoute comme gestionnaire/proprietaire DIRECTEMENT SUR LA FICHE,
+//      cote Google Business Profile (business.google.com) - meme principe
+//      que l'acces utilisateur requis sur le compte gestionnaire Ads (voir
+//      googleAds.ts), confirme par l'utilisateur : la fiche n'est pas
+//      rattachee a ce compte a ce jour.
+export const BUSINESS_PROFILE_SCOPE = "https://www.googleapis.com/auth/business.manage";
+
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/gmail.labels",
   CALENDAR_SCOPE,
   ADS_SCOPE,
+  BUSINESS_PROFILE_SCOPE,
 ];
 
 function requireEnv(name: string): string {

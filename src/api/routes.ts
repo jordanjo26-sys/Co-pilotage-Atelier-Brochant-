@@ -17,6 +17,7 @@ import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dai
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
 import { repondreMorgane, MessageMorgane, PieceJointeMorgane, MIME_PIECES_JOINTES_AUTORISEES } from "../services/morgane";
 import { transcrireAudio, TranscriptionAudioError } from "../services/transcriptionAudio";
+import { listerComptesBusinessProfile, listerFichesBusinessProfile, GoogleBusinessProfileError } from "../services/googleBusinessProfile";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
 import {
   listerFournisseurs,
@@ -1085,6 +1086,35 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.post("/google-ads/propositions/:id/refuser", async (req, res) => {
     try {
       res.json(await refuserPropositionAds(prisma, req.params.id));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // --- Google Business Profile ("page Google Maps", phase 1 lecture seule) -
+  //
+  // Demande explicite de l'utilisateur : avis, posts, infos de fiche,
+  // statistiques - voir googleBusinessProfile.ts pour les deux conditions
+  // (approbation Google de l'acces API + fiche rattachee au compte connecte)
+  // qui doivent etre reunies avant que cet appel reussisse. Erreur
+  // explicite sinon, jamais de connexion simulee.
+  router.get("/google-business/connexion", async (_req, res) => {
+    try {
+      const comptes = await listerComptesBusinessProfile(prisma);
+      res.json({ connecte: true, comptes });
+    } catch (err) {
+      if (err instanceof GoogleBusinessProfileError) {
+        return res.json({ connecte: false, erreur: err.message });
+      }
+      res.status(500).json({ connecte: false, erreur: (err as Error).message });
+    }
+  });
+
+  router.get("/google-business/fiches", async (req, res) => {
+    const compte = typeof req.query.compte === "string" ? req.query.compte : undefined;
+    if (!compte) return res.status(400).json({ erreur: "'compte' requis (ex. accounts/123456789)." });
+    try {
+      res.json(await listerFichesBusinessProfile(prisma, compte));
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }

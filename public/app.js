@@ -1003,6 +1003,30 @@ async function chargerStatutReseauxSociaux() {
     : `<p class="statut-dot off">Non connecté. <a href="/auth/meta">Connecter Facebook/Instagram →</a></p>`;
 }
 
+// Phase fondations (lecture seule) : confirme seulement que la connexion
+// Google (meme compte que Gmail/Ads, nouveau scope business.manage) donne
+// bien acces a au moins une fiche. Deux conditions independantes du scope
+// peuvent faire echouer cet appel meme avec une connexion Google active :
+// l'acces API Business Profile pas encore approuve par Google, et/ou la
+// fiche pas encore rattachee (gestionnaire/proprietaire) au compte connecte
+// - voir googleBusinessProfile.ts, message d'erreur affiche tel quel.
+async function chargerStatutGoogleBusiness() {
+  const div = document.getElementById("google-business-statut");
+  if (!div) return;
+  try {
+    const res = await fetch("/api/google-business/connexion");
+    const data = await res.json();
+    if (data.connecte) {
+      const noms = (data.comptes || []).map((c) => c.nomAffiche || c.nom).join(", ") || "aucun compte visible";
+      div.innerHTML = `<p class="gmail-connecte"><span class="statut-dot">Connecté</span> — ${echapper(noms)}</p>`;
+    } else {
+      div.innerHTML = `<p class="statut-dot off">Non disponible : ${echapper(data.erreur || "connexion non etablie")}</p>`;
+    }
+  } catch (err) {
+    div.innerHTML = `<p class="statut-dot off">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+
 let cheminMediaReseauxSociaux = null;
 
 const champFichierReseauxSociaux = document.getElementById("fichier-media-reseaux-sociaux");
@@ -2169,7 +2193,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {
