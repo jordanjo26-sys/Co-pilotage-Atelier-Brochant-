@@ -9,6 +9,7 @@ import {
   refuserPropositionPagesJaunes,
   marquerPublieePropositionPagesJaunes,
 } from "../services/pagesJaunesActions";
+import { genererImagePagesJaunes, GenerationImagePagesJaunesError } from "../services/imageGenerationPagesJaunes";
 
 /**
  * Routes du module PagesJaunes/Solocal (mode assiste, voir
@@ -23,6 +24,16 @@ export function buildPagesJaunesRouter(prisma: PrismaClient): Router {
     const type = typeof req.query.type === "string" ? req.query.type : undefined;
     const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
     res.json(await listerPropositionsPagesJaunes(prisma, type, statut));
+  });
+
+  router.post("/generer-photo", async (req, res) => {
+    try {
+      const chemin = await genererImagePagesJaunes(typeof req.body?.description === "string" ? req.body.description : "");
+      res.json(chemin);
+    } catch (err) {
+      if (err instanceof GenerationImagePagesJaunesError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
   });
 
   router.post("/propositions/actualite", async (req, res) => {

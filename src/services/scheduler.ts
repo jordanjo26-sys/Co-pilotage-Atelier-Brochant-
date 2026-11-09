@@ -21,7 +21,7 @@ const HEURE_ANALYSE_ADS_PAR_DEFAUT = 8; // 8h, heure locale du serveur
 // Objectif Solocal mensuel (4 actualites/mois) : un rythme quotidien n'a
 // aucun sens ici, contrairement a Ads - hebdomadaire (lundi matin) suffit
 // largement et evite de noyer l'utilisateur.
-const HEURE_ANALYSE_PAGESJAUNES_PAR_DEFAUT = 8; // 8h, heure locale du serveur
+const HEURE_ANALYSE_PAGESJAUNES_PAR_DEFAUT = 10; // 10h, heure locale du serveur (demande explicite de l'utilisateur)
 const JOUR_ANALYSE_PAGESJAUNES_PAR_DEFAUT = 1; // lundi (0 = dimanche)
 // Les payouts Stripe arrivent typiquement une fois par jour au plus, jamais
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit

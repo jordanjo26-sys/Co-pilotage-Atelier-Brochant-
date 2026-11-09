@@ -22,7 +22,7 @@ import { obtenirEtatActualitesPagesJaunes } from "./pagesJaunesActions";
  */
 const PROMPT_ANALYSE_PAGESJAUNES = `Propose des idees d'actualites/offres PagesJaunes (Solocal Manager) pour A.B Atelier Brochant.
 1. Appelle obtenir_etat_actualites_pagesjaunes pour savoir ou on en est ce mois-ci par rapport a l'objectif (4/mois) et quels angles ont deja ete utilises recemment (a ne pas repeter).
-2. Propose 2 a 3 idees concretes et varieres (actualite de service, offre/promotion, conseil de saison...), redigees comme de vrais textes prets a affiner - pas juste des titres vagues. N'invente aucun fait precis sur une intervention ou un client (aucune donnee de ce type n'est disponible ici) : reste sur des themes generiques pertinents pour un plombier/chauffagiste (entretien de saison, disponibilite, intervention rapide...).
+2. Propose 2 a 3 idees concretes et varieres (actualite de service, offre/promotion, conseil de saison...), redigees comme de vrais textes complets prets a coller (plusieurs phrases, pas juste un titre), integrant naturellement 1-2 mots-cles de referencement local (ville, type de service) sans que ca sonne force. N'invente aucun fait precis sur une intervention ou un client (aucune donnee de ce type n'est disponible ici) : reste sur des themes generiques pertinents pour un plombier/chauffagiste (entretien de saison, disponibilite, intervention rapide...).
 3. Ne depose AUCUNE proposition toi-meme (n'appelle jamais proposer_actualite_pagesjaunes depuis cette analyse automatique) : ce sont des idees a valider par l'utilisateur, qui doit te les redemander explicitement en conversation.
 
 Format de reponse IMPORTANT (ce texte part directement dans un e-mail mis en forme automatiquement) :

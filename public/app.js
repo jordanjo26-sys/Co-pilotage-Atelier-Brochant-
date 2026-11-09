@@ -1218,6 +1218,35 @@ if (champFichierPagesJaunes) {
   });
 }
 
+const boutonGenererPhotoPagesJaunes = document.getElementById("bouton-generer-photo-pagesjaunes");
+if (boutonGenererPhotoPagesJaunes) {
+  boutonGenererPhotoPagesJaunes.addEventListener("click", async () => {
+    const description = document.getElementById("description-photo-ia-pagesjaunes").value.trim();
+    const apercu = document.getElementById("apercu-media-pagesjaunes");
+    if (!description) {
+      apercu.innerHTML = `<span class="badge badge-echec">Erreur</span> Décris l'image souhaitée d'abord.`;
+      return;
+    }
+    boutonGenererPhotoPagesJaunes.disabled = true;
+    apercu.textContent = "Génération de l'image en cours…";
+    try {
+      const r = await fetch("/api/pagesjaunes/generer-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erreur || "Échec de la génération.");
+      cheminMediaPagesJaunes = d.chemin;
+      apercu.innerHTML = `<img src="/${echapper(d.chemin)}" alt="Aperçu" style="max-width:220px;max-height:220px;border-radius:8px;margin-top:6px" /><div class="anomalie-meta">Image générée par IA — ne représente pas un vrai chantier.</div>`;
+    } catch (err) {
+      apercu.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    } finally {
+      boutonGenererPhotoPagesJaunes.disabled = false;
+    }
+  });
+}
+
 const formActualitePagesJaunes = document.getElementById("form-actualite-pagesjaunes");
 if (formActualitePagesJaunes) {
   formActualitePagesJaunes.addEventListener("submit", async (e) => {

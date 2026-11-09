@@ -36,6 +36,7 @@ import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds, Ajust
 import { creerPropositionPost, listerPropositionsPost } from "./reseauxSociauxActions";
 import { obtenirStatistiquesPost, reseauxSociauxEstConfigure } from "./reseauxSociaux";
 import { creerPropositionActualite, creerPropositionInfoFiche, creerPropositionReponseAvis, obtenirEtatActualitesPagesJaunes } from "./pagesJaunesActions";
+import { genererImagePagesJaunes, GenerationImagePagesJaunesError } from "./imageGenerationPagesJaunes";
 import { obtenirConnexionMeta } from "./metaAuth";
 import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./documentsScannes";
 import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
@@ -591,6 +592,18 @@ const OUTILS: Anthropic.Tool[] = [
     description:
       "Retourne le nombre d'actualites/offres PagesJaunes deja publiees ce mois-ci, l'objectif mensuel Solocal (4), et le texte des 5 dernieres actualites publiees (pour ne pas proposer deux fois le meme angle). Lecture seule, a appeler avant de proposer une nouvelle actualite si tu n'as pas deja ce contexte dans la conversation.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "generer_photo_pagesjaunes",
+    description:
+      "Genere une photo illustrative via IA (OpenAI) pour accompagner une actualite PagesJaunes, quand l'utilisateur n'a pas de vraie photo a uploader. Retourne un cheminMedia a passer ensuite a proposer_actualite_pagesjaunes. IMPORTANT : l'image generee NE REPRESENTE PAS un vrai chantier/client - le prompt (description) doit rester generique/illustratif (ex. 'plombier professionnel en intervention, style photo realiste, fourgon de service') et ne JAMAIS pretendre montrer une intervention ou un client reel precis. Prefere toujours une vraie photo fournie par l'utilisateur quand il en a une disponible.",
+    input_schema: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "Description de l'image souhaitee, en francais, generique/illustrative (jamais presentee comme un fait reel precis)." },
+      },
+      required: ["description"],
+    },
   },
   {
     name: "proposer_actualite_pagesjaunes",
@@ -1223,6 +1236,17 @@ async function executerOutil(
       return etat;
     }
 
+    case "generer_photo_pagesjaunes": {
+      const description = typeof params.description === "string" ? params.description : "";
+      try {
+        const { chemin } = await genererImagePagesJaunes(description);
+        return { ok: true, chemin, message: "Image generee. Utilise ce chemin comme cheminMedia dans proposer_actualite_pagesjaunes." };
+      } catch (err) {
+        if (err instanceof GenerationImagePagesJaunesError) return { erreur: err.message };
+        throw err;
+      }
+    }
+
     case "proposer_actualite_pagesjaunes": {
       const texte = typeof params.texte === "string" ? params.texte : "";
       const cheminMedia = typeof params.cheminMedia === "string" ? params.cheminMedia : undefined;
@@ -1725,8 +1749,8 @@ sur l'ecran de validation dedie, jamais depuis la conversation.
 demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.
 
 Module PagesJaunes/Solocal Manager (outils obtenir_etat_actualites_pagesjaunes, \
-proposer_actualite_pagesjaunes, proposer_maj_fiche_pagesjaunes, \
-proposer_reponse_avis_pagesjaunes, sujet \
+generer_photo_pagesjaunes, proposer_actualite_pagesjaunes, \
+proposer_maj_fiche_pagesjaunes, proposer_reponse_avis_pagesjaunes, sujet \
 SEPARE du module Reseaux sociaux ci-dessus). Mode "assiste" DEFINITIF, pas \
 une phase transitoire : Solocal Manager n'a aucune API publique, et une \
 verification reelle a montre que son SSO (sso.solocal.com) bloque \
@@ -1744,12 +1768,34 @@ explicite et recent de l'utilisateur sur le texte exact.
   proposer_actualite_pagesjaunes : actualites, evenements ET offres/promotions \
 (une seule et meme fonctionnalite cote Solocal) - objectif rappele par \
 Solocal lui-meme : au moins 4 par mois pour ameliorer le score \
-d'engagement. A coller dans Menu > Communication > Actualites.
+d'engagement. A coller dans Menu > Communication > Actualites. Redige \
+TOUJOURS un texte complet et soigne (pas juste une idee en une phrase) : \
+plusieurs phrases bien structurees, et integre naturellement 1-2 mots-cles \
+utiles au referencement local (ex. "plombier a Lagny-sur-Marne", le nom de \
+l'etablissement, le type de service) sans que ca sonne force ou \
+repetitif - un texte agreable a lire pour un client AVANT d'etre optimise. \
+Demande toujours une photo a l'utilisateur en premier (plus credible qu'une \
+image generee) ; propose generer_photo_pagesjaunes seulement s'il n'en a \
+pas sous la main.
   proposer_maj_fiche_pagesjaunes : tenir a jour les informations \
 permanentes de la fiche (description de l'activite, services/metiers \
 proposes, horaires...) - le "bloc articles" de la fiche, visible dans \
 l'onglet Informations/Activites de Solocal Manager. Precise toujours quel \
 champ (champFiche) est concerne.
+  generer_photo_pagesjaunes : genere une photo via IA (OpenAI) quand \
+l'utilisateur n'a pas de vraie photo. GARDE-FOU IMPORTANT : cette image ne \
+represente JAMAIS un vrai chantier/client reel - redige un prompt \
+generique/illustratif (jamais une scene presentee comme un fait precis et \
+reel), et prefere toujours une vraie photo fournie par l'utilisateur si \
+disponible.
+  Note sur l'automatisation complete : un vrai mode 100% automatique \
+(appele BRIDGE par Solocal) existe cote Solocal, mais il n'est PAS \
+en libre-service - il faut passer par un contact commercial/chef de \
+projet Solocal, probablement avec un cout associe, et meme avec cet acces \
+la publication finale se termine via une connexion a leur interface (pas \
+100% automatique non plus). Si l'utilisateur redemande l'automatisation \
+complete, explique-le honnetement plutot que de laisser croire que \
+proposer_actualite_pagesjaunes publie seul.
   proposer_reponse_avis_pagesjaunes : l'utilisateur transmet le contenu \
 d'un avis (capture d'ecran ou texte colle dans la conversation) - tu ne \
 peux PAS lire les avis toi-meme (pas d'acces a Solocal Manager), donc \
