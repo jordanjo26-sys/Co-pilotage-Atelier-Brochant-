@@ -7,6 +7,7 @@ import { buildAuthRouter } from "./api/authRoutes";
 import { buildProspectionRouter, buildProspectionTrackingRouter } from "./api/prospectionRoutes";
 import { buildTelephonieRouter } from "./api/telephonieRoutes";
 import { buildReseauxSociauxRouter } from "./api/reseauxSociauxRoutes";
+import { buildPagesJaunesRouter } from "./api/pagesJaunesRoutes";
 import { installerRelaisVocal } from "./services/relaisVocal";
 import {
   demarrerSurveillanceGmail,
@@ -34,6 +35,7 @@ app.use("/api", buildRouter(prisma));
 app.use("/api/prospection", buildProspectionRouter(prisma));
 app.use("/api/prospection/suivi", buildProspectionTrackingRouter(prisma));
 app.use("/api/reseaux-sociaux", buildReseauxSociauxRouter(prisma));
+app.use("/api/pagesjaunes", buildPagesJaunesRouter(prisma));
 app.use("/auth", buildAuthRouter(prisma));
 // Webhooks Twilio du standard telephonique IA (authentifies par signature).
 app.use("/telephonie", buildTelephonieRouter(prisma));

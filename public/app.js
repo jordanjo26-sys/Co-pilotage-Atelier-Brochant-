@@ -1172,6 +1172,188 @@ async function chargerPropositionsReseauxSociaux() {
     .join("");
 }
 
+// Module PagesJaunes/Solocal Manager, mode "assiste" DEFINITIF (pas une
+// phase transitoire) : Solocal Manager n'a pas d'API et son SSO bloque les
+// navigateurs automatises (verifie en conditions reelles, Cloudflare) - il
+// n'y a donc ici ni "appliquee" ni "echec" comme pour Reseaux sociaux, mais
+// un statut "publiee" marque par l'utilisateur lui-meme une fois l'actualite
+// collee a la main dans Solocal Manager.
+const BADGE_STATUT_PAGESJAUNES = {
+  en_attente: "badge-partiel",
+  acceptee: "badge-partiel",
+  publiee: "badge-ok",
+  refusee: "badge-doublon_fichier",
+};
+const LIBELLE_STATUT_PAGESJAUNES = {
+  en_attente: "En attente",
+  acceptee: "Acceptée — à coller dans Solocal Manager",
+  publiee: "Publiée",
+  refusee: "Refusée",
+};
+
+let cheminMediaPagesJaunes = null;
+
+const champFichierPagesJaunes = document.getElementById("fichier-media-pagesjaunes");
+if (champFichierPagesJaunes) {
+  champFichierPagesJaunes.addEventListener("change", async () => {
+    const apercu = document.getElementById("apercu-media-pagesjaunes");
+    const fichier = champFichierPagesJaunes.files[0];
+    cheminMediaPagesJaunes = null;
+    if (!fichier) {
+      apercu.innerHTML = "";
+      return;
+    }
+    apercu.textContent = "Envoi de la photo…";
+    const donnees = new FormData();
+    donnees.append("fichier", fichier);
+    try {
+      const r = await fetch("/api/reseaux-sociaux/media", { method: "POST", body: donnees });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erreur || "Échec de l'envoi de la photo.");
+      cheminMediaPagesJaunes = d.chemin;
+      apercu.innerHTML = `<img src="/${echapper(d.chemin)}" alt="Aperçu" style="max-width:220px;max-height:220px;border-radius:8px;margin-top:6px" />`;
+    } catch (err) {
+      apercu.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
+const formActualitePagesJaunes = document.getElementById("form-actualite-pagesjaunes");
+if (formActualitePagesJaunes) {
+  formActualitePagesJaunes.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const resultatDiv = document.getElementById("resultat-actualite-pagesjaunes");
+    const etablissement = document.getElementById("etablissement-pagesjaunes").value.trim();
+    const texte = document.getElementById("texte-actualite-pagesjaunes").value.trim();
+
+    if (!etablissement) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Précise l'établissement concerné.`;
+      return;
+    }
+    if (!texte) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Le texte de l'actualité est requis.`;
+      return;
+    }
+
+    resultatDiv.textContent = "Dépôt de la proposition…";
+    try {
+      const r = await fetch("/api/pagesjaunes/propositions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          etablissement,
+          texte,
+          cheminMedia: cheminMediaPagesJaunes || undefined,
+          justification: "Actualité proposée depuis l'onglet PagesJaunes.",
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erreur || "Échec du dépôt de la proposition.");
+      resultatDiv.innerHTML = `Proposition déposée — à accepter ci-dessous.`;
+      formActualitePagesJaunes.reset();
+      document.getElementById("apercu-media-pagesjaunes").innerHTML = "";
+      cheminMediaPagesJaunes = null;
+      await chargerPropositionsPagesJaunes();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
+async function accepterPropositionPagesJaunes(id, bouton) {
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/pagesjaunes/propositions/${id}/accepter`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec de l'acceptation.");
+    await chargerPropositionsPagesJaunes();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.accepterPropositionPagesJaunes = accepterPropositionPagesJaunes;
+
+async function refuserPropositionPagesJaunes(id, bouton) {
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/pagesjaunes/propositions/${id}/refuser`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec du refus.");
+    await chargerPropositionsPagesJaunes();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.refuserPropositionPagesJaunes = refuserPropositionPagesJaunes;
+
+async function marquerPublieePropositionPagesJaunes(id, bouton) {
+  const groupe = bouton.closest(".relance-actions");
+  if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  bouton.textContent = "…";
+  try {
+    const r = await fetch(`/api/pagesjaunes/propositions/${id}/marquer-publiee`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "Échec de la mise à jour.");
+    await chargerPropositionsPagesJaunes();
+  } catch (err) {
+    if (groupe) groupe.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    alert(err.message);
+  }
+}
+window.marquerPublieePropositionPagesJaunes = marquerPublieePropositionPagesJaunes;
+
+async function chargerPropositionsPagesJaunes() {
+  const liste = document.getElementById("liste-propositions-pagesjaunes");
+  if (!liste) return;
+  const res = await fetch("/api/pagesjaunes/propositions");
+  const propositions = await res.json();
+
+  if (propositions.length === 0) {
+    liste.innerHTML = `<p class="liste-vide">Aucune actualité proposée pour le moment.</p>`;
+    return;
+  }
+
+  const nbPublieesCeMois = propositions.filter((p) => p.statut === "publiee" && p.publieeLe && new Date(p.publieeLe).getMonth() === new Date().getMonth() && new Date(p.publieeLe).getFullYear() === new Date().getFullYear()).length;
+
+  liste.innerHTML =
+    `<p class="anomalie-meta">${nbPublieesCeMois} actualité(s) publiée(s) ce mois-ci (objectif Solocal : au moins 4).</p>` +
+    propositions
+      .map((p) => {
+        const badge = BADGE_STATUT_PAGESJAUNES[p.statut] || "badge-doublon_fichier";
+        const libelleStatut = LIBELLE_STATUT_PAGESJAUNES[p.statut] || p.statut;
+        const actions =
+          p.statut === "en_attente"
+            ? `<div class="relance-actions">
+                 <button type="button" onclick="accepterPropositionPagesJaunes('${p.id}', this)">Accepter</button>
+                 <button type="button" class="ghost" onclick="refuserPropositionPagesJaunes('${p.id}', this)">Refuser</button>
+               </div>`
+            : p.statut === "acceptee"
+              ? `<div class="relance-actions">
+                   <button type="button" onclick="marquerPublieePropositionPagesJaunes('${p.id}', this)">Marquer publiée</button>
+                 </div>`
+              : "";
+        return `
+      <div class="decision-carte">
+        <div class="relance-entete">
+          <span class="badge badge-palier-neutre">${echapper(p.etablissement)}</span>
+          <span class="badge ${badge}">${echapper(libelleStatut)}</span>
+        </div>
+        <div class="anomalie-meta">${echapper(p.texte)}</div>
+        ${p.cheminMedia ? `<img src="/${echapper(p.cheminMedia)}" alt="Photo" style="max-width:160px;max-height:160px;border-radius:8px;margin:6px 0" />` : ""}
+        <div class="anomalie-meta">${echapper(p.justification)}</div>
+        <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}${p.publieeLe ? ` · publiée le ${fmtDate(p.publieeLe)}` : ""}</div>
+        ${actions}
+      </div>`;
+      })
+      .join("");
+}
+
 // Liste individuelle des paiements Stripe deja captes : jusqu'ici seuls des
 // compteurs agreges apparaissaient au moment d'un clic sur "Synchroniser
 // maintenant", sans aucune trace consultable ensuite - impossible de
@@ -2193,7 +2375,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

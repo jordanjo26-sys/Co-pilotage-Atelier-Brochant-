@@ -35,6 +35,7 @@ import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
 import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds, AjustementAppareilAds } from "./googleAds";
 import { creerPropositionPost, listerPropositionsPost } from "./reseauxSociauxActions";
 import { obtenirStatistiquesPost, reseauxSociauxEstConfigure } from "./reseauxSociaux";
+import { creerPropositionActualitePagesJaunes } from "./pagesJaunesActions";
 import { obtenirConnexionMeta } from "./metaAuth";
 import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./documentsScannes";
 import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
@@ -583,6 +584,21 @@ const OUTILS: Anthropic.Tool[] = [
         plateforme: { type: "string", enum: ["FACEBOOK", "INSTAGRAM"] },
       },
       required: ["idPublication", "plateforme"],
+    },
+  },
+  {
+    name: "proposer_actualite_pagesjaunes",
+    description:
+      "Enregistre une proposition d'actualite PagesJaunes/Solocal Manager (titre A.B Atelier Brochant / Atelier Brochant A B), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur ce contenu precis. Solocal Manager n'a aucune API et son SSO bloque explicitement les navigateurs automatises (Cloudflare) - AUCUNE publication automatique n'existe ni n'existera via cet outil : la proposition est deposee sur l'ecran de validation dedie (onglet PagesJaunes), ou l'utilisateur doit l'accepter PUIS la coller lui-meme dans Solocal Manager (indique-le-lui toujours), et enfin la marquer 'publiee' une fois fait. Ne jamais laisser croire que la publication se fait seule. Demande toujours quel etablissement est concerne (il y en a au moins deux, jamais deviner lequel).",
+    input_schema: {
+      type: "object",
+      properties: {
+        etablissement: { type: "string", description: "Etablissement concerne tel que nomme dans Solocal Manager, ex. 'A.B Atelier Brochant - Lagny-sur-Marne'. Demande-le a l'utilisateur, ne le devine jamais." },
+        texte: { type: "string", description: "Texte exact de l'actualite, valide avec l'utilisateur." },
+        cheminMedia: { type: "string", description: "Chemin d'une photo deja uploadee (ex. 'media-publics/xxxx.jpg'), fourni par l'utilisateur via l'onglet Reseaux sociaux/PagesJaunes. Optionnel." },
+        justification: { type: "string", description: "Resume en langage clair de pourquoi cette actualite est proposee, affiche a l'utilisateur sur l'ecran de validation." },
+      },
+      required: ["etablissement", "texte", "justification"],
     },
   },
   {
@@ -1167,6 +1183,24 @@ async function executerOutil(
       }
     }
 
+    case "proposer_actualite_pagesjaunes": {
+      const etablissement = typeof params.etablissement === "string" ? params.etablissement : "";
+      const texte = typeof params.texte === "string" ? params.texte : "";
+      const cheminMedia = typeof params.cheminMedia === "string" ? params.cheminMedia : undefined;
+      const justification = typeof params.justification === "string" ? params.justification : "";
+      try {
+        const proposition = await creerPropositionActualitePagesJaunes(prisma, { etablissement, texte, cheminMedia, justification });
+        return {
+          ok: true,
+          message:
+            "Proposition deposee sur l'ecran de validation (onglet PagesJaunes). Une fois acceptee la-bas, l'utilisateur doit la coller lui-meme dans Solocal Manager (aucune publication automatique n'est possible) puis la marquer publiee.",
+          propositionId: proposition.id,
+        };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
     case "classer_document_recu": {
       if (!pieceJointe) {
         return { erreur: "Aucune piece jointe n'a ete recue avec ce message : redemande a l'utilisateur d'envoyer la photo ou le fichier avant d'appeler cet outil." };
@@ -1614,6 +1648,30 @@ toujours que la publication reelle ne se fait qu'apres son acceptation \
 sur l'ecran de validation dedie, jamais depuis la conversation.
   Instagram EXIGE une photo (cheminMedia) - rappelle-le si l'utilisateur \
 demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.
+
+Module PagesJaunes/Solocal Manager (outil proposer_actualite_pagesjaunes, \
+sujet SEPARE du module Reseaux sociaux ci-dessus). Mode "assiste" \
+DEFINITIF, pas une phase transitoire : Solocal Manager n'a aucune API \
+publique, et une verification reelle a montre que son SSO \
+(sso.solocal.com) bloque explicitement les navigateurs automatises via \
+Cloudflare - il n'y aura donc JAMAIS de publication automatique ici, \
+contrairement au module Reseaux sociaux. Ton role se limite a REDIGER le \
+texte de l'actualite avec l'utilisateur (objectif : au moins 4 \
+actualites/evenements/promotions pour ameliorer son score d'engagement \
+Solocal) puis a deposer la proposition. Dis TOUJOURS clairement a \
+l'utilisateur qu'une fois la proposition acceptee sur l'ecran de \
+validation (onglet PagesJaunes), c'est LUI qui doit coller le texte dans \
+Solocal Manager (Menu > Communication > Actualites > Nouvelle actualite, \
+ou equivalent selon l'interface) puis marquer la proposition "publiee" \
+une fois fait - ne laisse jamais entendre que ca se publie seul.
+  Il y a au moins deux etablissements distincts dans Solocal Manager (ex. \
+"A.B Atelier Brochant" a Lagny-sur-Marne et "Atelier Brochant A B" a \
+Paris) : demande TOUJOURS a l'utilisateur quel etablissement est concerne \
+avant de proposer, ne le devine jamais a partir du contexte.
+  Comme pour Reseaux sociaux : propose uniquement APRES accord explicite \
+et recent de l'utilisateur sur le texte exact, et le media (cheminMedia) \
+doit deja avoir ete uploade par l'utilisateur via l'onglet dedie si une \
+photo est souhaitee.
 
 Pieces jointes dans la conversation (photo ou PDF, outil classer_document_recu) : \
 l'utilisateur peut joindre une photo ou un fichier a son message - tu la \

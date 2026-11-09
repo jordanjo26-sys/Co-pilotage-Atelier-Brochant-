@@ -687,3 +687,23 @@ model PropositionPost {
   creeLe                 DateTime  @default(now())
   decideLe               DateTime?
 }
+
+// PagesJaunes/Solocal Manager n'offre aucune API publique (confirme par
+// recherche) et son SSO (sso.solocal.com) bloque explicitement les
+// navigateurs automatises (Cloudflare "security verification", constate en
+// conditions reelles) - toute automatisation de connexion serait une
+// tentative de contournement d'une protection anti-bot volontaire, exclue.
+// Mode "assiste" a la place : Morgane redige l'actualite, l'utilisateur la
+// colle lui-meme dans Solocal Manager puis la marque publiee ici. Pas de
+// statut "appliquee"/"echec" (pas de publication automatique possible).
+model PropositionActualitePagesJaunes {
+  id             String    @id @default(cuid())
+  etablissement  String // ex. "A.B Atelier Brochant - Lagny-sur-Marne" (jamais devine : demande a l'utilisateur quel etablissement)
+  texte          String
+  cheminMedia    String? // chemin sous public/media-publics/, reutilise le meme upload que le module Reseaux sociaux
+  justification  String
+  statut         String    @default("en_attente") // "en_attente" | "acceptee" | "refusee" | "publiee"
+  creeLe         DateTime  @default(now())
+  decideLe       DateTime?
+  publieeLe      DateTime?
+}
