@@ -54,8 +54,14 @@ jobs:
           # fenetre ou une synchronisation Synec en cours au meme moment
           # echouait avec "Executable doesn't exist" (constate en
           # production).
+          # public/media-publics exclu pour la meme raison : photos/videos
+          # uploadees ou generees (modules Reseaux sociaux et PagesJaunes),
+          # jamais commises dans le depot - --delete les effacait a CHAQUE
+          # deploiement (bug reel constate en production : une photo
+          # uploadee quelques minutes plus tot disparaissait au deploiement
+          # suivant, cassant le media deja attache a une proposition).
           rsync -az --delete \
-            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude="uploads" --exclude=".cache" \
+            --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" --exclude="uploads" --exclude=".cache" --exclude="public/media-publics" \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
             ./ "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:/opt/copilote-brochant/"
 
