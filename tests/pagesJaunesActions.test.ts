@@ -18,7 +18,8 @@ process.env.DATABASE_URL = testDatabaseUrl;
 // Module PagesJaunes/Solocal Manager, mode "assiste" (pas d'API, SSO bloque
 // les navigateurs automatises - voir pagesJaunesActions.ts) : aucune
 // publication reelle n'est jamais declenchee par ce module, seulement le
-// pipeline propose/accepte/refuse/marque-publiee.
+// pipeline propose/accepte/refuse/marque-publiee, pour les trois types
+// (actualite, info_fiche, reponse_avis) du modele unifie.
 test("Module PagesJaunes", async (t) => {
   execSync("npx prisma db push --force-reset --skip-generate", {
     cwd: path.join(__dirname, ".."),
@@ -28,79 +29,104 @@ test("Module PagesJaunes", async (t) => {
 
   const { PrismaClient } = await import("@prisma/client");
   const {
-    creerPropositionActualitePagesJaunes,
-    listerPropositionsActualitesPagesJaunes,
-    accepterPropositionActualitePagesJaunes,
-    refuserPropositionActualitePagesJaunes,
-    marquerPublieePropositionActualitePagesJaunes,
+    ETABLISSEMENT_PAGESJAUNES,
+    creerPropositionActualite,
+    creerPropositionInfoFiche,
+    creerPropositionReponseAvis,
+    listerPropositionsPagesJaunes,
+    accepterPropositionPagesJaunes,
+    refuserPropositionPagesJaunes,
+    marquerPublieePropositionPagesJaunes,
   } = await import("../src/services/pagesJaunesActions");
   const prisma = new PrismaClient();
 
-  await t.test("creerPropositionActualitePagesJaunes : rejette un etablissement manquant", async () => {
-    await assert.rejects(
-      creerPropositionActualitePagesJaunes(prisma, { etablissement: "", texte: "Texte", justification: "test" }),
-      /etablissement manquant/
-    );
+  await t.test("creerPropositionActualite : rejette un texte manquant", async () => {
+    await assert.rejects(creerPropositionActualite(prisma, { texte: "", justification: "test" }), /texte manquant/);
   });
 
-  await t.test("creerPropositionActualitePagesJaunes : rejette un texte manquant", async () => {
-    await assert.rejects(
-      creerPropositionActualitePagesJaunes(prisma, { etablissement: "A.B Atelier Brochant", texte: "", justification: "test" }),
-      /texte manquant/
-    );
-  });
-
-  await t.test("creerPropositionActualitePagesJaunes : cree bien une proposition en_attente, listee ensuite", async () => {
-    await prisma.propositionActualitePagesJaunes.deleteMany({});
-    const proposition = await creerPropositionActualitePagesJaunes(prisma, {
-      etablissement: "A.B Atelier Brochant - Lagny-sur-Marne",
-      texte: "Nouvelle intervention reussie ce matin !",
-      justification: "Actualite du jour",
-    });
+  await t.test("creerPropositionActualite : cree une proposition en_attente avec l'etablissement fixe", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    const proposition = await creerPropositionActualite(prisma, { texte: "Nouvelle intervention reussie !", justification: "Actualite du jour" });
     assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.type, "actualite");
+    assert.equal(proposition.etablissement, ETABLISSEMENT_PAGESJAUNES);
 
-    const liste = await listerPropositionsActualitesPagesJaunes(prisma);
+    const liste = await listerPropositionsPagesJaunes(prisma);
     assert.equal(liste.length, 1);
     assert.equal(liste[0].id, proposition.id);
   });
 
-  await t.test("marquerPublieePropositionActualitePagesJaunes : refuse une proposition qui n'est pas acceptee", async () => {
-    await prisma.propositionActualitePagesJaunes.deleteMany({});
-    const proposition = await creerPropositionActualitePagesJaunes(prisma, {
-      etablissement: "A.B Atelier Brochant",
-      texte: "Texte",
-      justification: "test",
-    });
-    await assert.rejects(marquerPublieePropositionActualitePagesJaunes(prisma, proposition.id), /pas "acceptee"/);
+  await t.test("creerPropositionInfoFiche : rejette un champFiche invalide", async () => {
+    await assert.rejects(creerPropositionInfoFiche(prisma, { champFiche: "autre_chose", texte: "Texte", justification: "test" }), /champFiche invalide/);
   });
 
-  await t.test("accepterPropositionActualitePagesJaunes puis marquerPublieePropositionActualitePagesJaunes : flux complet sans aucune publication automatique", async () => {
-    await prisma.propositionActualitePagesJaunes.deleteMany({});
-    const proposition = await creerPropositionActualitePagesJaunes(prisma, {
-      etablissement: "A.B Atelier Brochant",
-      texte: "Texte",
-      justification: "test",
-    });
+  await t.test("creerPropositionInfoFiche : cree une proposition en_attente", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    const proposition = await creerPropositionInfoFiche(prisma, { champFiche: "horaires", texte: "Lun-Ven 8h-18h", justification: "Horaires a jour" });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.type, "info_fiche");
+    assert.equal(proposition.champFiche, "horaires");
+  });
 
-    const acceptee = await accepterPropositionActualitePagesJaunes(prisma, proposition.id);
+  await t.test("creerPropositionReponseAvis : rejette une note hors de 1 a 5", async () => {
+    await assert.rejects(
+      creerPropositionReponseAvis(prisma, { avisTexte: "Avis", texte: "Reponse", avisNote: 6, justification: "test" }),
+      /avisNote doit etre comprise/
+    );
+  });
+
+  await t.test("creerPropositionReponseAvis : cree une proposition en_attente", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    const proposition = await creerPropositionReponseAvis(prisma, {
+      avisTexte: "Tres bon service, rapide et efficace.",
+      texte: "Merci beaucoup pour votre retour !",
+      avisClientNom: "M. Dupont",
+      avisNote: 5,
+      justification: "Avis positif recent",
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.type, "reponse_avis");
+    assert.equal(proposition.avisClientNom, "M. Dupont");
+  });
+
+  await t.test("marquerPublieePropositionPagesJaunes : refuse une proposition qui n'est pas acceptee", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    const proposition = await creerPropositionActualite(prisma, { texte: "Texte", justification: "test" });
+    await assert.rejects(marquerPublieePropositionPagesJaunes(prisma, proposition.id), /pas "acceptee"/);
+  });
+
+  await t.test("accepterPropositionPagesJaunes puis marquerPublieePropositionPagesJaunes : flux complet sans aucune publication automatique", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    const proposition = await creerPropositionActualite(prisma, { texte: "Texte", justification: "test" });
+
+    const acceptee = await accepterPropositionPagesJaunes(prisma, proposition.id);
     assert.equal(acceptee.statut, "acceptee");
     assert.ok(acceptee.decideLe);
 
-    const publiee = await marquerPublieePropositionActualitePagesJaunes(prisma, proposition.id);
+    const publiee = await marquerPublieePropositionPagesJaunes(prisma, proposition.id);
     assert.equal(publiee.statut, "publiee");
     assert.ok(publiee.publieeLe);
   });
 
-  await t.test("refuserPropositionActualitePagesJaunes : passe a refusee", async () => {
-    await prisma.propositionActualitePagesJaunes.deleteMany({});
-    const proposition = await creerPropositionActualitePagesJaunes(prisma, {
-      etablissement: "A.B Atelier Brochant",
-      texte: "Texte",
-      justification: "test",
-    });
-    const resultat = await refuserPropositionActualitePagesJaunes(prisma, proposition.id);
+  await t.test("refuserPropositionPagesJaunes : passe a refusee", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    const proposition = await creerPropositionActualite(prisma, { texte: "Texte", justification: "test" });
+    const resultat = await refuserPropositionPagesJaunes(prisma, proposition.id);
     assert.equal(resultat.statut, "refusee");
     assert.ok(resultat.decideLe);
+  });
+
+  await t.test("listerPropositionsPagesJaunes : filtre par type", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    await creerPropositionActualite(prisma, { texte: "Texte actu", justification: "test" });
+    await creerPropositionInfoFiche(prisma, { champFiche: "services", texte: "Debouchage, plomberie", justification: "test" });
+
+    const actualites = await listerPropositionsPagesJaunes(prisma, "actualite");
+    assert.equal(actualites.length, 1);
+    assert.equal(actualites[0].type, "actualite");
+
+    const toutes = await listerPropositionsPagesJaunes(prisma);
+    assert.equal(toutes.length, 2);
   });
 
   await prisma.$disconnect();

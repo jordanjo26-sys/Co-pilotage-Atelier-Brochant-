@@ -35,7 +35,7 @@ import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
 import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds, AjustementAppareilAds } from "./googleAds";
 import { creerPropositionPost, listerPropositionsPost } from "./reseauxSociauxActions";
 import { obtenirStatistiquesPost, reseauxSociauxEstConfigure } from "./reseauxSociaux";
-import { creerPropositionActualitePagesJaunes } from "./pagesJaunesActions";
+import { creerPropositionActualite, creerPropositionInfoFiche, creerPropositionReponseAvis } from "./pagesJaunesActions";
 import { obtenirConnexionMeta } from "./metaAuth";
 import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./documentsScannes";
 import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
@@ -589,16 +589,45 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "proposer_actualite_pagesjaunes",
     description:
-      "Enregistre une proposition d'actualite PagesJaunes/Solocal Manager (titre A.B Atelier Brochant / Atelier Brochant A B), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur ce contenu precis. Solocal Manager n'a aucune API et son SSO bloque explicitement les navigateurs automatises (Cloudflare) - AUCUNE publication automatique n'existe ni n'existera via cet outil : la proposition est deposee sur l'ecran de validation dedie (onglet PagesJaunes), ou l'utilisateur doit l'accepter PUIS la coller lui-meme dans Solocal Manager (indique-le-lui toujours), et enfin la marquer 'publiee' une fois fait. Ne jamais laisser croire que la publication se fait seule. Demande toujours quel etablissement est concerne (il y en a au moins deux, jamais deviner lequel).",
+      "Enregistre une proposition d'actualite/offre/evenement/promotion PagesJaunes/Solocal Manager pour l'etablissement A.B Atelier Brochant (117 avenue du General Leclerc, 77400 Lagny-sur-Marne - seul etablissement gere, jamais a redemander), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur ce contenu precis. Solocal Manager n'a aucune API et son SSO bloque explicitement les navigateurs automatises (Cloudflare) - AUCUNE publication automatique n'existe ni n'existera via cet outil : la proposition est deposee sur l'ecran de validation dedie (onglet PagesJaunes), ou l'utilisateur doit l'accepter PUIS la coller lui-meme dans Solocal Manager (indique-le-lui toujours), et enfin la marquer 'publiee' une fois fait. Ne jamais laisser croire que la publication se fait seule.",
     input_schema: {
       type: "object",
       properties: {
-        etablissement: { type: "string", description: "Etablissement concerne tel que nomme dans Solocal Manager, ex. 'A.B Atelier Brochant - Lagny-sur-Marne'. Demande-le a l'utilisateur, ne le devine jamais." },
-        texte: { type: "string", description: "Texte exact de l'actualite, valide avec l'utilisateur." },
+        texte: { type: "string", description: "Texte exact de l'actualite/offre, valide avec l'utilisateur." },
         cheminMedia: { type: "string", description: "Chemin d'une photo deja uploadee (ex. 'media-publics/xxxx.jpg'), fourni par l'utilisateur via l'onglet Reseaux sociaux/PagesJaunes. Optionnel." },
         justification: { type: "string", description: "Resume en langage clair de pourquoi cette actualite est proposee, affiche a l'utilisateur sur l'ecran de validation." },
       },
-      required: ["etablissement", "texte", "justification"],
+      required: ["texte", "justification"],
+    },
+  },
+  {
+    name: "proposer_maj_fiche_pagesjaunes",
+    description:
+      "Enregistre une proposition de mise a jour d'un champ de la fiche etablissement PagesJaunes/Solocal Manager (description de l'activite, services/metiers proposes, horaires, ou autre info de la fiche) pour A.B Atelier Brochant, APRES accord explicite de l'utilisateur sur le contenu precis. Meme principe que proposer_actualite_pagesjaunes : aucune publication automatique, l'utilisateur colle lui-meme le contenu dans l'onglet 'Informations'/'Activites' de Solocal Manager puis marque la proposition publiee.",
+    input_schema: {
+      type: "object",
+      properties: {
+        champFiche: { type: "string", enum: ["description", "services", "horaires", "autre"], description: "Champ de la fiche concerne." },
+        texte: { type: "string", description: "Contenu exact propose pour ce champ, valide avec l'utilisateur." },
+        justification: { type: "string", description: "Resume en langage clair de pourquoi cette mise a jour est proposee." },
+      },
+      required: ["champFiche", "texte", "justification"],
+    },
+  },
+  {
+    name: "proposer_reponse_avis_pagesjaunes",
+    description:
+      "Enregistre une proposition de reponse a un avis client PagesJaunes/Solocal Manager pour A.B Atelier Brochant. L'utilisateur doit t'avoir transmis le contenu REEL de l'avis dans la conversation (capture d'ecran ou texte colle) - n'invente JAMAIS le texte d'un avis, et n'appelle cet outil que si tu l'as effectivement vu/lu dans ce message ou un message recent. Propose une reponse apres accord explicite de l'utilisateur sur son contenu. Meme principe que les autres outils PagesJaunes : aucune publication automatique, l'utilisateur colle lui-meme la reponse dans la section Avis de Solocal Manager puis marque la proposition publiee.",
+    input_schema: {
+      type: "object",
+      properties: {
+        avisTexte: { type: "string", description: "Texte EXACT de l'avis client, tel que vu/lu dans la conversation. Jamais invente." },
+        avisClientNom: { type: "string", description: "Nom du client auteur de l'avis, si visible. Optionnel." },
+        avisNote: { type: "number", description: "Note de l'avis sur 5, si visible. Optionnel." },
+        texte: { type: "string", description: "Texte exact de la reponse proposee, valide avec l'utilisateur." },
+        justification: { type: "string", description: "Resume en langage clair (ex. ton adopte, point adresse)." },
+      },
+      required: ["avisTexte", "texte", "justification"],
     },
   },
   {
@@ -1184,16 +1213,51 @@ async function executerOutil(
     }
 
     case "proposer_actualite_pagesjaunes": {
-      const etablissement = typeof params.etablissement === "string" ? params.etablissement : "";
       const texte = typeof params.texte === "string" ? params.texte : "";
       const cheminMedia = typeof params.cheminMedia === "string" ? params.cheminMedia : undefined;
       const justification = typeof params.justification === "string" ? params.justification : "";
       try {
-        const proposition = await creerPropositionActualitePagesJaunes(prisma, { etablissement, texte, cheminMedia, justification });
+        const proposition = await creerPropositionActualite(prisma, { texte, cheminMedia, justification });
         return {
           ok: true,
           message:
             "Proposition deposee sur l'ecran de validation (onglet PagesJaunes). Une fois acceptee la-bas, l'utilisateur doit la coller lui-meme dans Solocal Manager (aucune publication automatique n'est possible) puis la marquer publiee.",
+          propositionId: proposition.id,
+        };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
+    case "proposer_maj_fiche_pagesjaunes": {
+      const champFiche = typeof params.champFiche === "string" ? params.champFiche : "";
+      const texte = typeof params.texte === "string" ? params.texte : "";
+      const justification = typeof params.justification === "string" ? params.justification : "";
+      try {
+        const proposition = await creerPropositionInfoFiche(prisma, { champFiche, texte, justification });
+        return {
+          ok: true,
+          message:
+            "Proposition deposee sur l'ecran de validation (onglet PagesJaunes). Une fois acceptee la-bas, l'utilisateur doit coller lui-meme ce contenu dans l'onglet Informations/Activites de Solocal Manager puis marquer la proposition publiee.",
+          propositionId: proposition.id,
+        };
+      } catch (err) {
+        return { erreur: (err as Error).message };
+      }
+    }
+
+    case "proposer_reponse_avis_pagesjaunes": {
+      const avisTexte = typeof params.avisTexte === "string" ? params.avisTexte : "";
+      const avisClientNom = typeof params.avisClientNom === "string" ? params.avisClientNom : undefined;
+      const avisNote = typeof params.avisNote === "number" ? params.avisNote : undefined;
+      const texte = typeof params.texte === "string" ? params.texte : "";
+      const justification = typeof params.justification === "string" ? params.justification : "";
+      try {
+        const proposition = await creerPropositionReponseAvis(prisma, { avisTexte, avisClientNom, avisNote, texte, justification });
+        return {
+          ok: true,
+          message:
+            "Proposition deposee sur l'ecran de validation (onglet PagesJaunes). Une fois acceptee la-bas, l'utilisateur doit coller lui-meme cette reponse dans la section Avis de Solocal Manager puis marquer la proposition publiee.",
           propositionId: proposition.id,
         };
       } catch (err) {
@@ -1649,29 +1713,41 @@ sur l'ecran de validation dedie, jamais depuis la conversation.
   Instagram EXIGE une photo (cheminMedia) - rappelle-le si l'utilisateur \
 demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.
 
-Module PagesJaunes/Solocal Manager (outil proposer_actualite_pagesjaunes, \
-sujet SEPARE du module Reseaux sociaux ci-dessus). Mode "assiste" \
-DEFINITIF, pas une phase transitoire : Solocal Manager n'a aucune API \
-publique, et une verification reelle a montre que son SSO \
-(sso.solocal.com) bloque explicitement les navigateurs automatises via \
-Cloudflare - il n'y aura donc JAMAIS de publication automatique ici, \
-contrairement au module Reseaux sociaux. Ton role se limite a REDIGER le \
-texte de l'actualite avec l'utilisateur (objectif : au moins 4 \
-actualites/evenements/promotions pour ameliorer son score d'engagement \
-Solocal) puis a deposer la proposition. Dis TOUJOURS clairement a \
-l'utilisateur qu'une fois la proposition acceptee sur l'ecran de \
-validation (onglet PagesJaunes), c'est LUI qui doit coller le texte dans \
-Solocal Manager (Menu > Communication > Actualites > Nouvelle actualite, \
-ou equivalent selon l'interface) puis marquer la proposition "publiee" \
-une fois fait - ne laisse jamais entendre que ca se publie seul.
-  Il y a au moins deux etablissements distincts dans Solocal Manager (ex. \
-"A.B Atelier Brochant" a Lagny-sur-Marne et "Atelier Brochant A B" a \
-Paris) : demande TOUJOURS a l'utilisateur quel etablissement est concerne \
-avant de proposer, ne le devine jamais a partir du contexte.
-  Comme pour Reseaux sociaux : propose uniquement APRES accord explicite \
-et recent de l'utilisateur sur le texte exact, et le media (cheminMedia) \
-doit deja avoir ete uploade par l'utilisateur via l'onglet dedie si une \
-photo est souhaitee.
+Module PagesJaunes/Solocal Manager (outils proposer_actualite_pagesjaunes, \
+proposer_maj_fiche_pagesjaunes, proposer_reponse_avis_pagesjaunes, sujet \
+SEPARE du module Reseaux sociaux ci-dessus). Mode "assiste" DEFINITIF, pas \
+une phase transitoire : Solocal Manager n'a aucune API publique, et une \
+verification reelle a montre que son SSO (sso.solocal.com) bloque \
+explicitement les navigateurs automatises via Cloudflare - il n'y aura \
+donc JAMAIS de publication/lecture automatique ici, contrairement au \
+module Reseaux sociaux. Un seul etablissement est gere : A.B Atelier \
+Brochant, 117 avenue du General Leclerc, 77400 Lagny-sur-Marne - fixe, ne \
+JAMAIS le redemander a l'utilisateur ni en demander un autre.
+  Pour les TROIS outils : dis TOUJOURS clairement a l'utilisateur qu'une \
+fois la proposition acceptee sur l'ecran de validation (onglet \
+PagesJaunes), c'est LUI qui doit coller le contenu dans Solocal Manager \
+puis marquer la proposition "publiee" une fois fait - ne laisse jamais \
+entendre que ca se publie/s'envoie seul. Propose uniquement APRES accord \
+explicite et recent de l'utilisateur sur le texte exact.
+  proposer_actualite_pagesjaunes : actualites, evenements ET offres/promotions \
+(une seule et meme fonctionnalite cote Solocal) - objectif rappele par \
+Solocal lui-meme : au moins 4 par mois pour ameliorer le score \
+d'engagement. A coller dans Menu > Communication > Actualites.
+  proposer_maj_fiche_pagesjaunes : tenir a jour les informations \
+permanentes de la fiche (description de l'activite, services/metiers \
+proposes, horaires...) - le "bloc articles" de la fiche, visible dans \
+l'onglet Informations/Activites de Solocal Manager. Precise toujours quel \
+champ (champFiche) est concerne.
+  proposer_reponse_avis_pagesjaunes : l'utilisateur transmet le contenu \
+d'un avis (capture d'ecran ou texte colle dans la conversation) - tu ne \
+peux PAS lire les avis toi-meme (pas d'acces a Solocal Manager), donc \
+n'appelle jamais cet outil sans avoir reellement vu l'avis dans la \
+conversation, et ne fabrique JAMAIS son contenu (avisTexte). Adapte le ton \
+de la reponse a la note si elle est visible (remerciement sincere pour un \
+avis positif, reponse posee et constructive - jamais defensive - pour un \
+avis negatif, sans jamais inventer de fait sur l'intervention).
+  Le media (cheminMedia, actualite uniquement) doit deja avoir ete uploade \
+par l'utilisateur via l'onglet dedie si une photo est souhaitee.
 
 Pieces jointes dans la conversation (photo ou PDF, outil classer_document_recu) : \
 l'utilisateur peut joindre une photo ou un fichier a son message - tu la \

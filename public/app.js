@@ -1223,13 +1223,8 @@ if (formActualitePagesJaunes) {
   formActualitePagesJaunes.addEventListener("submit", async (e) => {
     e.preventDefault();
     const resultatDiv = document.getElementById("resultat-actualite-pagesjaunes");
-    const etablissement = document.getElementById("etablissement-pagesjaunes").value.trim();
     const texte = document.getElementById("texte-actualite-pagesjaunes").value.trim();
 
-    if (!etablissement) {
-      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Précise l'établissement concerné.`;
-      return;
-    }
     if (!texte) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Le texte de l'actualité est requis.`;
       return;
@@ -1237,11 +1232,10 @@ if (formActualitePagesJaunes) {
 
     resultatDiv.textContent = "Dépôt de la proposition…";
     try {
-      const r = await fetch("/api/pagesjaunes/propositions", {
+      const r = await fetch("/api/pagesjaunes/propositions/actualite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          etablissement,
           texte,
           cheminMedia: cheminMediaPagesJaunes || undefined,
           justification: "Actualité proposée depuis l'onglet PagesJaunes.",
@@ -1308,6 +1302,23 @@ async function marquerPublieePropositionPagesJaunes(id, bouton) {
 }
 window.marquerPublieePropositionPagesJaunes = marquerPublieePropositionPagesJaunes;
 
+const LIBELLE_TYPE_PAGESJAUNES = { actualite: "Actualité/offre", info_fiche: "Fiche établissement", reponse_avis: "Réponse à un avis" };
+const LIBELLE_CHAMP_FICHE_PAGESJAUNES = { description: "Description de l'activité", services: "Services proposés", horaires: "Horaires", autre: "Autre info" };
+
+function rendreContenuPropositionPagesJaunes(p) {
+  if (p.type === "info_fiche") {
+    return `<div class="anomalie-meta"><strong>${echapper(LIBELLE_CHAMP_FICHE_PAGESJAUNES[p.champFiche] || p.champFiche)}</strong></div><div class="anomalie-meta">${echapper(p.texte)}</div>`;
+  }
+  if (p.type === "reponse_avis") {
+    return `
+      <div class="anomalie-meta">Avis${p.avisClientNom ? ` de ${echapper(p.avisClientNom)}` : ""}${p.avisNote ? ` (${p.avisNote}/5)` : ""} : « ${echapper(p.avisTexte)} »</div>
+      <div class="anomalie-meta"><strong>Réponse proposée :</strong> ${echapper(p.texte)}</div>`;
+  }
+  return `
+    <div class="anomalie-meta">${echapper(p.texte)}</div>
+    ${p.cheminMedia ? `<img src="/${echapper(p.cheminMedia)}" alt="Photo" style="max-width:160px;max-height:160px;border-radius:8px;margin:6px 0" />` : ""}`;
+}
+
 async function chargerPropositionsPagesJaunes() {
   const liste = document.getElementById("liste-propositions-pagesjaunes");
   if (!liste) return;
@@ -1315,14 +1326,16 @@ async function chargerPropositionsPagesJaunes() {
   const propositions = await res.json();
 
   if (propositions.length === 0) {
-    liste.innerHTML = `<p class="liste-vide">Aucune actualité proposée pour le moment.</p>`;
+    liste.innerHTML = `<p class="liste-vide">Aucune proposition PagesJaunes pour le moment.</p>`;
     return;
   }
 
-  const nbPublieesCeMois = propositions.filter((p) => p.statut === "publiee" && p.publieeLe && new Date(p.publieeLe).getMonth() === new Date().getMonth() && new Date(p.publieeLe).getFullYear() === new Date().getFullYear()).length;
+  const nbActualitesPublieesCeMois = propositions.filter(
+    (p) => p.type === "actualite" && p.statut === "publiee" && p.publieeLe && new Date(p.publieeLe).getMonth() === new Date().getMonth() && new Date(p.publieeLe).getFullYear() === new Date().getFullYear()
+  ).length;
 
   liste.innerHTML =
-    `<p class="anomalie-meta">${nbPublieesCeMois} actualité(s) publiée(s) ce mois-ci (objectif Solocal : au moins 4).</p>` +
+    `<p class="anomalie-meta">${nbActualitesPublieesCeMois} actualité(s)/offre(s) publiée(s) ce mois-ci (objectif Solocal : au moins 4).</p>` +
     propositions
       .map((p) => {
         const badge = BADGE_STATUT_PAGESJAUNES[p.statut] || "badge-doublon_fichier";
@@ -1341,11 +1354,10 @@ async function chargerPropositionsPagesJaunes() {
         return `
       <div class="decision-carte">
         <div class="relance-entete">
-          <span class="badge badge-palier-neutre">${echapper(p.etablissement)}</span>
+          <span class="badge badge-palier-neutre">${echapper(LIBELLE_TYPE_PAGESJAUNES[p.type] || p.type)}</span>
           <span class="badge ${badge}">${echapper(libelleStatut)}</span>
         </div>
-        <div class="anomalie-meta">${echapper(p.texte)}</div>
-        ${p.cheminMedia ? `<img src="/${echapper(p.cheminMedia)}" alt="Photo" style="max-width:160px;max-height:160px;border-radius:8px;margin:6px 0" />` : ""}
+        ${rendreContenuPropositionPagesJaunes(p)}
         <div class="anomalie-meta">${echapper(p.justification)}</div>
         <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}${p.publieeLe ? ` · publiée le ${fmtDate(p.publieeLe)}` : ""}</div>
         ${actions}
