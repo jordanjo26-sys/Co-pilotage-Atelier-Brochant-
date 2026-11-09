@@ -118,6 +118,32 @@ export async function refuserPropositionPagesJaunes(prisma: PrismaClient, id: st
   return prisma.propositionPagesJaunes.update({ where: { id }, data: { statut: "refusee", decideLe: new Date() } });
 }
 
+export interface EtatActualitesPagesJaunes {
+  nbPublieesCeMois: number;
+  objectifMensuel: number;
+  dernieresActualites: { texte: string; publieeLe: Date | null }[];
+}
+
+/**
+ * Lecture seule, utilisee a la fois par Morgane (outil de contexte avant de
+ * proposer) et par l'analyse hebdomadaire automatique (pagesJaunesRecap.ts) :
+ * ou en est-on par rapport a l'objectif Solocal (4 actualites/mois), et
+ * quels sont les derniers textes publies (pour ne pas repeter le meme angle).
+ */
+export async function obtenirEtatActualitesPagesJaunes(prisma: PrismaClient, maintenant: Date = new Date()): Promise<EtatActualitesPagesJaunes> {
+  const debutMois = new Date(maintenant.getFullYear(), maintenant.getMonth(), 1);
+  const nbPublieesCeMois = await prisma.propositionPagesJaunes.count({
+    where: { type: "actualite", statut: "publiee", publieeLe: { gte: debutMois } },
+  });
+  const dernieresActualites = await prisma.propositionPagesJaunes.findMany({
+    where: { type: "actualite", statut: "publiee" },
+    orderBy: { publieeLe: "desc" },
+    take: 5,
+    select: { texte: true, publieeLe: true },
+  });
+  return { nbPublieesCeMois, objectifMensuel: 4, dernieresActualites };
+}
+
 /** Marquee par l'utilisateur une fois la proposition collee et publiee a la main dans Solocal Manager. */
 export async function marquerPublieePropositionPagesJaunes(prisma: PrismaClient, id: string) {
   const proposition = await prisma.propositionPagesJaunes.findUnique({ where: { id } });

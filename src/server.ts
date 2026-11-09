@@ -13,6 +13,7 @@ import {
   demarrerSurveillanceGmail,
   demarrerRecapQuotidien,
   demarrerAnalyseQuotidienneAds,
+  demarrerAnalyseHebdomadairePagesJaunes,
   demarrerSurveillanceStripe,
   demarrerSurveillanceSynec,
   demarrerDetectionReponsesProspection,
@@ -62,6 +63,7 @@ if (process.env.PLANIFICATEURS_DESACTIVES !== "true") {
   demarrerSurveillanceGmail(prisma);
   demarrerRecapQuotidien(prisma);
   demarrerAnalyseQuotidienneAds(prisma);
+  demarrerAnalyseHebdomadairePagesJaunes(prisma);
   demarrerSurveillanceStripe(prisma);
   demarrerSurveillanceSynec(prisma);
   demarrerDetectionReponsesProspection(prisma);

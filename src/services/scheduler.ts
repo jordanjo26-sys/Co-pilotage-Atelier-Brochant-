@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { synchroniserGmail, resumerErreurs } from "./gmailSync";
 import { envoyerRecapQuotidien } from "./dailyRecap";
 import { envoyerAnalyseQuotidienneAds } from "./googleAdsRecap";
+import { envoyerAnalysePagesJaunes } from "./pagesJaunesRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
 import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
@@ -17,6 +18,11 @@ const HEURE_RECAP_PAR_DEFAUT = 19; // 19h, heure locale du serveur
 // lire les recommandations Google Ads en debut de journee, avant d'eventuellement
 // agir dessus avec Morgane dans la journee.
 const HEURE_ANALYSE_ADS_PAR_DEFAUT = 8; // 8h, heure locale du serveur
+// Objectif Solocal mensuel (4 actualites/mois) : un rythme quotidien n'a
+// aucun sens ici, contrairement a Ads - hebdomadaire (lundi matin) suffit
+// largement et evite de noyer l'utilisateur.
+const HEURE_ANALYSE_PAGESJAUNES_PAR_DEFAUT = 8; // 8h, heure locale du serveur
+const JOUR_ANALYSE_PAGESJAUNES_PAR_DEFAUT = 1; // lundi (0 = dimanche)
 // Les payouts Stripe arrivent typiquement une fois par jour au plus, jamais
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
@@ -204,6 +210,52 @@ export function demarrerAnalyseQuotidienneAds(prisma: PrismaClient): void {
       await logEvenement(prisma, {
         evenement: "analyse_ads_erreur",
         action: "Analyse quotidienne Google Ads",
+        resultat: `Echec : ${messageErreur}${dateReprise ? ` (Gmail en pause jusqu'a ${dateReprise.toISOString()})` : ""}`,
+      }).catch(() => {});
+    }
+  }, INTERVALLE_VERIF_RECAP_MS);
+}
+
+/**
+ * Propose automatiquement des idees d'actualites/offres PagesJaunes une fois
+ * par semaine (lundi matin par defaut, configurable via
+ * ANALYSE_PAGESJAUNES_HOUR/ANALYSE_PAGESJAUNES_DAY), si l'objectif mensuel
+ * Solocal (4) n'est pas deja atteint (verifie dans envoyerAnalysePagesJaunes
+ * lui-meme). Meme principe d'idempotence que demarrerAnalyseQuotidienneAds,
+ * mais la fenetre de deduplication est la semaine ISO en cours (lundi 00h00
+ * local), pas la journee.
+ */
+export function demarrerAnalyseHebdomadairePagesJaunes(prisma: PrismaClient): void {
+  const heureCible = Number(process.env.ANALYSE_PAGESJAUNES_HOUR);
+  const heure = Number.isInteger(heureCible) && heureCible >= 0 && heureCible <= 23 ? heureCible : HEURE_ANALYSE_PAGESJAUNES_PAR_DEFAUT;
+  const jourCibleBrut = Number(process.env.ANALYSE_PAGESJAUNES_DAY);
+  const jourCible = Number.isInteger(jourCibleBrut) && jourCibleBrut >= 0 && jourCibleBrut <= 6 ? jourCibleBrut : JOUR_ANALYSE_PAGESJAUNES_PAR_DEFAUT;
+
+  setInterval(async () => {
+    try {
+      const maintenant = new Date();
+      if (maintenant.getDay() !== jourCible || maintenant.getHours() !== heure) return;
+      if (gmailEnPause()) return;
+
+      const debutSemaine = new Date(maintenant);
+      debutSemaine.setHours(0, 0, 0, 0);
+      debutSemaine.setDate(debutSemaine.getDate() - ((debutSemaine.getDay() + 6) % 7)); // lundi de la semaine en cours
+      const dejaEnvoyeeCetteSemaine = await prisma.journalEvenement.findFirst({
+        where: { evenement: { in: ["analyse_pagesjaunes_envoyee", "analyse_pagesjaunes_non_envoyee"] }, horodatage: { gte: debutSemaine } },
+      });
+      if (dejaEnvoyeeCetteSemaine) return;
+
+      await envoyerAnalysePagesJaunes(prisma, maintenant);
+      reinitialiserLimiteGmail();
+    } catch (err) {
+      const messageErreur = (err as Error).message;
+      // eslint-disable-next-line no-console
+      console.error("Analyse hebdomadaire PagesJaunes en echec :", messageErreur);
+      const estQuotaGmail = /User-rate limit exceeded|Quota exceeded/i.test(messageErreur);
+      const dateReprise = estQuotaGmail ? signalerLimiteGmail(messageErreur) : null;
+      await logEvenement(prisma, {
+        evenement: "analyse_pagesjaunes_erreur",
+        action: "Analyse hebdomadaire PagesJaunes",
         resultat: `Echec : ${messageErreur}${dateReprise ? ` (Gmail en pause jusqu'a ${dateReprise.toISOString()})` : ""}`,
       }).catch(() => {});
     }

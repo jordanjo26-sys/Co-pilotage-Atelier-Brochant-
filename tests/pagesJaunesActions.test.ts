@@ -37,6 +37,7 @@ test("Module PagesJaunes", async (t) => {
     accepterPropositionPagesJaunes,
     refuserPropositionPagesJaunes,
     marquerPublieePropositionPagesJaunes,
+    obtenirEtatActualitesPagesJaunes,
   } = await import("../src/services/pagesJaunesActions");
   const prisma = new PrismaClient();
 
@@ -127,6 +128,24 @@ test("Module PagesJaunes", async (t) => {
 
     const toutes = await listerPropositionsPagesJaunes(prisma);
     assert.equal(toutes.length, 2);
+  });
+
+  await t.test("obtenirEtatActualitesPagesJaunes : ne compte que les actualites publiees CE mois-ci, objectif fixe a 4", async () => {
+    await prisma.propositionPagesJaunes.deleteMany({});
+    const maintenant = new Date("2026-11-15T12:00:00");
+    const moisDernier = new Date("2026-10-20T12:00:00");
+
+    const p1 = await creerPropositionActualite(prisma, { texte: "Actu ce mois", justification: "test" });
+    await accepterPropositionPagesJaunes(prisma, p1.id);
+    await marquerPublieePropositionPagesJaunes(prisma, p1.id);
+
+    const p2 = await creerPropositionActualite(prisma, { texte: "Actu mois dernier", justification: "test" });
+    await prisma.propositionPagesJaunes.update({ where: { id: p2.id }, data: { statut: "publiee", publieeLe: moisDernier } });
+
+    const etat = await obtenirEtatActualitesPagesJaunes(prisma, maintenant);
+    assert.equal(etat.nbPublieesCeMois, 1);
+    assert.equal(etat.objectifMensuel, 4);
+    assert.ok(etat.dernieresActualites.length >= 1);
   });
 
   await prisma.$disconnect();

@@ -35,7 +35,7 @@ import { creerPropositionAds, TypePropositionAds } from "./googleAdsActions";
 import { SitelinkAds, StructuredSnippetAds, StrategieEncheres, HoraireAds, AjustementAppareilAds } from "./googleAds";
 import { creerPropositionPost, listerPropositionsPost } from "./reseauxSociauxActions";
 import { obtenirStatistiquesPost, reseauxSociauxEstConfigure } from "./reseauxSociaux";
-import { creerPropositionActualite, creerPropositionInfoFiche, creerPropositionReponseAvis } from "./pagesJaunesActions";
+import { creerPropositionActualite, creerPropositionInfoFiche, creerPropositionReponseAvis, obtenirEtatActualitesPagesJaunes } from "./pagesJaunesActions";
 import { obtenirConnexionMeta } from "./metaAuth";
 import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./documentsScannes";
 import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
@@ -585,6 +585,12 @@ const OUTILS: Anthropic.Tool[] = [
       },
       required: ["idPublication", "plateforme"],
     },
+  },
+  {
+    name: "obtenir_etat_actualites_pagesjaunes",
+    description:
+      "Retourne le nombre d'actualites/offres PagesJaunes deja publiees ce mois-ci, l'objectif mensuel Solocal (4), et le texte des 5 dernieres actualites publiees (pour ne pas proposer deux fois le meme angle). Lecture seule, a appeler avant de proposer une nouvelle actualite si tu n'as pas deja ce contexte dans la conversation.",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "proposer_actualite_pagesjaunes",
@@ -1212,6 +1218,11 @@ async function executerOutil(
       }
     }
 
+    case "obtenir_etat_actualites_pagesjaunes": {
+      const etat = await obtenirEtatActualitesPagesJaunes(prisma);
+      return etat;
+    }
+
     case "proposer_actualite_pagesjaunes": {
       const texte = typeof params.texte === "string" ? params.texte : "";
       const cheminMedia = typeof params.cheminMedia === "string" ? params.cheminMedia : undefined;
@@ -1713,8 +1724,9 @@ sur l'ecran de validation dedie, jamais depuis la conversation.
   Instagram EXIGE une photo (cheminMedia) - rappelle-le si l'utilisateur \
 demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.
 
-Module PagesJaunes/Solocal Manager (outils proposer_actualite_pagesjaunes, \
-proposer_maj_fiche_pagesjaunes, proposer_reponse_avis_pagesjaunes, sujet \
+Module PagesJaunes/Solocal Manager (outils obtenir_etat_actualites_pagesjaunes, \
+proposer_actualite_pagesjaunes, proposer_maj_fiche_pagesjaunes, \
+proposer_reponse_avis_pagesjaunes, sujet \
 SEPARE du module Reseaux sociaux ci-dessus). Mode "assiste" DEFINITIF, pas \
 une phase transitoire : Solocal Manager n'a aucune API publique, et une \
 verification reelle a montre que son SSO (sso.solocal.com) bloque \
@@ -1748,6 +1760,14 @@ avis positif, reponse posee et constructive - jamais defensive - pour un \
 avis negatif, sans jamais inventer de fait sur l'intervention).
   Le media (cheminMedia, actualite uniquement) doit deja avoir ete uploade \
 par l'utilisateur via l'onglet dedie si une photo est souhaitee.
+  Demande explicite de l'utilisateur : une analyse automatique \
+hebdomadaire (voir pagesJaunesRecap.ts) t'invoque toi-meme pour proposer, \
+par e-mail, des idees d'actualites quand l'objectif mensuel n'est pas \
+atteint - si l'utilisateur demande si ca existe, confirme-le. Ce rapport \
+automatique ne depose JAMAIS de proposition lui-meme (meme principe que \
+l'analyse quotidienne Google Ads) : il se contente de suggerer des idees \
+en texte, l'utilisateur doit te les redemander explicitement en \
+conversation pour qu'une proposition soit deposee.
 
 Pieces jointes dans la conversation (photo ou PDF, outil classer_document_recu) : \
 l'utilisateur peut joindre une photo ou un fichier a son message - tu la \
