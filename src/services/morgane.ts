@@ -37,6 +37,7 @@ import { creerPropositionPost, listerPropositionsPost } from "./reseauxSociauxAc
 import { obtenirStatistiquesPost, reseauxSociauxEstConfigure } from "./reseauxSociaux";
 import { creerPropositionActualite, creerPropositionInfoFiche, creerPropositionReponseAvis, obtenirEtatActualitesPagesJaunes } from "./pagesJaunesActions";
 import { genererImagePagesJaunes, GenerationImagePagesJaunesError } from "./imageGenerationPagesJaunes";
+import { genererVideoDiaporamaPagesJaunes, GenerationVideoPagesJaunesError } from "./videoGenerationPagesJaunes";
 import { obtenirConnexionMeta } from "./metaAuth";
 import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./documentsScannes";
 import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
@@ -603,6 +604,19 @@ const OUTILS: Anthropic.Tool[] = [
         description: { type: "string", description: "Description de l'image souhaitee, en francais, generique/illustrative (jamais presentee comme un fait reel precis)." },
       },
       required: ["description"],
+    },
+  },
+  {
+    name: "generer_video_diaporama_pagesjaunes",
+    description:
+      "Assemble un diaporama video a partir de PLUSIEURS vraies photos deja uploadees par l'utilisateur (ex. les etapes d'un chantier). Aucune IA generative : un simple montage local (ffmpeg), chaque photo affichee quelques secondes. Retourne un cheminMedia (fichier .mp4) a passer ensuite a proposer_actualite_pagesjaunes. Necessite au moins 2 photos deja uploadees (cheminsImages, chemins 'media-publics/...' fournis par l'utilisateur) pour avoir un sens - une seule photo, autant proposer_actualite_pagesjaunes avec une image fixe.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cheminsImages: { type: "array", items: { type: "string" }, description: "Chemins des photos deja uploadees (ex. 'media-publics/xxxx.jpg'), dans l'ordre souhaite. Au moins 2." },
+        dureeParPhotoSecondes: { type: "number", description: "Duree d'affichage de chaque photo en secondes (1 a 10). Optionnel, 3 par defaut." },
+      },
+      required: ["cheminsImages"],
     },
   },
   {
@@ -1247,6 +1261,18 @@ async function executerOutil(
       }
     }
 
+    case "generer_video_diaporama_pagesjaunes": {
+      const cheminsImages = Array.isArray(params.cheminsImages) ? params.cheminsImages.filter((c): c is string => typeof c === "string") : [];
+      const dureeParPhotoSecondes = typeof params.dureeParPhotoSecondes === "number" ? params.dureeParPhotoSecondes : undefined;
+      try {
+        const { chemin } = await genererVideoDiaporamaPagesJaunes(cheminsImages, dureeParPhotoSecondes);
+        return { ok: true, chemin, message: "Video assemblee. Utilise ce chemin comme cheminMedia dans proposer_actualite_pagesjaunes." };
+      } catch (err) {
+        if (err instanceof GenerationVideoPagesJaunesError) return { erreur: err.message };
+        throw err;
+      }
+    }
+
     case "proposer_actualite_pagesjaunes": {
       const texte = typeof params.texte === "string" ? params.texte : "";
       const cheminMedia = typeof params.cheminMedia === "string" ? params.cheminMedia : undefined;
@@ -1749,8 +1775,9 @@ sur l'ecran de validation dedie, jamais depuis la conversation.
 demande un post Instagram texte seul, ce qui n'existe pas sur ce reseau.
 
 Module PagesJaunes/Solocal Manager (outils obtenir_etat_actualites_pagesjaunes, \
-generer_photo_pagesjaunes, proposer_actualite_pagesjaunes, \
-proposer_maj_fiche_pagesjaunes, proposer_reponse_avis_pagesjaunes, sujet \
+generer_photo_pagesjaunes, generer_video_diaporama_pagesjaunes, \
+proposer_actualite_pagesjaunes, proposer_maj_fiche_pagesjaunes, \
+proposer_reponse_avis_pagesjaunes, sujet \
 SEPARE du module Reseaux sociaux ci-dessus). Mode "assiste" DEFINITIF, pas \
 une phase transitoire : Solocal Manager n'a aucune API publique, et une \
 verification reelle a montre que son SSO (sso.solocal.com) bloque \
@@ -1806,6 +1833,16 @@ avis positif, reponse posee et constructive - jamais defensive - pour un \
 avis negatif, sans jamais inventer de fait sur l'intervention).
   Le media (cheminMedia, actualite uniquement) doit deja avoir ete uploade \
 par l'utilisateur via l'onglet dedie si une photo est souhaitee.
+  generer_video_diaporama_pagesjaunes : diaporama video a partir de \
+PLUSIEURS vraies photos deja uploadees (ex. les etapes d'un chantier) - \
+aucune IA generative video (demande explicite de l'utilisateur, ecartee \
+pour son cout et son manque d'honnetete), juste un montage local. \
+N'invente jamais l'ordre/le sens des photos : demande a l'utilisateur dans \
+quel ordre les afficher si ce n'est pas evident. Rappelle-lui que Solocal \
+Manager n'a peut-etre pas la video au meme endroit que les actualites \
+photo (possiblement dans l'onglet Photos/Videos de la fiche plutot que \
+dans Communication > Actualites) - demande-lui de verifier et de te le \
+confirmer la premiere fois.
   Demande explicite de l'utilisateur : une analyse automatique \
 hebdomadaire (voir pagesJaunesRecap.ts) t'invoque toi-meme pour proposer, \
 par e-mail, des idees d'actualites quand l'objectif mensuel n'est pas \

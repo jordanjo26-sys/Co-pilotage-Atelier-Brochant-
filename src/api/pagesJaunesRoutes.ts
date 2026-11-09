@@ -10,6 +10,7 @@ import {
   marquerPublieePropositionPagesJaunes,
 } from "../services/pagesJaunesActions";
 import { genererImagePagesJaunes, GenerationImagePagesJaunesError } from "../services/imageGenerationPagesJaunes";
+import { genererVideoDiaporamaPagesJaunes, GenerationVideoPagesJaunesError } from "../services/videoGenerationPagesJaunes";
 
 /**
  * Routes du module PagesJaunes/Solocal (mode assiste, voir
@@ -32,6 +33,18 @@ export function buildPagesJaunesRouter(prisma: PrismaClient): Router {
       res.json(chemin);
     } catch (err) {
       if (err instanceof GenerationImagePagesJaunesError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.post("/generer-video", async (req, res) => {
+    try {
+      const cheminsImages = Array.isArray(req.body?.cheminsImages) ? req.body.cheminsImages.filter((c: unknown): c is string => typeof c === "string") : [];
+      const dureeParPhotoSecondes = typeof req.body?.dureeParPhotoSecondes === "number" ? req.body.dureeParPhotoSecondes : undefined;
+      const resultat = await genererVideoDiaporamaPagesJaunes(cheminsImages, dureeParPhotoSecondes);
+      res.json(resultat);
+    } catch (err) {
+      if (err instanceof GenerationVideoPagesJaunesError) return res.status(400).json({ erreur: err.message });
       res.status(500).json({ erreur: (err as Error).message });
     }
   });

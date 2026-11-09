@@ -1343,9 +1343,16 @@ function rendreContenuPropositionPagesJaunes(p) {
       <div class="anomalie-meta">Avis${p.avisClientNom ? ` de ${echapper(p.avisClientNom)}` : ""}${p.avisNote ? ` (${p.avisNote}/5)` : ""} : « ${echapper(p.avisTexte)} »</div>
       <div class="anomalie-meta"><strong>Réponse proposée :</strong> ${echapper(p.texte)}</div>`;
   }
+  const estVideo = (p.cheminMedia || "").toLowerCase().endsWith(".mp4");
   return `
     <div class="anomalie-meta">${echapper(p.texte)}</div>
-    ${p.cheminMedia ? `<img src="/${echapper(p.cheminMedia)}" alt="Photo" style="max-width:160px;max-height:160px;border-radius:8px;margin:6px 0" />` : ""}`;
+    ${
+      p.cheminMedia
+        ? estVideo
+          ? `<video src="/${echapper(p.cheminMedia)}" controls style="max-width:220px;max-height:220px;border-radius:8px;margin:6px 0" ></video>`
+          : `<img src="/${echapper(p.cheminMedia)}" alt="Photo" style="max-width:160px;max-height:160px;border-radius:8px;margin:6px 0" />`
+        : ""
+    }`;
 }
 
 async function chargerPropositionsPagesJaunes() {

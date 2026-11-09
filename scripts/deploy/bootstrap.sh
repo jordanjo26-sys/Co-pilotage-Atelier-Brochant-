@@ -103,7 +103,10 @@ timedatectl set-timezone Europe/Paris
 
 echo "== Paquets systeme =="
 apt-get update -y
-apt-get install -y curl git postgresql postgresql-contrib nginx poppler-utils ufw openssl rsync certbot
+# ffmpeg : diaporamas video PagesJaunes a partir de vraies photos
+# (videoGenerationPagesJaunes.ts) - aucun fournisseur IA externe, juste un
+# assemblage local de photos deja uploadees.
+apt-get install -y curl git postgresql postgresql-contrib nginx poppler-utils ufw openssl rsync certbot ffmpeg
 
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | grep -oE '^v[0-9]+' | tr -d v)" -lt 20 ]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
