@@ -94,6 +94,11 @@ test("getImpayesSerieTemporelle : regroupe par mois d'emission (verifie en produ
   const { getImpayesSerieTemporelle } = await import("../src/services/dashboardService");
   const prisma = new PrismaClient();
 
+  // Nettoyage indispensable : le test precedent de ce fichier laisse ses
+  // propres factures (meme reference "F-HORS-FENETRE" reutilisee ici), et
+  // "before" ne reinitialise la base qu'une fois pour tout le fichier.
+  await prisma.facture.deleteMany({});
+
   const maintenant = new Date("2026-10-21T12:00:00");
 
   await prisma.facture.createMany({
