@@ -18,32 +18,37 @@ import { chiffrer, dechiffrer } from "./cipher";
 const GRAPH_VERSION = "v21.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
-// pages_show_list : lister les Pages gerees par l'utilisateur.
-// pages_read_engagement + pages_manage_posts : lire/publier sur la Page.
-// instagram_basic + instagram_content_publish : lire/publier sur le
-// compte Instagram professionnel lie a la Page.
-const SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "instagram_basic", "instagram_content_publish"];
-
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(
       `${name} manquante. Creer une application sur developers.facebook.com (type "Entreprise"), ` +
-        "ajouter le produit \"Connexion Facebook pour les entreprises\", puis renseigner " +
-        "META_APP_ID / META_APP_SECRET / META_REDIRECT_URI dans .env."
+        "ajouter les cas d'utilisation Instagram/Pages (produit \"Facebook Login for Business\"), " +
+        "creer une configuration (Facebook Login for Business > Configurations) avec les autorisations " +
+        "necessaires, puis renseigner META_APP_ID / META_APP_SECRET / META_REDIRECT_URI / META_CONFIG_ID dans .env."
     );
   }
   return value;
 }
 
+/**
+ * Facebook Login for Business (obligatoire des qu'une app a les cas
+ * d'utilisation Instagram/Pages, constate en production - voir
+ * docs/architecture.md) remplace le parametre "scope" classique par un
+ * identifiant de configuration (config_id) cree dans le Business Manager :
+ * la configuration elle-meme definit quelles autorisations sont demandees.
+ * override_default_response_type=true est exige par Meta avec ce flux.
+ */
 export function buildConsentUrl(): string {
   const appId = requireEnv("META_APP_ID");
   const redirectUri = requireEnv("META_REDIRECT_URI");
+  const configId = requireEnv("META_CONFIG_ID");
   const params = new URLSearchParams({
     client_id: appId,
     redirect_uri: redirectUri,
-    scope: SCOPES.join(","),
+    config_id: configId,
     response_type: "code",
+    override_default_response_type: "true",
   });
   return `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?${params.toString()}`;
 }

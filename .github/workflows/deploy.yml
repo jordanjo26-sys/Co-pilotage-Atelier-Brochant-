@@ -89,7 +89,11 @@ jobs:
           # ne sont pas des secrets, bootstrap.sh les deduit du domaine.
           # OPENAI_API_KEY la transcription des messages vocaux envoyes a
           # Morgane (devis dictes sur chantier, voir .env.example).
+          # META_CONFIG_ID l'identifiant de configuration Facebook Login for
+          # Business (app Meta > Facebook Login for Business > Configurations),
+          # requis depuis que l'app a les cas d'utilisation Instagram/Pages
+          # (remplace le parametre "scope" classique - voir metaAuth.ts).
           # Absents, bootstrap.sh laisse la configuration existante inchangee.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}' '${{ secrets.META_APP_ID }}' '${{ secrets.META_APP_SECRET }}' '${{ secrets.OPENAI_API_KEY }}'"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}' '${{ secrets.META_APP_ID }}' '${{ secrets.META_APP_SECRET }}' '${{ secrets.OPENAI_API_KEY }}' '${{ secrets.META_CONFIG_ID }}'"

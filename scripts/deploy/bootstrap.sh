@@ -69,6 +69,12 @@ META_APP_SECRET_ARG="${19:-}"
 # bouton micro de Morgane reste desactive (erreur explicite), le reste de
 # l'application n'est pas concerne.
 OPENAI_API_KEY_ARG="${20:-}"
+# ID de configuration Facebook Login for Business (Business Manager >
+# l'app > Facebook Login for Business > Configurations), requis depuis que
+# l'app a les cas d'utilisation Instagram/Pages (ce flux remplace le
+# parametre "scope" classique par ce config_id - voir metaAuth.ts). Pas un
+# secret a proprement parler mais suit le meme circuit que META_APP_ID.
+META_CONFIG_ID_ARG="${21:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -239,6 +245,7 @@ definir_variable GOOGLE_ADS_CUSTOMER_ID "$GOOGLE_ADS_CUSTOMER_ID_ARG"
 definir_variable GOOGLE_ADS_LOGIN_CUSTOMER_ID "$GOOGLE_ADS_LOGIN_CUSTOMER_ID_ARG"
 definir_variable META_APP_ID "$META_APP_ID_ARG"
 definir_variable META_APP_SECRET "$META_APP_SECRET_ARG"
+definir_variable META_CONFIG_ID "$META_CONFIG_ID_ARG"
 definir_variable OPENAI_API_KEY "$OPENAI_API_KEY_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
