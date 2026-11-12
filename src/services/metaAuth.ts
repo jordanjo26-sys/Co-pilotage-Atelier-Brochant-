@@ -142,6 +142,12 @@ export async function handleOAuthCallback(prisma: PrismaClient, code: string): P
     }
   }
 
+  // Une seule connexion active a la fois (obtenirConnexionMeta prend la
+  // premiere "actif:true" - desactiver les autres evite qu'une ancienne
+  // connexion a la mauvaise Page, ex. "Prime-Chauffage" constate en
+  // production, reste active en parallele).
+  await prisma.connexionMeta.updateMany({ where: { pageId: { not: page.id } }, data: { actif: false } });
+
   await prisma.connexionMeta.upsert({
     where: { pageId: page.id },
     update: {
