@@ -18,6 +18,15 @@ import { chiffrer, dechiffrer } from "./cipher";
 const GRAPH_VERSION = "v21.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
+// Le compte Facebook de l'utilisateur gere plusieurs Pages (plusieurs
+// entreprises/portefeuilles business distincts), pas seulement celle de
+// l'Atelier Brochant : /me/accounts les retourne toutes, dans un ordre qui
+// n'a rien a voir avec notre etablissement (constate en production : la
+// premiere retournee etait une tout autre Page, "Prime-Chauffage"). On
+// cible donc explicitement la bonne Page par son nom plutot que de prendre
+// la premiere de la liste.
+const NOM_PAGE_ATELIER_BROCHANT = "Plombier Paris Atelier Brochant";
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -93,9 +102,15 @@ export async function handleOAuthCallback(prisma: PrismaClient, code: string): P
   const { data: pages } = await appelGraph<{ data: Array<{ id: string; name: string; access_token: string }> }>(
     `${GRAPH_BASE}/me/accounts?access_token=${encodeURIComponent(jetonLongueDuree)}`
   );
-  const page = pages[0];
+  const page = pages.find((p) => p.name === NOM_PAGE_ATELIER_BROCHANT) ?? pages[0];
   if (!page) {
     throw new Error("Aucune Page Facebook geree par ce compte. Il faut etre administrateur d'au moins une Page Facebook professionnelle.");
+  }
+  if (page.name !== NOM_PAGE_ATELIER_BROCHANT) {
+    throw new Error(
+      `La Page "${NOM_PAGE_ATELIER_BROCHANT}" n'a pas ete trouvee parmi les Pages accessibles (trouve a la place : "${page.name}"). ` +
+        "Verifier que le compte connecte gere bien cette Page."
+    );
   }
 
   // La verification Instagram est faite "au mieux" : si la configuration
