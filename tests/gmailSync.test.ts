@@ -40,9 +40,31 @@ test("exclut une image de newsletter/mailing via Content-Disposition: inline (sa
   assert.equal(pieces.length, 0);
 });
 
-test("Content-Disposition insensible a la casse et aux espaces", () => {
-  const pieces = extrairePiecesJointes(part({ headers: [{ name: "content-disposition", value: "  Inline" }] }));
+test("Content-Disposition insensible a la casse et aux espaces (sur une image)", () => {
+  const pieces = extrairePiecesJointes(
+    part({ filename: "logo.png", mimeType: "image/png", headers: [{ name: "content-disposition", value: "  Inline" }] })
+  );
   assert.equal(pieces.length, 0);
+});
+
+// Regression reelle en production (facture Trenois Decamps, novembre
+// 2026) : un VRAI document (PDF, mimeType application/octet-stream) recu
+// en Content-Disposition "inline" sans Content-ID etait a tort exclu
+// comme une simple ressource de mise en forme - silencieusement ignore de
+// bout en bout. Le signal "inline sans Content-ID" ne doit exclure que des
+// images (voir le commentaire d'extrairePiecesJointes) : une plateforme de
+// facturation peut marquer un PDF "inline" par erreur/choix technique,
+// mais n'integre jamais un PDF comme ressource de mise en forme.
+test("retient un vrai document (PDF) marque Content-Disposition: inline sans Content-ID", () => {
+  const pieces = extrairePiecesJointes(
+    part({
+      filename: "fac01_01_004478982.pdf",
+      mimeType: "application/octet-stream",
+      headers: [{ name: "Content-Disposition", value: 'inline; filename="fac01_01_004478982.pdf"' }],
+    })
+  );
+  assert.equal(pieces.length, 1);
+  assert.equal(pieces[0].nomFichier, "fac01_01_004478982.pdf");
 });
 
 test("aplatit les parts imbriquees (message multipart)", () => {

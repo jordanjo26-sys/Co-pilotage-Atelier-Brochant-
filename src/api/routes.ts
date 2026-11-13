@@ -632,6 +632,21 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
+  // Retire un message precis de GmailMessageTraite pour qu'il soit
+  // retraite au prochain /gmail/sync (voir le garde-fou "idsTraites" dans
+  // synchroniserGmail, qui ecarte sinon tout message deja marque "traite"
+  // AVANT le moindre appel Gmail) - necessaire apres une correction du
+  // filtre de pieces jointes (extrairePiecesJointes) pour qu'un message
+  // deja vu, mais a tort ignore faute de piece jointe detectee a l'epoque,
+  // soit reexamine avec la logique corrigee plutot que silencieusement
+  // ecarte a jamais (cas reel : facture Trenois Decamps, novembre 2026).
+  router.post("/gmail/retraiter", async (req, res) => {
+    const messageId = typeof req.body?.messageId === "string" ? req.body.messageId : "";
+    if (!messageId) return res.status(400).json({ erreur: "messageId requis." });
+    const supprime = await prisma.gmailMessageTraite.deleteMany({ where: { gmailMessageId: messageId } });
+    res.json({ messageId, retire: supprime.count > 0 });
+  });
+
   // Apercu du contenu sans envoyer d'e-mail (verification manuelle).
   router.get("/recap/apercu", async (_req, res) => {
     const contenu = await construireRecapQuotidien(prisma);

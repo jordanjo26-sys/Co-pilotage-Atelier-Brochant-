@@ -74,14 +74,20 @@ interface PieceJointeExtraite extends PieceJointe {
  * vraie piece jointe, mais se reconnaissent a deux signaux standards :
  *  - un en-tete Content-ID, qui sert a les referencer depuis le HTML du
  *    message (`<img src="cid:...">`) ;
- *  - un Content-Disposition "inline" (par opposition a "attachment"),
- *    utilise par la plupart des plateformes d'e-mailing pour leurs images
- *    de template meme sans Content-ID (constate en production : images
- *    "mailingassets_..." et images heergees par Google, sans Content-ID
- *    mais explicitement en disposition inline).
- * Ces deux en-tetes sont les signaux les plus fiables et universels pour
- * distinguer une ressource de mise en forme d'un vrai document envoye par
- * l'expediteur.
+ *  - un Content-Disposition "inline" (par opposition a "attachment")
+ *    SUR UNE IMAGE, utilise par la plupart des plateformes d'e-mailing
+ *    pour leurs images de template meme sans Content-ID (constate en
+ *    production : images "mailingassets_..." et images heergees par
+ *    Google, sans Content-ID mais explicitement en disposition inline).
+ *
+ * Le deuxieme signal est volontairement restreint aux images (voir
+ * estImage) depuis qu'une facture reelle (Trenois Decamps, fac01_01_...pdf,
+ * mimeType application/octet-stream) a ete recue avec un Content-Disposition
+ * "inline" sans Content-ID, et donc silencieusement ignoree de bout en
+ * bout (signale par l'utilisateur, novembre 2026) : une plateforme de
+ * facturation peut marquer un VRAI document "inline" par erreur ou par
+ * choix technique, mais n'integre jamais un PDF de facture comme simple
+ * ressource de mise en forme - ce risque n'existe que pour les images.
  */
 export function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | undefined): PieceJointeExtraite[] {
   if (!payload) return [];
@@ -91,7 +97,8 @@ export function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | und
     const estIntegree = Boolean(extraireEntete(part.headers, "Content-ID"));
     const disposition = extraireEntete(part.headers, "Content-Disposition").trim().toLowerCase();
     const estInline = disposition.startsWith("inline");
-    if (part.filename && part.body?.attachmentId && !estIntegree && !estInline) {
+    const estImage = (part.mimeType || "").toLowerCase().startsWith("image/");
+    if (part.filename && part.body?.attachmentId && !estIntegree && !(estInline && estImage)) {
       pieces.push({
         nomFichier: part.filename,
         mimeType: part.mimeType || "application/octet-stream",
