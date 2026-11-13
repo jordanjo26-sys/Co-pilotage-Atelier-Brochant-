@@ -56,6 +56,12 @@ import {
   SynecDevisError,
   CHEMIN_CAPTURE_EXPLORATION as CHEMIN_CAPTURE_EXPLORATION_DEVIS,
 } from "../services/synecDevis";
+import {
+  publierActualite,
+  atelierBrochantAdminEstConfigure,
+  AtelierBrochantActualiteError,
+  CHEMIN_CAPTURE_ECHEC as CHEMIN_CAPTURE_ECHEC_ATELIER_BROCHANT,
+} from "../services/atelierBrochantActualites";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
 import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds, creerPropositionAds } from "../services/googleAdsActions";
 import {
@@ -360,6 +366,33 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       res.status(400).type("text/plain").send(`Erreur : ${(err as Error).message}`);
     }
+  });
+
+  // Declenchement manuel de la creation/publication d'une actualite
+  // atelier-brochant.com (meme fonction que l'outil Morgane
+  // publier_actualite_atelier_brochant) - utile pour un test direct sans
+  // passer par le chat, ou en secours si Morgane est indisponible.
+  router.post("/atelier-brochant/actualite", async (req, res) => {
+    if (!atelierBrochantAdminEstConfigure()) {
+      return res.status(400).json({ erreur: "Identifiants admin atelier-brochant.com non configures." });
+    }
+    try {
+      res.json(await publierActualite(prisma, req.body, { publierImmediatement: req.body?.publierImmediatement }));
+    } catch (err) {
+      if (err instanceof AtelierBrochantActualiteError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Capture d'ecran du dernier echec de publierActualite (voir
+  // atelierBrochantActualites.ts) - meme principe que
+  // /synec/capture-echec : protegee par la meme authentification globale
+  // (HTTP Basic Auth nginx) que le reste du site.
+  router.get("/atelier-brochant/capture-echec", (_req, res) => {
+    if (!existsSync(CHEMIN_CAPTURE_ECHEC_ATELIER_BROCHANT)) {
+      return res.status(404).send("Aucune capture d'echec disponible pour le moment.");
+    }
+    res.sendFile(CHEMIN_CAPTURE_ECHEC_ATELIER_BROCHANT);
   });
 
   router.get("/synec/exploration-devis-capture", (_req, res) => {

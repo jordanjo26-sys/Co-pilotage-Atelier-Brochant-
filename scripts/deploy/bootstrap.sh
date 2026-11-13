@@ -75,6 +75,12 @@ OPENAI_API_KEY_ARG="${20:-}"
 # parametre "scope" classique par ce config_id - voir metaAuth.ts). Pas un
 # secret a proprement parler mais suit le meme circuit que META_APP_ID.
 META_CONFIG_ID_ARG="${21:-}"
+# Identifiants du tableau de bord admin atelier-brochant.com
+# (atelier-brochant.com/admin/connexion, construit sur emergent.sh), pour la
+# publication automatisee d'actualites (voir atelierBrochantActualites.ts et
+# .env.example). Aucune API disponible, meme principe que Synec.
+ATELIER_BROCHANT_ADMIN_EMAIL_ARG="${22:-}"
+ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE_ARG="${23:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -247,6 +253,8 @@ definir_variable META_APP_ID "$META_APP_ID_ARG"
 definir_variable META_APP_SECRET "$META_APP_SECRET_ARG"
 definir_variable META_CONFIG_ID "$META_CONFIG_ID_ARG"
 definir_variable OPENAI_API_KEY "$OPENAI_API_KEY_ARG"
+definir_variable ATELIER_BROCHANT_ADMIN_EMAIL "$ATELIER_BROCHANT_ADMIN_EMAIL_ARG"
+definir_variable ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE "$ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
