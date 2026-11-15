@@ -58,6 +58,7 @@ import {
 } from "../services/synecDevis";
 import {
   publierActualite,
+  republierActualiteExistante,
   atelierBrochantAdminEstConfigure,
   AtelierBrochantActualiteError,
   CHEMIN_CAPTURE_ECHEC as CHEMIN_CAPTURE_ECHEC_ATELIER_BROCHANT,
@@ -378,6 +379,21 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
     try {
       res.json(await publierActualite(prisma, req.body, { publierImmediatement: req.body?.publierImmediatement }));
+    } catch (err) {
+      if (err instanceof AtelierBrochantActualiteError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Republication d'un brouillon reste bloque (voir le correctif dans
+  // atelierBrochantActualites.ts) - necessaire pour les 3 actualites
+  // publiees a tort comme reussies avant ce correctif.
+  router.post("/atelier-brochant/actualite/:id/republier", async (req, res) => {
+    if (!atelierBrochantAdminEstConfigure()) {
+      return res.status(400).json({ erreur: "Identifiants admin atelier-brochant.com non configures." });
+    }
+    try {
+      res.json(await republierActualiteExistante(prisma, req.params.id));
     } catch (err) {
       if (err instanceof AtelierBrochantActualiteError) return res.status(400).json({ erreur: err.message });
       res.status(500).json({ erreur: (err as Error).message });

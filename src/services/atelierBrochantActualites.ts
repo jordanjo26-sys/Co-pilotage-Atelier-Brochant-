@@ -154,6 +154,85 @@ async function remplirFormulaireActualite(page: Page, actualite: NouvelleActuali
 }
 
 /**
+ * Verifie, via l'API publique du site (aucune authentification requise),
+ * qu'une actualite est reellement visible publiquement. Utilise apres
+ * chaque clic sur "Valider et publier" : ce clic a deja echoue
+ * silencieusement une fois en production (HTTP 401 cote tableau de bord
+ * pendant que l'API elle-meme repondait 200), ce qui a conduit a annoncer
+ * a tort 3 actualites sur 4 comme publiees alors qu'elles restaient en
+ * brouillon - cette fonction est le correctif de ce defaut.
+ */
+async function actualiteEstPublieePubliquement(id: string): Promise<boolean> {
+  const reponse = await fetch(`${URL_BASE}/api/news`);
+  if (!reponse.ok) return false;
+  const actualites = (await reponse.json()) as { id?: string; status?: string }[];
+  return actualites.some((a) => a.id === id && a.status === "published");
+}
+
+/**
+ * Clique "Valider et publier" sur l'ecran "Relire et valider"
+ * (/admin/actualites/{id}) puis verifie reellement le resultat via l'API
+ * publique, avec une nouvelle tentative (rechargement de la page puis
+ * nouveau clic) en cas d'echec - le clic a deja echoue avec un HTTP 401
+ * resolu par un simple nouvel essai lors du diagnostic de ce defaut.
+ */
+async function validerEtPublier(page: Page, id: string): Promise<boolean> {
+  for (let tentative = 1; tentative <= 2; tentative++) {
+    await page.locator('button:has-text("Valider et publier")').first().click();
+    await page.waitForTimeout(2000);
+    if (await actualiteEstPublieePubliquement(id)) return true;
+    if (tentative < 2) {
+      await page.goto(`${URL_BASE}/admin/actualites/${id}`, { waitUntil: "networkidle", timeout: 20000 });
+    }
+  }
+  return false;
+}
+
+/**
+ * Republie une actualite existante restee en brouillon (ecran "Relire et
+ * valider" deja atteignable sans repasser par la creation). Correctif
+ * direct pour les actualites touchees par le defaut de verification
+ * decrit ci-dessus.
+ */
+export async function republierActualiteExistante(prisma: PrismaClient, id: string): Promise<ResultatActualite> {
+  const navigateur = await chromium.launch({ headless: true });
+  let page: Page | undefined;
+  try {
+    page = await navigateur.newPage();
+    await seConnecterAdmin(page);
+    await page.goto(`${URL_BASE}/admin/actualites/${id}`, { waitUntil: "networkidle", timeout: 20000 });
+
+    const publiee = await validerEtPublier(page, id);
+
+    await logEvenement(prisma, {
+      evenement: publiee ? "atelier_brochant_actualite_republiee" : "atelier_brochant_actualite_erreur",
+      action: `Republication actualite atelier-brochant.com (id ${id})`,
+      resultat: publiee ? "Publiee avec succes." : "Toujours non publiee apres 2 tentatives.",
+    });
+
+    if (!publiee) {
+      throw new AtelierBrochantActualiteError(
+        `L'actualite ${id} reste non publiee apres 2 tentatives de clic sur "Valider et publier" ` +
+          "(verification faite via l'API publique /api/news)."
+      );
+    }
+    return { id, url: `${URL_BASE}/admin/actualites/${id}`, publiee };
+  } catch (err) {
+    await page?.screenshot({ path: CHEMIN_CAPTURE_ECHEC, fullPage: true }).catch(() => {});
+    if (!(err instanceof AtelierBrochantActualiteError)) {
+      await logEvenement(prisma, {
+        evenement: "atelier_brochant_actualite_erreur",
+        action: `Republication actualite atelier-brochant.com (id ${id})`,
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
+    }
+    throw err;
+  } finally {
+    await navigateur.close();
+  }
+}
+
+/**
  * Cree (et, sauf demande contraire, publie) une actualite. Deux etapes
  * distinctes cote tableau de bord, jamais court-circuitees : "Enregistrer"
  * cree le brouillon (invisible publiquement) et redirige vers
@@ -193,18 +272,21 @@ export async function publierActualite(
     }
     const id = correspondance[1];
 
-    let publiee = false;
-    if (publierImmediatement) {
-      await page.locator('button:has-text("Valider et publier")').first().click();
-      await page.waitForTimeout(2000);
-      publiee = true;
-    }
+    const publiee = publierImmediatement ? await validerEtPublier(page, id) : false;
 
     await logEvenement(prisma, {
       evenement: "atelier_brochant_actualite_creee",
       action: `Actualite atelier-brochant.com : "${actualite.titre}" (${actualite.ville} / ${actualite.metier})`,
       resultat: publiee ? `Publiee (id ${id}).` : `Brouillon enregistre (id ${id}), non publie.`,
     });
+
+    if (publierImmediatement && !publiee) {
+      throw new AtelierBrochantActualiteError(
+        `Brouillon "${actualite.titre}" enregistre (id ${id}) mais toujours non publie apres 2 tentatives ` +
+          "de clic sur \"Valider et publier\" (verifie via l'API publique /api/news) - " +
+          `a publier manuellement depuis ${URL_BASE}/admin/actualites/${id}.`
+      );
+    }
 
     return { id, url: `${URL_BASE}/admin/actualites/${id}`, publiee };
   } catch (err) {
