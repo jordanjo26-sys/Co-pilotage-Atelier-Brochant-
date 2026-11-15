@@ -510,9 +510,25 @@ async function ajouterProduitDevis(page: import("playwright").Page, ligne: Ligne
  * "Produits" (sans texte visible, identifiée par son attribut title lors
  * de l'exploration explorerDetailDevis).
  */
-async function ouvrirProduitsDuDevis(page: import("playwright").Page): Promise<void> {
+/**
+ * Echec reel constate en production : l'icone "Produits" a mis plus de 8
+ * secondes a apparaitre (en-tete du devis deja enregistre a ce moment-la),
+ * faisant echouer toute la creation alors que Synec etait juste lent a
+ * l'afficher - meme defaut de delai trop court que vu ailleurs dans ce
+ * fichier (remplirEtVerifierMontant). Delai largement augmente, et deux
+ * essais (la ligne de devis peut necessiter un second clic si la premiere
+ * tentative d'ouverture n'a pas revele l'icone a temps).
+ */
+async function ouvrirProduitsDuDevis(page: import("playwright").Page, ligneDevis: import("playwright").Locator): Promise<void> {
   const boutonProduits = page.locator('[title="Produits"]').first();
-  await boutonProduits.waitFor({ state: "visible", timeout: 8000 });
+  let visible = await boutonProduits.waitFor({ state: "visible", timeout: 20000 }).then(() => true).catch(() => false);
+  if (!visible) {
+    await ligneDevis.click().catch(() => {});
+    visible = await boutonProduits.waitFor({ state: "visible", timeout: 20000 }).then(() => true).catch(() => false);
+  }
+  if (!visible) {
+    throw new SynecDevisError(`L'icône "Produits" n'est jamais apparue (en-tête du devis déjà enregistré, lignes non ajoutées).`);
+  }
   await boutonProduits.click();
   await page.getByText(/produits du devis/i).first().waitFor({ state: "visible", timeout: 8000 });
 }
@@ -547,6 +563,38 @@ async function lireResumeDevis(page: import("playwright").Page, nomClient: strin
 }
 
 /**
+ * Recherche, parmi les devis déjà existants pour ce client, un devis
+ * VIDE (en-tête enregistré mais "HT : 0,00 €", aucune ligne) - signe d'une
+ * precedente tentative restee incomplete a cause du defaut corrige dans
+ * ouvrirProduitsDuDevis ci-dessus. Verifie AVANT de creer quoi que ce soit :
+ * mieux vaut echouer explicitement ici que de laisser une deuxieme
+ * tentative creer un deuxieme en-tete en double (constate en production -
+ * client "Santamaria", DEVIS-16663 vide puis DEVIS-16664 cree a cote).
+ */
+async function trouverDevisVideExistant(page: import("playwright").Page, nomClient: string): Promise<string | null> {
+  const champRecherche = page.getByPlaceholder(/recherche/i).first();
+  if (await champRecherche.isVisible().catch(() => false)) {
+    await champRecherche.fill(nomClient);
+    await page.waitForTimeout(1200);
+  }
+  const texte = (await page.evaluate(`(() => {
+    const motif = ${JSON.stringify(nomClient)};
+    const lignes = Array.from(document.querySelectorAll('body *')).filter((el) => {
+      if (el.children.length > 25) return false;
+      const t = el.textContent || '';
+      return t.includes(motif) && t.includes('DEVIS-') && /HT\\s*:\\s*0,00\\s*€/.test(t);
+    });
+    const feuilles = lignes.filter((el) => !lignes.some((autre) => autre !== el && el.contains(autre)));
+    return feuilles.map((el) => el.textContent.match(/DEVIS-\\d+/)?.[0]).filter(Boolean)[0] || null;
+  })()`)) as string | null;
+  if (champRecherche && (await champRecherche.isVisible().catch(() => false))) {
+    await champRecherche.fill("");
+    await page.waitForTimeout(500);
+  }
+  return texte;
+}
+
+/**
  * Crée un devis complet dans Synec (en-tête + lignes de produits),
  * déclenché par Morgane à la demande explicite de l'utilisateur dans la
  * conversation (jamais automatique) - même principe de prudence que
@@ -568,12 +616,20 @@ export async function creerDevisSynec(prisma: PrismaClient, params: ParametresDe
     await seConnecter(page, identifiant, motDePasse);
     await allerAuxDevis(page);
 
+    const devisVideExistant = await trouverDevisVideExistant(page, params.clientNom);
+    if (devisVideExistant) {
+      throw new SynecDevisError(
+        `Un devis vide (${devisVideExistant}) existe déjà pour "${params.clientNom}" - probablement une tentative précédente restée incomplète. ` +
+          `Supprimez-le dans Synec avant de relancer la création, pour éviter un doublon.`
+      );
+    }
+
     await remplirEtEnregistrerEnTeteDevis(page, params);
 
     const ligneDevis = await trouverLigneDevisParClient(page, params.clientNom);
     await ligneDevis.click();
     await page.waitForTimeout(800);
-    await ouvrirProduitsDuDevis(page);
+    await ouvrirProduitsDuDevis(page, ligneDevis);
 
     for (const ligne of params.lignes) {
       await ajouterProduitDevis(page, ligne);
