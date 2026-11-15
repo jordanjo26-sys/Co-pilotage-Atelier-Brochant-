@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { PrismaClient } from "@prisma/client";
-import { ajouterProspectManuel, importerProspectsCsv, rechercherEntreprises } from "../services/prospection/sourcing";
+import { ajouterProspectManuel, importerProspectsCsv, rechercherEntreprises, obtenirFicheGooglePlace } from "../services/prospection/sourcing";
 import { changerStatutProspect, listerProspects, modifierProspect, obtenirProspect, supprimerProspect } from "../services/prospection/crm";
 import { enrichirProspect } from "../services/prospection/enrichissement";
 import {
@@ -116,6 +116,24 @@ export function buildProspectionRouter(prisma: PrismaClient): Router {
     try {
       const resultats = await rechercherEntreprises(motCle, zone);
       res.json(resultats);
+    } catch (err) {
+      res.status(503).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Recuperation de la note globale + jusqu'a 5 vrais avis Google (limite
+  // de l'API Places elle-meme) pour une entreprise - demande explicite de
+  // l'utilisateur : remplacer les avis d'exemple (illegaux en France) du
+  // site atelier-brochant.com par de vrais avis. Reutilise
+  // GOOGLE_PLACES_API_KEY (meme cle que /recherche ci-dessus).
+  router.get("/fiche-google", async (req, res) => {
+    const { nom, zone } = req.query;
+    if (typeof nom !== "string") {
+      return res.status(400).json({ erreur: "Parametre 'nom' requis." });
+    }
+    try {
+      const fiche = await obtenirFicheGooglePlace(nom, typeof zone === "string" ? zone : undefined);
+      res.json(fiche);
     } catch (err) {
       res.status(503).json({ erreur: (err as Error).message });
     }
