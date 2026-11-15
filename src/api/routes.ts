@@ -56,6 +56,13 @@ import {
   SynecDevisError,
   CHEMIN_CAPTURE_EXPLORATION as CHEMIN_CAPTURE_EXPLORATION_DEVIS,
 } from "../services/synecDevis";
+import {
+  publierActualite,
+  republierActualiteExistante,
+  atelierBrochantAdminEstConfigure,
+  AtelierBrochantActualiteError,
+  CHEMIN_CAPTURE_ECHEC as CHEMIN_CAPTURE_ECHEC_ATELIER_BROCHANT,
+} from "../services/atelierBrochantActualites";
 import { importerCampagnesAds, dernieresCampagnesImportees } from "../services/googleAdsImport";
 import { listerPropositionsAds, accepterPropositionAds, refuserPropositionAds, creerPropositionAds } from "../services/googleAdsActions";
 import {
@@ -362,6 +369,48 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
+  // Declenchement manuel de la creation/publication d'une actualite
+  // atelier-brochant.com (meme fonction que l'outil Morgane
+  // publier_actualite_atelier_brochant) - utile pour un test direct sans
+  // passer par le chat, ou en secours si Morgane est indisponible.
+  router.post("/atelier-brochant/actualite", async (req, res) => {
+    if (!atelierBrochantAdminEstConfigure()) {
+      return res.status(400).json({ erreur: "Identifiants admin atelier-brochant.com non configures." });
+    }
+    try {
+      res.json(await publierActualite(prisma, req.body, { publierImmediatement: req.body?.publierImmediatement }));
+    } catch (err) {
+      if (err instanceof AtelierBrochantActualiteError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Republication d'un brouillon reste bloque (voir le correctif dans
+  // atelierBrochantActualites.ts) - necessaire pour les 3 actualites
+  // publiees a tort comme reussies avant ce correctif.
+  router.post("/atelier-brochant/actualite/:id/republier", async (req, res) => {
+    if (!atelierBrochantAdminEstConfigure()) {
+      return res.status(400).json({ erreur: "Identifiants admin atelier-brochant.com non configures." });
+    }
+    try {
+      res.json(await republierActualiteExistante(prisma, req.params.id));
+    } catch (err) {
+      if (err instanceof AtelierBrochantActualiteError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Capture d'ecran du dernier echec de publierActualite (voir
+  // atelierBrochantActualites.ts) - meme principe que
+  // /synec/capture-echec : protegee par la meme authentification globale
+  // (HTTP Basic Auth nginx) que le reste du site.
+  router.get("/atelier-brochant/capture-echec", (_req, res) => {
+    if (!existsSync(CHEMIN_CAPTURE_ECHEC_ATELIER_BROCHANT)) {
+      return res.status(404).send("Aucune capture d'echec disponible pour le moment.");
+    }
+    res.sendFile(CHEMIN_CAPTURE_ECHEC_ATELIER_BROCHANT);
+  });
+
   router.get("/synec/exploration-devis-capture", (_req, res) => {
     if (!existsSync(CHEMIN_CAPTURE_EXPLORATION_DEVIS)) {
       return res.status(404).send("Aucune capture d'exploration disponible pour le moment.");
@@ -597,6 +646,21 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       res.status(502).json({ erreur: (err as Error).message });
     }
+  });
+
+  // Retire un message precis de GmailMessageTraite pour qu'il soit
+  // retraite au prochain /gmail/sync (voir le garde-fou "idsTraites" dans
+  // synchroniserGmail, qui ecarte sinon tout message deja marque "traite"
+  // AVANT le moindre appel Gmail) - necessaire apres une correction du
+  // filtre de pieces jointes (extrairePiecesJointes) pour qu'un message
+  // deja vu, mais a tort ignore faute de piece jointe detectee a l'epoque,
+  // soit reexamine avec la logique corrigee plutot que silencieusement
+  // ecarte a jamais (cas reel : facture Trenois Decamps, novembre 2026).
+  router.post("/gmail/retraiter", async (req, res) => {
+    const messageId = typeof req.body?.messageId === "string" ? req.body.messageId : "";
+    if (!messageId) return res.status(400).json({ erreur: "messageId requis." });
+    const supprime = await prisma.gmailMessageTraite.deleteMany({ where: { gmailMessageId: messageId } });
+    res.json({ messageId, retire: supprime.count > 0 });
   });
 
   // Apercu du contenu sans envoyer d'e-mail (verification manuelle).

@@ -17,6 +17,20 @@ test("classifie une facture standard (mot-cle dans le sujet)", () => {
   assert.equal(type, "facture");
 });
 
+// Regression reelle en production (facture Trenois Decamps, novembre
+// 2026) : le systeme de facturation de l'expediteur declarait la piece
+// jointe en mimeType application/octet-stream (generique) au lieu
+// d'application/pdf - avant correctif, estPieceDocument/estPdf se fiaient
+// uniquement au mimeType declare et classaient ce document "ambigu" des
+// la premiere verification, sans meme regarder le sujet ("Facture
+// N°4478982"). Le nom de fichier (.pdf) est desormais aussi verifie pour
+// ce type MIME generique.
+test("classifie une facture dont la piece jointe est declaree application/octet-stream (vrai .pdf mal etiquete)", () => {
+  const e = email({ sujet: "Facture N°4478982", extraitCorps: "Votre facture Trenois Decamps" });
+  const type = classifierPieceJointe(e, { nomFichier: "fac01_01_004478982.pdf", mimeType: "application/octet-stream" });
+  assert.equal(type, "facture");
+});
+
 test("un document sans aucun mot-cle reconnu est ambigu, jamais presume facture (correctif incident Dext)", () => {
   const e = email({ sujet: "Votre commande chez Central Plomberie", extraitCorps: "Merci pour votre achat." });
   const type = classifierPieceJointe(e, { nomFichier: "scan0042.pdf", mimeType: "application/pdf" });

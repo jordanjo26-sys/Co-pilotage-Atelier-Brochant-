@@ -312,3 +312,86 @@ export async function rechercherEntreprises(motCle: string, zone: string): Promi
     siteWeb: p.websiteUri,
   }));
 }
+
+export interface AvisGooglePlace {
+  auteur: string | null;
+  note: number | null;
+  texte: string | null;
+  datePublication: string | null;
+}
+
+export interface FicheGooglePlace {
+  nom: string;
+  adresse: string | null;
+  note: number | null;
+  nombreAvisTotal: number | null;
+  avis: AvisGooglePlace[];
+}
+
+/**
+ * Recupere la fiche Google (note globale + jusqu'a 5 avis, limite connue et
+ * documentee de l'API Places "Place Details") pour une entreprise, via
+ * GOOGLE_PLACES_API_KEY (meme cle que rechercherEntreprises ci-dessus,
+ * reutilisee ici pour une demande distincte de l'utilisateur : remplacer
+ * les avis d'exemple du site par de vrais avis Google plutot que d'en
+ * afficher de faux, ce qui est illegal - voir docs/architecture.md).
+ * Jamais plus de 5 avis : limite imposee par Google lui-meme, pas une
+ * restriction de ce code.
+ */
+export async function obtenirFicheGooglePlace(nomEntreprise: string, zone?: string): Promise<FicheGooglePlace> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) {
+    throw new Error("GOOGLE_PLACES_API_KEY absente : impossible de recuperer la fiche Google.");
+  }
+
+  const texteRecherche = zone ? `${nomEntreprise} ${zone}` : nomEntreprise;
+  const rechercheReponse = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress",
+    },
+    body: JSON.stringify({ textQuery: texteRecherche }),
+  });
+  if (!rechercheReponse.ok) {
+    throw new Error(`Recherche Google Places echouee (HTTP ${rechercheReponse.status}) pour "${texteRecherche}".`);
+  }
+  const rechercheDonnees = (await rechercheReponse.json()) as {
+    places?: { id?: string; displayName?: { text?: string }; formattedAddress?: string }[];
+  };
+  const lieu = (rechercheDonnees.places || [])[0];
+  if (!lieu?.id) {
+    throw new Error(`Aucun etablissement Google trouve pour "${texteRecherche}".`);
+  }
+
+  const detailsReponse = await fetch(`https://places.googleapis.com/v1/places/${lieu.id}`, {
+    headers: {
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "displayName,formattedAddress,rating,userRatingCount,reviews",
+    },
+  });
+  if (!detailsReponse.ok) {
+    throw new Error(`Lecture de la fiche Google Places echouee (HTTP ${detailsReponse.status}) pour "${lieu.displayName?.text}".`);
+  }
+  const details = (await detailsReponse.json()) as {
+    displayName?: { text?: string };
+    formattedAddress?: string;
+    rating?: number;
+    userRatingCount?: number;
+    reviews?: { authorAttribution?: { displayName?: string }; rating?: number; text?: { text?: string }; publishTime?: string }[];
+  };
+
+  return {
+    nom: details.displayName?.text || lieu.displayName?.text || nomEntreprise,
+    adresse: details.formattedAddress || lieu.formattedAddress || null,
+    note: details.rating ?? null,
+    nombreAvisTotal: details.userRatingCount ?? null,
+    avis: (details.reviews || []).map((r) => ({
+      auteur: r.authorAttribution?.displayName ?? null,
+      note: r.rating ?? null,
+      texte: r.text?.text ?? null,
+      datePublication: r.publishTime ?? null,
+    })),
+  };
+}

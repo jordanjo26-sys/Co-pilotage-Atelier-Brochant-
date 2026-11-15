@@ -18,32 +18,46 @@ import { chiffrer, dechiffrer } from "./cipher";
 const GRAPH_VERSION = "v21.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
-// pages_show_list : lister les Pages gerees par l'utilisateur.
-// pages_read_engagement + pages_manage_posts : lire/publier sur la Page.
-// instagram_basic + instagram_content_publish : lire/publier sur le
-// compte Instagram professionnel lie a la Page.
-const SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "instagram_basic", "instagram_content_publish"];
+// Le compte Facebook de l'utilisateur gere plusieurs Pages (plusieurs
+// entreprises/portefeuilles business distincts), pas seulement celle de
+// l'Atelier Brochant : /me/accounts les retourne toutes, dans un ordre qui
+// n'a rien a voir avec notre etablissement (constate en production : la
+// premiere retournee etait une tout autre Page, "Prime-Chauffage"). On
+// cible donc explicitement la bonne Page par son nom plutot que de prendre
+// la premiere de la liste.
+const NOM_PAGE_ATELIER_BROCHANT = "Plombier Paris Atelier Brochant";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(
       `${name} manquante. Creer une application sur developers.facebook.com (type "Entreprise"), ` +
-        "ajouter le produit \"Connexion Facebook pour les entreprises\", puis renseigner " +
-        "META_APP_ID / META_APP_SECRET / META_REDIRECT_URI dans .env."
+        "ajouter les cas d'utilisation Instagram/Pages (produit \"Facebook Login for Business\"), " +
+        "creer une configuration (Facebook Login for Business > Configurations) avec les autorisations " +
+        "necessaires, puis renseigner META_APP_ID / META_APP_SECRET / META_REDIRECT_URI / META_CONFIG_ID dans .env."
     );
   }
   return value;
 }
 
+/**
+ * Facebook Login for Business (obligatoire des qu'une app a les cas
+ * d'utilisation Instagram/Pages, constate en production - voir
+ * docs/architecture.md) remplace le parametre "scope" classique par un
+ * identifiant de configuration (config_id) cree dans le Business Manager :
+ * la configuration elle-meme definit quelles autorisations sont demandees.
+ * override_default_response_type=true est exige par Meta avec ce flux.
+ */
 export function buildConsentUrl(): string {
   const appId = requireEnv("META_APP_ID");
   const redirectUri = requireEnv("META_REDIRECT_URI");
+  const configId = requireEnv("META_CONFIG_ID");
   const params = new URLSearchParams({
     client_id: appId,
     redirect_uri: redirectUri,
-    scope: SCOPES.join(","),
+    config_id: configId,
     response_type: "code",
+    override_default_response_type: "true",
   });
   return `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?${params.toString()}`;
 }
@@ -88,22 +102,51 @@ export async function handleOAuthCallback(prisma: PrismaClient, code: string): P
   const { data: pages } = await appelGraph<{ data: Array<{ id: string; name: string; access_token: string }> }>(
     `${GRAPH_BASE}/me/accounts?access_token=${encodeURIComponent(jetonLongueDuree)}`
   );
-  const page = pages[0];
+  const page = pages.find((p) => p.name === NOM_PAGE_ATELIER_BROCHANT) ?? pages[0];
   if (!page) {
     throw new Error("Aucune Page Facebook geree par ce compte. Il faut etre administrateur d'au moins une Page Facebook professionnelle.");
   }
+  if (page.name !== NOM_PAGE_ATELIER_BROCHANT) {
+    throw new Error(
+      `La Page "${NOM_PAGE_ATELIER_BROCHANT}" n'a pas ete trouvee parmi les Pages accessibles (trouve a la place : "${page.name}"). ` +
+        "Verifier que le compte connecte gere bien cette Page."
+    );
+  }
 
-  const { instagram_business_account: compteInstagram } = await appelGraph<{ instagram_business_account?: { id: string } }>(
-    `${GRAPH_BASE}/${page.id}?fields=instagram_business_account&access_token=${encodeURIComponent(page.access_token)}`
-  );
+  // La verification Instagram est faite "au mieux" : si la configuration
+  // Facebook Login for Business ne porte pas encore l'autorisation
+  // necessaire (pages_read_engagement ou equivalent - constate en
+  // production, la configuration ne proposait que pages_show_list au
+  // moment de sa creation), la Page se connecte quand meme sans Instagram
+  // plutot que d'echouer entierement. Instagram pourra etre rattache plus
+  // tard en relancant la connexion une fois la permission ajoutee.
+  let compteInstagram: { id: string } | undefined;
+  try {
+    const reponse = await appelGraph<{ instagram_business_account?: { id: string } }>(
+      `${GRAPH_BASE}/${page.id}?fields=instagram_business_account&access_token=${encodeURIComponent(page.access_token)}`
+    );
+    compteInstagram = reponse.instagram_business_account;
+  } catch {
+    compteInstagram = undefined;
+  }
 
   let instagramUsername: string | null = null;
   if (compteInstagram?.id) {
-    const { username } = await appelGraph<{ username?: string }>(
-      `${GRAPH_BASE}/${compteInstagram.id}?fields=username&access_token=${encodeURIComponent(page.access_token)}`
-    );
-    instagramUsername = username ?? null;
+    try {
+      const { username } = await appelGraph<{ username?: string }>(
+        `${GRAPH_BASE}/${compteInstagram.id}?fields=username&access_token=${encodeURIComponent(page.access_token)}`
+      );
+      instagramUsername = username ?? null;
+    } catch {
+      instagramUsername = null;
+    }
   }
+
+  // Une seule connexion active a la fois (obtenirConnexionMeta prend la
+  // premiere "actif:true" - desactiver les autres evite qu'une ancienne
+  // connexion a la mauvaise Page, ex. "Prime-Chauffage" constate en
+  // production, reste active en parallele).
+  await prisma.connexionMeta.updateMany({ where: { pageId: { not: page.id } }, data: { actif: false } });
 
   await prisma.connexionMeta.upsert({
     where: { pageId: page.id },

@@ -54,12 +54,36 @@ function estExpediteurNonFournisseurConnu(expediteur: string): boolean {
   return DOMAINES_EXPEDITEURS_NON_FOURNISSEURS.some((motif) => motif.test(expediteur));
 }
 
+// "application/octet-stream" est le type MIME generique utilise par de
+// nombreux systemes de facturation/ERP quand ils ne renseignent pas (ou
+// mal) le type reel de la piece jointe - constate en production : une
+// facture reelle (Trenois Decamps, fac01_01_004478982.pdf) envoyee en
+// application/octet-stream tombait a tort en "ambigu" avant meme toute
+// verification du sujet/corps, le type MIME declare ne correspondant a
+// aucune entree de MIME_TYPES_DOCUMENT. On se rabat alors sur l'extension
+// du nom de fichier, seul signal fiable restant dans ce cas precis - mais
+// uniquement pour ce type generique, jamais pour un type MIME exotique et
+// non ambigu (ex. "application/json") qui n'a aucune raison d'etre un
+// document.
+const EXTENSIONS_DOCUMENT = [".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+
+function aUneExtensionDocument(piece: PieceJointe): boolean {
+  const nom = piece.nomFichier.toLowerCase();
+  return EXTENSIONS_DOCUMENT.some((ext) => nom.endsWith(ext));
+}
+
+function estTypeGeneriqueOuInconnu(piece: PieceJointe): boolean {
+  return piece.mimeType.toLowerCase() === "application/octet-stream";
+}
+
 export function estPieceDocument(piece: PieceJointe): boolean {
-  return MIME_TYPES_DOCUMENT.includes(piece.mimeType.toLowerCase());
+  if (MIME_TYPES_DOCUMENT.includes(piece.mimeType.toLowerCase())) return true;
+  return estTypeGeneriqueOuInconnu(piece) && aUneExtensionDocument(piece);
 }
 
 function estPdf(piece: PieceJointe): boolean {
-  return piece.mimeType.toLowerCase() === "application/pdf";
+  if (piece.mimeType.toLowerCase() === "application/pdf") return true;
+  return estTypeGeneriqueOuInconnu(piece) && piece.nomFichier.toLowerCase().endsWith(".pdf");
 }
 
 /**

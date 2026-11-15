@@ -43,6 +43,7 @@ import { enregistrerDocumentDepuisPieceJointe, DocumentScanneError } from "./doc
 import { genererDocumentPdf, DocumentGenereError, SectionDocumentGenere } from "./documentsGeneres";
 import { genererDossierComptable } from "./dossierComptable";
 import { creerDevisSynec, SynecDevisError, LigneDevis } from "./synecDevis";
+import { publierActualite, AtelierBrochantActualiteError, NouvelleActualite } from "./atelierBrochantActualites";
 
 /**
  * Morgane : assistante IA conversationnelle (Phase 7 du cahier des
@@ -738,6 +739,33 @@ const OUTILS: Anthropic.Tool[] = [
       required: ["clientNom", "lignes"],
     },
   },
+  {
+    name: "publier_actualite_atelier_brochant",
+    description:
+      "Cree ET publie reellement une actualite sur atelier-brochant.com (tableau de bord admin construit sur emergent.sh), a la place de l'utilisateur qui devrait sinon se connecter et cliquer lui-meme 'Valider et publier' - demande explicite de l'utilisateur. IMPORTANT, meme discipline que creer_devis_synec : NE JAMAIS appeler cet outil sans que l'utilisateur ait explicitement valide, dans la conversation, le texte exact (titre, resume, texte complet, ville, metier) - une fois publiee l'actualite est reellement visible publiquement, ce n'est pas une proposition revocable sans action manuelle. Ne jamais inventer un chantier, un chiffre ou un detail : chaque fait doit venir de ce que l'utilisateur a donne explicitement. Aucune image n'est attachee par cet outil - l'utilisateur choisit lui-meme ses photos de chantier reelles dans le tableau de bord juste apres. En cas d'echec, NE JAMAIS rappeler automatiquement : signaler l'echec a l'utilisateur (un brouillon partiel peut avoir ete cree, visible uniquement dans le tableau de bord, jamais publique) et attendre son accord explicite avant tout nouvel essai.",
+    input_schema: {
+      type: "object",
+      properties: {
+        titre: { type: "string", description: "Max 70 caracteres." },
+        resume: { type: "string", description: "Resume affiche dans la liste des actualites, max 200 caracteres." },
+        texte: { type: "string", description: "Texte complet de l'actualite. Ligne vide entre paragraphes, '## ' pour un intertitre." },
+        ville: {
+          type: "string",
+          enum: [
+            "Lagny-sur-Marne", "Melun", "Meaux", "Chelles", "Torcy", "Bussy-Saint-Georges",
+            "Serris", "Chessy", "Montévrain", "Saint-Thibault-des-Vignes", "Thorigny-sur-Marne",
+            "Pomponne", "Champs-sur-Marne", "Noisiel", "Dammarie-les-Lys", "Le Mée-sur-Seine",
+            "Savigny-le-Temple", "Seine-et-Marne",
+          ],
+        },
+        metier: { type: "string", enum: ["Plomberie", "Chauffage", "Électricité", "Serrurerie", "Énergies renouvelables"] },
+        titreGoogle: { type: "string", description: "Balise <title> SEO, max 60 caracteres." },
+        texteGoogle: { type: "string", description: "Meta description SEO, max 155 caracteres." },
+        publierImmediatement: { type: "boolean", description: "Par defaut true (publie reellement). false enregistre seulement un brouillon, a publier plus tard a la main dans le tableau de bord." },
+      },
+      required: ["titre", "resume", "texte", "ville", "metier", "titreGoogle", "texteGoogle"],
+    },
+  },
 ];
 
 async function executerOutil(
@@ -1387,6 +1415,32 @@ async function executerOutil(
       } catch (err) {
         if (err instanceof SynecDevisError) return { erreur: err.message };
         return { erreur: `Échec de la création du devis Synec : ${(err as Error).message}` };
+      }
+    }
+
+    case "publier_actualite_atelier_brochant": {
+      const requis = ["titre", "resume", "texte", "ville", "metier", "titreGoogle", "texteGoogle"] as const;
+      for (const champ of requis) {
+        if (typeof params[champ] !== "string" || !params[champ]) {
+          return { erreur: `Champ "${champ}" manquant ou vide.` };
+        }
+      }
+      const actualite: NouvelleActualite = {
+        titre: params.titre as string,
+        resume: params.resume as string,
+        texte: params.texte as string,
+        ville: params.ville as NouvelleActualite["ville"],
+        metier: params.metier as NouvelleActualite["metier"],
+        titreGoogle: params.titreGoogle as string,
+        texteGoogle: params.texteGoogle as string,
+      };
+      try {
+        return await publierActualite(prisma, actualite, {
+          publierImmediatement: typeof params.publierImmediatement === "boolean" ? params.publierImmediatement : undefined,
+        });
+      } catch (err) {
+        if (err instanceof AtelierBrochantActualiteError) return { erreur: err.message };
+        return { erreur: `Échec de la publication de l'actualité atelier-brochant.com : ${(err as Error).message}` };
       }
     }
 
