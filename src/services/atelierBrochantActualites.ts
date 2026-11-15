@@ -127,21 +127,30 @@ async function seConnecterAdmin(page: Page): Promise<void> {
 
 /**
  * Remplit le formulaire "Nouvel article" (ouvert depuis le bouton
- * "Rediger" du tableau de bord, route /admin/actualites/nouveau). Champs
- * cibles par leur libelle associe (getByLabel), confirme par inspection
- * directe du formulaire reel - les regex ancrees en debut de libelle
- * distinguent "Titre" de "Titre Google" et "Texte" de "Texte Google"
- * (meme prefixe sinon, le reste du libelle etant un compteur de
- * caracteres qui varie).
+ * "Rediger" du tableau de bord, route /admin/actualites/nouveau).
+ *
+ * Cible les champs par leur POSITION dans `input, textarea, select`
+ * (confirmee a deux reprises par inspection directe du formulaire reel,
+ * via un script d'exploration ayant rempli et enregistre un brouillon de
+ * test) plutot que par libelle (getByLabel) : un premier essai par
+ * libelle (regex ancree sur le texte du <label>, ex. /^Titre\n/) a
+ * echoue en production avec un timeout sur le tout premier champ - le nom
+ * accessible calcule par le navigateur pour ces libelles (qui contiennent
+ * un compteur de caracteres cote client) ne correspondait pas au format
+ * suppose. Ordre verifie : [0] Titre, [1] Resume, [2] Texte, [3] input
+ * fichier (image), [4] Description de l'image, [5] Ville (select), [6]
+ * Metier (select), [7] Titre Google, [8] Texte Google, [9] Adresse de la
+ * page.
  */
 async function remplirFormulaireActualite(page: Page, actualite: NouvelleActualite): Promise<void> {
-  await page.getByLabel(/^Titre\n/).fill(actualite.titre);
-  await page.getByLabel(/^Résumé/).fill(actualite.resume);
-  await page.getByLabel(/^Texte\n/).fill(actualite.texte);
-  await page.getByLabel(/^Ville\n/).selectOption({ label: actualite.ville });
-  await page.getByLabel(/^Métier\n/).selectOption({ label: actualite.metier });
-  await page.getByLabel(/^Titre Google\n/).fill(actualite.titreGoogle);
-  await page.getByLabel(/^Texte Google\n/).fill(actualite.texteGoogle);
+  const champs = page.locator("input, textarea, select");
+  await champs.nth(0).fill(actualite.titre);
+  await champs.nth(1).fill(actualite.resume);
+  await champs.nth(2).fill(actualite.texte);
+  await champs.nth(5).selectOption({ label: actualite.ville });
+  await champs.nth(6).selectOption({ label: actualite.metier });
+  await champs.nth(7).fill(actualite.titreGoogle);
+  await champs.nth(8).fill(actualite.texteGoogle);
 }
 
 /**
