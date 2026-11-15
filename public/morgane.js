@@ -64,15 +64,21 @@
   // styles.css) au lieu d'un champ sur une seule ligne qui defile
   // horizontalement - demande explicite de l'utilisateur, qui ne pouvait
   // pas se relire en dictant un message un peu long. Entree envoie (comme
-  // avant, habitude d'un chat), Maj+Entree insere un saut de ligne.
+  // avant, habitude d'un chat), Maj+Entree insere un saut de ligne -
+  // MAIS un clavier tactile (telephone/tablette) n'a pas de vraie touche
+  // Maj a maintenir : chaque appui sur "Retour" y arrive donc TOUJOURS
+  // sans shiftKey, rendant impossible tout saut de ligne (constate par
+  // l'utilisateur sur iPhone). Sur un appareil tactile, Entree insere
+  // donc toujours un saut de ligne ; seul le bouton "Envoyer" envoie.
   const champSaisie = document.getElementById("morgane-saisie");
+  const appareilTactile = "ontouchstart" in window || navigator.maxTouchPoints > 0;
   function ajusterHauteurSaisie() {
     champSaisie.style.height = "auto";
     champSaisie.style.height = `${champSaisie.scrollHeight}px`;
   }
   champSaisie.addEventListener("input", ajusterHauteurSaisie);
   champSaisie.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !appareilTactile) {
       e.preventDefault();
       document.getElementById("form-morgane").requestSubmit();
     }
