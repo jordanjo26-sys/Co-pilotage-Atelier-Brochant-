@@ -562,27 +562,45 @@ async function lireResumeDevis(page: import("playwright").Page, nomClient: strin
   }
 }
 
+function calculerTotalHTAttendu(lignes: LigneDevis[]): number {
+  return lignes.reduce((somme, l) => somme + l.prixHT * (l.quantite ?? 1), 0);
+}
+
+function formaterMontantAffiche(montant: number): string {
+  return montant.toFixed(2).replace(".", ",");
+}
+
 /**
- * Recherche, parmi les devis déjà existants pour ce client, un devis
- * VIDE (en-tête enregistré mais "HT : 0,00 €", aucune ligne) - signe d'une
+ * Recherche, parmi les devis déjà existants pour ce client, un doublon
+ * potentiel de celui qu'on s'apprête à créer - soit un devis VIDE
+ * (en-tête enregistré mais "HT : 0,00 €", aucune ligne - signe d'une
  * precedente tentative restee incomplete a cause du defaut corrige dans
- * ouvrirProduitsDuDevis ci-dessus. Verifie AVANT de creer quoi que ce soit :
- * mieux vaut echouer explicitement ici que de laisser une deuxieme
- * tentative creer un deuxieme en-tete en double (constate en production -
- * client "Santamaria", DEVIS-16663 vide puis DEVIS-16664 cree a cote).
+ * ouvrirProduitsDuDevis ci-dessus), soit un devis DEJA COMPLET avec
+ * exactement le meme total HT attendu (signe d'une precedente tentative
+ * ayant en realite reussi, mais dont la lecture de confirmation a echoue -
+ * voir le correctif de lireResumeDevis plus bas - menant a une relance qui
+ * cree un vrai doublon complet). Verifie AVANT de creer quoi que ce soit :
+ * mieux vaut echouer explicitement ici que de laisser une nouvelle
+ * tentative creer un doublon de plus (constate en production - client
+ * "Santamaria" : en-tete vide ; client "Czapura" : deux devis complets
+ * identiques, 671,24 € HT chacun).
  */
-async function trouverDevisVideExistant(page: import("playwright").Page, nomClient: string): Promise<string | null> {
+async function trouverDevisDoublonPotentiel(page: import("playwright").Page, nomClient: string, totalHTAttendu: number): Promise<string | null> {
   const champRecherche = page.getByPlaceholder(/recherche/i).first();
   if (await champRecherche.isVisible().catch(() => false)) {
     await champRecherche.fill(nomClient);
     await page.waitForTimeout(1200);
   }
+  // totalFormate ne contient que des chiffres et une virgule (sortie de
+  // formaterMontantAffiche) : aucun caractere special regex a echapper.
+  const totalFormate = formaterMontantAffiche(totalHTAttendu);
   const texte = (await page.evaluate(`(() => {
     const motif = ${JSON.stringify(nomClient)};
+    const motifTotal = new RegExp('HT\\\\s*:\\\\s*(0,00|${totalFormate})\\\\s*€');
     const lignes = Array.from(document.querySelectorAll('body *')).filter((el) => {
       if (el.children.length > 25) return false;
       const t = el.textContent || '';
-      return t.includes(motif) && t.includes('DEVIS-') && /HT\\s*:\\s*0,00\\s*€/.test(t);
+      return t.includes(motif) && t.includes('DEVIS-') && motifTotal.test(t);
     });
     const feuilles = lignes.filter((el) => !lignes.some((autre) => autre !== el && el.contains(autre)));
     return feuilles.map((el) => el.textContent.match(/DEVIS-\\d+/)?.[0]).filter(Boolean)[0] || null;
@@ -616,11 +634,13 @@ export async function creerDevisSynec(prisma: PrismaClient, params: ParametresDe
     await seConnecter(page, identifiant, motDePasse);
     await allerAuxDevis(page);
 
-    const devisVideExistant = await trouverDevisVideExistant(page, params.clientNom);
-    if (devisVideExistant) {
+    const totalHTAttendu = calculerTotalHTAttendu(params.lignes);
+    const devisDoublonExistant = await trouverDevisDoublonPotentiel(page, params.clientNom, totalHTAttendu);
+    if (devisDoublonExistant) {
       throw new SynecDevisError(
-        `Un devis vide (${devisVideExistant}) existe déjà pour "${params.clientNom}" - probablement une tentative précédente restée incomplète. ` +
-          `Supprimez-le dans Synec avant de relancer la création, pour éviter un doublon.`
+        `Un devis (${devisDoublonExistant}) existe déjà pour "${params.clientNom}" - soit vide (tentative précédente incomplète), ` +
+          `soit déjà avec le total exact demandé (${formaterMontantAffiche(totalHTAttendu)} € HT - tentative précédente probablement réussie malgré une confirmation illisible). ` +
+          `Vérifiez-le dans Synec et supprimez-le s'il fait doublon avant de relancer la création.`
       );
     }
 
@@ -635,6 +655,15 @@ export async function creerDevisSynec(prisma: PrismaClient, params: ParametresDe
       await ajouterProduitDevis(page, ligne);
     }
 
+    // Lecture de confirmation : DOIT se faire depuis la liste des devis
+    // (c'est la que figurent ensemble le nom du client, le numero DEVIS- et
+    // les totaux HT/TTC - voir lireResumeDevis), pas depuis l'ecran
+    // "Produits du devis" encore ouvert a ce stade. Oublier ce retour
+    // explicite faisait echouer la lecture quasi systematiquement, meme
+    // apres une creation entierement reussie (defaut reel constate en
+    // production : client "Czapura", confirmation illisible deux fois de
+    // suite malgre deux devis complets et identiques crees).
+    await allerAuxDevis(page);
     const resultat = await lireResumeDevis(page, params.clientNom);
 
     await logEvenement(prisma, {
