@@ -114,7 +114,17 @@ echo "== Fuseau horaire =="
 timedatectl set-timezone Europe/Paris
 
 echo "== Paquets systeme =="
-apt-get update -y
+# Tolerant a une panne transitoire du miroir Ubuntu (constate en
+# production : "404 Not Found" sur nova.clouds.archive.ubuntu.com,
+# totalement hors de notre controle) - sans ce `|| true`, `set -e` arretait
+# tout le script ici, AVANT meme d'avoir redemarre l'application avec le
+# nouveau code pourtant deja synchronise par rsync (deploiement entier
+# bloque par une panne de miroir de paquets sans rapport avec le code
+# deploye). apt-get install qui suit continue de fonctionner sur la liste
+# de paquets deja en cache meme si cette mise a jour a echoue - sans
+# consequence ici, ces paquets etant deja installes depuis longtemps sur ce
+# serveur.
+apt-get update -y || echo "-- Echec de apt-get update (miroir indisponible ?) : on continue avec la liste de paquets deja en cache."
 # ffmpeg : diaporamas video PagesJaunes a partir de vraies photos
 # (videoGenerationPagesJaunes.ts) - aucun fournisseur IA externe, juste un
 # assemblage local de photos deja uploadees.
