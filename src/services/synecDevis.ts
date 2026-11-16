@@ -574,6 +574,35 @@ async function lireResumeDevis(page: import("playwright").Page, nomClient: strin
   }
 }
 
+/**
+ * Diagnostic textuel capture UNIQUEMENT quand lireResumeDevis echoue
+ * (numeroDevis null) - deux correctifs precedents bases sur des
+ * hypotheses sans pouvoir observer l'etat reel de la page (aucun acces
+ * direct a Synec depuis l'environnement de developpement) n'ont pas
+ * suffi (signale par l'utilisateur en production, a deux reprises). Sert
+ * a lire la VRAIE cause dans le journal au prochain echec plutot que de
+ * deviner un troisieme correctif a l'aveugle : URL/titre actuels,
+ * presence effective du nom du client/du motif "DEVIS-"/d'un total "HT :"
+ * n'importe ou sur la page (pas seulement dans l'element cible de
+ * lireResumeDevis), et un extrait plus long du texte visible.
+ */
+async function capturerDiagnosticConfirmationDevis(page: import("playwright").Page, nomClient: string): Promise<string> {
+  const url = page.url();
+  const titre = await page.title().catch(() => "?");
+  const texteComplet = await page
+    .locator("body")
+    .innerText()
+    .then((t) => t.replace(/\s+/g, " ").trim())
+    .catch(() => "");
+  const nomPresent = texteComplet.includes(nomClient);
+  const devisPresent = texteComplet.includes("DEVIS-");
+  const totalHtPresent = /HT\s*:\s*[\d\s.,]+€/.test(texteComplet);
+  return (
+    `URL : ${url} — titre : "${titre}" — nom client present : ${nomPresent} — "DEVIS-" present : ${devisPresent} — "HT :" present : ${totalHtPresent} — ` +
+    `extrait (1500 car.) : "${texteComplet.slice(0, 1500)}"`
+  );
+}
+
 function calculerTotalHTAttendu(lignes: LigneDevis[]): number {
   return lignes.reduce((somme, l) => somme + l.prixHT * (l.quantite ?? 1), 0);
 }
@@ -677,6 +706,16 @@ export async function creerDevisSynec(prisma: PrismaClient, params: ParametresDe
     // suite malgre deux devis complets et identiques crees).
     await allerAuxDevis(page, true);
     const resultat = await lireResumeDevis(page, params.clientNom);
+
+    if (!resultat.numeroDevis) {
+      const diagnostic = await capturerDiagnosticConfirmationDevis(page, params.clientNom);
+      await page.screenshot({ path: CHEMIN_CAPTURE_EXPLORATION, fullPage: true }).catch(() => {});
+      await logEvenement(prisma, {
+        evenement: "synec_devis_confirmation_illisible",
+        action: `Diagnostic confirmation illisible pour "${params.clientNom}"`,
+        resultat: diagnostic,
+      });
+    }
 
     await logEvenement(prisma, {
       evenement: "synec_devis_cree",
