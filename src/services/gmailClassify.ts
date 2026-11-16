@@ -135,8 +135,17 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   // Un devis n'est ni une facture ni un cas ambigu : type connu et
   // reconnaissable, jamais transmis a Dext, jamais mis en attente de
   // validation (evite d'encombrer le centre de validation a chaque devis
-  // recu d'un fournisseur).
-  if (MOTIF_DEVIS.test(contexte)) return "devis";
+  // recu d'un fournisseur). MAIS le mot "devis" seul est ambigu comme
+  // "avoir" ci-dessus : un CLIENT qui ecrit "pouvez-vous me faire un
+  // devis, voici des photos" (join avec des .jpg) declenchait a tort ce
+  // type, creant une fiche "fournisseur" au nom du client (signale en
+  // production : "Florian Czapura", 7 photos .jpg classees "devis").
+  // Comme pour "facture", un vrai devis FOURNISSEUR (deja chiffre, avec
+  // son propre en-tete) arrive quasi-systematiquement en PDF ; une image
+  // dans ce contexte est bien plus probablement une photo de client
+  // demandant un devis que le document lui-meme - laissee ambigue (centre
+  // de validation) plutot que presumee fournisseur.
+  if (MOTIF_DEVIS.test(contexte) && estPdf(piece)) return "devis";
 
   // Correctif suite a un incident reel (envois errones vers Dext, rejetes
   // en masse) : la recherche Gmail (has:attachment newer_than:7d) balaie

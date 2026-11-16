@@ -91,6 +91,22 @@ test("classifie une offre de prix comme un devis", () => {
   assert.equal(type, "devis");
 });
 
+// Regression reelle en production (novembre 2026) : un CLIENT demandant
+// un devis en joignant des photos de son probleme ("pouvez-vous me faire
+// un devis, voici des photos") etait classe "devis" (type fournisseur) a
+// cause du seul mot "devis" dans le sujet/corps, creant a tort une fiche
+// fournisseur au nom du client. Une image dans ce contexte doit rester
+// ambigue, comme pour une facture (voir plus bas).
+test("une image dans un e-mail mentionnant 'devis' n'est jamais presumee etre le devis (demande de devis d'un client)", () => {
+  const e = email({
+    sujet: "Demande de devis",
+    extraitCorps: "Bonjour, pouvez-vous me faire un devis pour cette reparation ? Voici des photos.",
+    expediteur: "client.particulier@gmail.com",
+  });
+  const type = classifierPieceJointe(e, { nomFichier: "photo1.jpg", mimeType: "image/jpeg" });
+  assert.equal(type, "ambigu");
+});
+
 test("une image dans un e-mail de facture n'est jamais transmise comme facture (ex. logo de signature)", () => {
   const e = email({ sujet: "Votre facture n°2026-014" });
   const type = classifierPieceJointe(e, { nomFichier: "signature.png", mimeType: "image/png" });
