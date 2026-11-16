@@ -12,6 +12,7 @@ import {
   AnomalieClassificationError,
   extrairePiecesJointes,
   extraireEntete,
+  backfillMontantsFacturesSansMontant,
 } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
@@ -552,6 +553,28 @@ export function buildRouter(prisma: PrismaClient): Router {
       // nombreux messages a la fois, ex. quota Gmail depasse, produisait
       // sinon un mur de texte quasi identique repete ligne par ligne).
       res.json({ ...resultat, resumeErreurs: resumerErreurs(resultat.erreurs) });
+    } catch (err) {
+      const messageErreur = (err as Error).message;
+      if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);
+      res.status(400).json({ erreur: messageErreur });
+    }
+  });
+
+  // Re-extraction ponctuelle des montants HT/TTC des factures fournisseurs
+  // deja en base, sans montant (voir backfillMontantsFacturesSansMontant) -
+  // bouton manuel depuis "Dépenses par fournisseur" plutot qu'une tache
+  // planifiee : utile surtout une fois (documents anterieurs a l'extraction
+  // automatique), re-declenchable sans risque ensuite (ne retouche jamais
+  // un document deja pourvu d'un montant).
+  router.post("/depenses-fournisseurs/backfill-montants", async (req, res) => {
+    const pause = gmailEnPause();
+    if (pause) {
+      return res.status(400).json({ erreur: `Google a temporairement limite ce compte. Nouvelle tentative possible apres ${pause.toISOString()}.` });
+    }
+    try {
+      const resultat = await backfillMontantsFacturesSansMontant(prisma);
+      reinitialiserLimiteGmail();
+      res.json(resultat);
     } catch (err) {
       const messageErreur = (err as Error).message;
       if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);

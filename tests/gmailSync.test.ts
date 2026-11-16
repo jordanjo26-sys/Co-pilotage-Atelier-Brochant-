@@ -166,3 +166,45 @@ test("envoi manuel vers Dext : gardes-fous", async (t) => {
 
   await prisma.$disconnect();
 });
+
+// Meme principe que ci-dessus (aucun mock de l'API Gmail) : ne teste que le
+// cas ou backfillMontantsFacturesSansMontant n'a litteralement rien a
+// retraiter (aucun document eligible), donc jamais besoin d'appeler
+// getGmailClient - le seul chemin verifiable sans connexion Gmail reelle.
+test("backfillMontantsFacturesSansMontant : rien a traiter -> ne tente jamais de contacter Gmail", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { backfillMontantsFacturesSansMontant } = await import("../src/services/gmailSync");
+  const prisma = new PrismaClient();
+
+  await t.test("aucune facture sans montant -> resultat vide, pas d'erreur", async () => {
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: "complete.pdf", montantHT: 100, montantTTC: 120 },
+    });
+    const resultat = await backfillMontantsFacturesSansMontant(prisma);
+    assert.deepEqual(resultat, { traitees: 0, miseAJour: 0, toujoursSansMontant: 0, ignorees: 0, erreurs: [] });
+  });
+
+  await t.test("facture sans montant mais sans reference Gmail (document ancien) -> ignoree, pas d'appel Gmail", async () => {
+    await prisma.documentFournisseur.create({ data: { type: "facture", fichierNom: "ancien.pdf" } });
+    const resultat = await backfillMontantsFacturesSansMontant(prisma);
+    assert.equal(resultat.ignorees, 1);
+    assert.equal(resultat.traitees, 0);
+    assert.deepEqual(resultat.erreurs, []);
+  });
+
+  await prisma.$disconnect();
+});

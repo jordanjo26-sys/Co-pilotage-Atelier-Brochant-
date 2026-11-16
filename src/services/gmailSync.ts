@@ -780,3 +780,80 @@ export async function classerAnomalieCommeFacture(prisma: PrismaClient, anomalie
     resultat: "Classification manuelle depuis le centre de validation des anomalies.",
   });
 }
+
+export interface ResultatBackfillMontants {
+  traitees: number;
+  miseAJour: number;
+  toujoursSansMontant: number;
+  ignorees: number;
+  erreurs: string[];
+}
+
+/**
+ * Re-extrait les montants HT/TTC des factures fournisseurs deja en base
+ * qui n'en ont pas (montantHT et/ou montantTTC nuls) - necessaire pour
+ * tout document recu AVANT l'introduction de extraireMontantHTFacture/
+ * extraireMontantTTCFacture (section "Dépenses par fournisseur") :
+ * l'extraction ne s'execute qu'au moment de la reception d'un nouvel
+ * e-mail (voir synchroniserGmail), jamais retroactivement sur les
+ * documents deja stockes - signale par l'utilisateur en production (la
+ * quasi-totalite des factures existantes affichaient "0,00 €" faute
+ * d'avoir jamais ete passees dans cette extraction).
+ *
+ * Re-telecharge chaque piece jointe via Gmail (gmailMessageId +
+ * gmailAttachmentId, meme mecanisme que envoyerDocumentFournisseurVersDext
+ * ci-dessus) pour en relire le contenu PDF, plutot que de deviner un
+ * montant a partir des seules metadonnees deja en base. Un document sans
+ * reference Gmail exploitable (trop ancien, ou facture papier numerisee
+ * sans texte extractible) est compte a part (ignorees) plutot que de
+ * provoquer une erreur bloquante pour les autres.
+ */
+export async function backfillMontantsFacturesSansMontant(prisma: PrismaClient): Promise<ResultatBackfillMontants> {
+  const resultat: ResultatBackfillMontants = { traitees: 0, miseAJour: 0, toujoursSansMontant: 0, ignorees: 0, erreurs: [] };
+
+  const documents = await prisma.documentFournisseur.findMany({
+    where: { type: "facture", OR: [{ montantHT: null }, { montantTTC: null }] },
+  });
+
+  const aTraiter = documents.filter((d) => d.gmailMessageId && d.gmailAttachmentId);
+  resultat.ignorees = documents.length - aTraiter.length;
+  if (aTraiter.length === 0) return resultat;
+
+  const connexionGmail = await getGmailClient(prisma);
+  if (!connexionGmail) throw new Error("Aucune boite Gmail connectee. Se connecter via /auth/google d'abord.");
+  const { gmail } = connexionGmail;
+
+  for (const document of aTraiter) {
+    resultat.traitees++;
+    // Meme pause volontaire qu'en synchronisation normale (voir
+    // appelAvecRetryQuota/synchroniserGmail) : un lot de plusieurs
+    // centaines de documents en rafale a deja provoque un depassement de
+    // quota Gmail soutenu en conditions reelles.
+    await attendre(150);
+    try {
+      const attachment = await appelAvecRetryQuota(() =>
+        gmail.users.messages.attachments.get({ userId: "me", messageId: document.gmailMessageId!, id: document.gmailAttachmentId! })
+      );
+      const donnees = Buffer.from(attachment.data.data || "", "base64url");
+      const contenuExtrait = extractPdfText(donnees);
+      const montantHT = document.montantHT ?? extraireMontantHTFacture(contenuExtrait);
+      const montantTTC = document.montantTTC ?? extraireMontantTTCFacture(contenuExtrait);
+      if (montantHT != null || montantTTC != null) {
+        await prisma.documentFournisseur.update({ where: { id: document.id }, data: { montantHT, montantTTC } });
+        resultat.miseAJour++;
+      } else {
+        resultat.toujoursSansMontant++;
+      }
+    } catch (err) {
+      resultat.erreurs.push(`${document.fichierNom || document.id} : ${(err as Error).message}`);
+    }
+  }
+
+  await logEvenement(prisma, {
+    evenement: "gmail_backfill_montants",
+    action: "Re-extraction des montants HT/TTC des factures fournisseurs deja en base",
+    resultat: `${resultat.miseAJour} mise(s) a jour, ${resultat.toujoursSansMontant} toujours sans montant exploitable, ${resultat.ignorees} ignoree(s) (piece jointe non disponible), ${resultat.erreurs.length} erreur(s) sur ${resultat.traitees} traitee(s).`,
+  });
+
+  return resultat;
+}

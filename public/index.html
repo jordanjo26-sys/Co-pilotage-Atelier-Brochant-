@@ -225,7 +225,9 @@
             <option value="mois" selected>Par mois</option>
             <option value="annee">Par année</option>
           </select>
+          <button type="button" class="ghost" onclick="backfillMontantsFournisseurs(this)">Récupérer les montants manquants</button>
         </div>
+        <div id="depenses-backfill-resultat"></div>
         <div id="depenses-fournisseurs-resume"></div>
         <div id="depenses-fournisseurs-detail"></div>
       </section>

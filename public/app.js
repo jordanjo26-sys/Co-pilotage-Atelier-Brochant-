@@ -2152,8 +2152,6 @@ async function chargerDepensesFournisseurs() {
     // gros au plus petit (sur le TTC) - repond directement a "ce que
     // representent mes depenses chez mes differents fournisseurs".
     const totauxParFournisseur = new Map();
-    let sansMontantHTTotal = 0;
-    let sansMontantTTCTotal = 0;
     for (const l of lignes) {
       const cle = l.fournisseurId || l.fournisseurNom;
       const existant = totauxParFournisseur.get(cle) || { nom: l.fournisseurNom, totalHT: 0, totalTTC: 0, nombreSansMontantHT: 0, nombreSansMontantTTC: 0 };
@@ -2162,34 +2160,40 @@ async function chargerDepensesFournisseurs() {
       existant.nombreSansMontantHT += l.nombreSansMontantHT;
       existant.nombreSansMontantTTC += l.nombreSansMontantTTC;
       totauxParFournisseur.set(cle, existant);
-      sansMontantHTTotal += l.nombreSansMontantHT;
-      sansMontantTTCTotal += l.nombreSansMontantTTC;
     }
-    const classement = [...totauxParFournisseur.values()].sort((a, b) => b.totalTTC - a.totalTTC);
+    const tous = [...totauxParFournisseur.values()].sort((a, b) => b.totalTTC - a.totalTTC);
+    // Separe les fournisseurs sans le moindre montant exploitable (ni HT ni
+    // TTC sur toute la periode) - les afficher en tete, tous a "0,00 €",
+    // noyait les vrais totaux dans un mur de zeros (signale par
+    // l'utilisateur) sans rien apporter : releguees dans un repli replie
+    // par defaut plutot que dans le classement principal.
+    const avecMontant = tous.filter((f) => f.totalHT > 0 || f.totalTTC > 0);
+    const sansMontant = tous.filter((f) => f.totalHT === 0 && f.totalTTC === 0);
 
-    resume.innerHTML = `
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Fournisseur</th><th>Total HT</th><th>Total TTC</th></tr></thead>
-          <tbody>
-            ${classement
-              .map(
-                (f) => `
-              <tr>
-                <td>${echapper(f.nom)}</td>
-                <td>${fmtMontant(f.totalHT)}${f.nombreSansMontantHT > 0 ? ` <span class="anomalie-meta">(+ ${f.nombreSansMontantHT} sans montant HT)</span>` : ""}</td>
-                <td>${fmtMontant(f.totalTTC)}${f.nombreSansMontantTTC > 0 ? ` <span class="anomalie-meta">(+ ${f.nombreSansMontantTTC} sans montant TTC)</span>` : ""}</td>
-              </tr>`
-              )
-              .join("")}
-          </tbody>
-        </table>
-      </div>
-      ${
-        sansMontantHTTotal > 0 || sansMontantTTCTotal > 0
-          ? `<p class="aide-inline">⚠️ ${sansMontantHTTotal} facture(s) sans montant HT et ${sansMontantTTCTotal} sans montant TTC, exclue(s) des totaux correspondants - voir l'onglet Fournisseurs pour les compléter.</p>`
-          : ""
-      }`;
+    const ligneResume = (f) => `
+      <div class="depense-ligne">
+        <span class="depense-nom">${echapper(f.nom)}</span>
+        <span class="depense-montants">
+          <span class="depense-montant-ttc">${fmtMontant(f.totalTTC)}</span>
+          <span class="depense-montant-ht">HT ${fmtMontant(f.totalHT)}</span>
+          ${
+            f.nombreSansMontantHT > 0 || f.nombreSansMontantTTC > 0
+              ? `<span class="depense-anomalie">⚠️ ${Math.max(f.nombreSansMontantHT, f.nombreSansMontantTTC)} facture(s) incomplète(s)</span>`
+              : ""
+          }
+        </span>
+      </div>`;
+
+    resume.innerHTML =
+      (avecMontant.length > 0
+        ? avecMontant.map(ligneResume).join("")
+        : `<p class="liste-vide">Aucun montant exploitable sur cette période - voir "Récupérer les montants manquants" ci-dessus.</p>`) +
+      (sansMontant.length > 0
+        ? `<details class="depense-sans-montant">
+             <summary>${sansMontant.length} fournisseur(s) sans aucun montant extrait</summary>
+             ${sansMontant.map(ligneResume).join("")}
+           </details>`
+        : "");
 
     // Detail : par periode, du plus recent au plus ancien (l'API renvoie
     // deja trie du plus ancien au plus recent, regroupe par periode donc
@@ -2205,23 +2209,19 @@ async function chargerDepensesFournisseurs() {
         ([periode, docs], index) => `
       <details class="fournisseur-documents"${index === 0 ? " open" : ""}>
         <summary>${echapper(libellePeriodeDepense(periode, granularite))}</summary>
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Fournisseur</th><th>Total HT</th><th>Total TTC</th><th>Factures</th></tr></thead>
-            <tbody>
-              ${docs
-                .map(
-                  (l) => `
-                <tr>
-                  <td>${echapper(l.fournisseurNom)}</td>
-                  <td>${fmtMontant(l.totalHT)}</td>
-                  <td>${fmtMontant(l.totalTTC)}</td>
-                  <td>${l.nombreFactures}${l.nombreSansMontantTTC > 0 ? ` <span class="anomalie-meta">(dont ${l.nombreSansMontantTTC} sans montant TTC)</span>` : ""}</td>
-                </tr>`
-                )
-                .join("")}
-            </tbody>
-          </table>
+        <div>
+          ${docs
+            .map(
+              (l) => `
+            <div class="depense-ligne">
+              <span class="depense-nom">${echapper(l.fournisseurNom)} <span class="depense-montant-ht">· ${l.nombreFactures} facture(s)</span></span>
+              <span class="depense-montants">
+                <span class="depense-montant-ttc">${fmtMontant(l.totalTTC)}</span>
+                <span class="depense-montant-ht">HT ${fmtMontant(l.totalHT)}</span>
+              </span>
+            </div>`
+            )
+            .join("")}
         </div>
       </details>`
       )
@@ -2232,6 +2232,46 @@ async function chargerDepensesFournisseurs() {
   }
 }
 document.getElementById("depenses-granularite")?.addEventListener("change", chargerDepensesFournisseurs);
+
+// Re-extrait les montants HT/TTC des factures deja en base qui n'en ont
+// aucun (voir backfillMontantsFacturesSansMontant dans gmailSync.ts) -
+// necessaire pour tout document recu AVANT l'introduction de cette
+// extraction (la quasi-totalite des factures existantes au moment de ce
+// module, signale par l'utilisateur : un mur de "0,00 €" sur chaque
+// fournisseur). Peut prendre plusieurs dizaines de secondes (un appel
+// Gmail par facture, avec la meme pause anti-quota que la synchronisation
+// normale) : le bouton reste desactive et affiche une progression le
+// temps de la requete plutot que de laisser croire a un blocage.
+async function backfillMontantsFournisseurs(bouton) {
+  const resultatConteneur = document.getElementById("depenses-backfill-resultat");
+  bouton.disabled = true;
+  const texteInitial = bouton.textContent;
+  bouton.textContent = "Récupération en cours… (peut prendre une à deux minutes)";
+  if (resultatConteneur) resultatConteneur.innerHTML = "";
+  try {
+    const res = await fetch("/api/depenses-fournisseurs/backfill-montants", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.erreur || "Récupération impossible.");
+    if (resultatConteneur) {
+      const details = [
+        `${data.miseAJour} facture(s) mise(s) à jour`,
+        data.toujoursSansMontant > 0 ? `${data.toujoursSansMontant} toujours sans montant lisible` : null,
+        data.ignorees > 0 ? `${data.ignorees} ignorée(s) (document trop ancien, sans pièce jointe retrouvable)` : null,
+        data.erreurs.length > 0 ? `${data.erreurs.length} erreur(s)` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      resultatConteneur.innerHTML = `<p class="aide-inline">${echapper(details)}.</p>`;
+    }
+    await chargerDepensesFournisseurs();
+  } catch (err) {
+    if (resultatConteneur) resultatConteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = texteInitial;
+  }
+}
+window.backfillMontantsFournisseurs = backfillMontantsFournisseurs;
 
 // --- Fournisseurs ---------------------------------------------------------
 
