@@ -303,7 +303,16 @@ sudo -u "$APP_USER" npx prisma generate
 # l'utilisateur applicatif ($APP_USER), sinon il atterrirait dans le cache
 # de root et resterait introuvable au demarrage du serveur (execute sous
 # $APP_USER par le service systemd). Sans effet si deja installe.
-npx playwright install-deps chromium
+# Meme tolerance qu'au tout debut de ce script (panne transitoire du
+# miroir Ubuntu, voir plus haut) : "install-deps" appelle lui aussi
+# apt-get en coulisses, et sa panne bloquait integralement la suite du
+# deploiement (build + redemarrage de l'application, section suivante)
+# bien apres avoir deja tolere la meme panne plus haut - constate en
+# production, meme panne de miroir rencontree deux fois dans le meme
+# script. Sans consequence : ces bibliotheques systeme sont deja
+# installees sur ce serveur depuis longtemps (voir le commentaire
+# ci-dessus, "Sans effet si deja installe").
+npx playwright install-deps chromium || echo "-- Echec de playwright install-deps (miroir indisponible ?) : on continue, ces bibliotheques sont deja installees sur ce serveur."
 sudo -u "$APP_USER" npx playwright install chromium
 sudo -u "$APP_USER" npm run build
 sudo -u "$APP_USER" npx prisma migrate deploy
