@@ -226,6 +226,84 @@ test("extraireMontantHTFacture/extraireMontantTTCFacture sur une seconde vraie f
   assert.equal(extraireMontantTTCFacture(texte), 767.69);
 });
 
+// Regressions a partir d'exemples reels fournis par l'utilisateur
+// (novembre 2026) : apres deploiement, la quasi-totalite des factures deja
+// en base restaient a "0,00 €" malgre une extraction "a posteriori"
+// reussie (backfillMontantsFacturesSansMontant) - le PDF etait bien relu,
+// mais ces mises en page reelles (montants en point anglo-saxon, symbole
+// monetaire glisse dans le libelle, libelle en-tete de colonne avec sa
+// valeur sur la ligne suivante, libelle repete plusieurs fois sur le
+// meme document...) depassaient ce que l'extraction savait reconnaitre.
+test("extraireMontantTTCFacture : montant en point anglo-saxon (vraie facture Leroy Merlin), jamais confondu avec un total intermediaire", () => {
+  const texte =
+    "                                  Total HT                 Montant TVA\n" +
+    " TVA 20.00%                                   48.07 €                           9.62 €                                   Total TTC sans remise                                                 59.47 €\n" +
+    " Total TVA                                    48.07 €                           9.62 €                                   Total TTC remise hors fidélité                                         0.00 €\n" +
+    "                                                                                                                         Total TTC remise fidélité                                              1.78 €\n" +
+    "                                                                                                                         Total TTC remise                                                       1.78 €\n" +
+    "        Date                     Réglement                                 Montant\n" +
+    "     16/11/2026           CARTE AMEX (EUR)                                  57.69 €\n" +
+    "                                                                                                                         Total TTC                                                           57.69 €";
+  assert.equal(extraireMontantHTFacture(texte), 48.07);
+  assert.equal(extraireMontantTTCFacture(texte), 57.69);
+});
+
+test("extraireMontantFacture : libelle avec le symbole monetaire glisse dedans (vraie facture Kiloutou, \"Total € HT\"/\"Total € TTC\")", () => {
+  const texte =
+    "                                                                                            Total € HT                                                                                             138,71\n" +
+    "                                                                                            1 : TVA à l'encaissement                                                      20,00 %                   27,74\n" +
+    "                                                                                            Total € TTC                                                                                            166,45\n" +
+    "                                                                                            Règlement : Carte Bleue                                                                                166,45";
+  assert.equal(extraireMontantHTFacture(texte), 138.71);
+  assert.equal(extraireMontantTTCFacture(texte), 166.45);
+});
+
+test("extraireMontantTTCFacture : \"NET à PAYER\" a 0,00 (traite/prelevement automatique, vraie facture Prolians) n'ecrase jamais le vrai TOTAL TTC", () => {
+  const texte =
+    "                                                                                                                TOTAL HT                                                                23,08 EUR\n" +
+    "                                                                                                                TOTAL TVA                                                                4,17 EUR\n" +
+    "                                                                                                                 TOTAL TTC                                                              27,25 EUR\n" +
+    "                                                                                                                 NET à PAYER                                                             0,00 EUR";
+  assert.equal(extraireMontantHTFacture(texte), 23.08);
+  assert.equal(extraireMontantTTCFacture(texte), 27.25);
+});
+
+test("extraireMontantFacture : libelle en-tete de colonne, valeur sur la ligne suivante (vraie facture PUM Plastique)", () => {
+  const texte =
+    "    TOTAL HT EUR                                       NET HT EUR          TAUX/MONTANT TVA                 TOTAL TTC                                            NET A PAYER EUR\n" +
+    "\n" +
+    "                 37,43                                           37,43     20,00% S              7,49                     44,92                                                     44,92";
+  assert.equal(extraireMontantHTFacture(texte), 37.43);
+  assert.equal(extraireMontantTTCFacture(texte), 44.92);
+});
+
+test("extraireMontantFacture : libelle repete (en-tete de colonne par ligne d'article ET total general, vraie facture JD Assainissement) -> retient le total general", () => {
+  const texte =
+    "          Désignation                                                                      Quantité           Prix unit. HT     TVA (%)                Total HT\n" +
+    "          DEPLACEMENT                                                                        1 forfait            150,00 €           20%               150,00 €\n" +
+    "          CAMERA                                                                             1 forfait           450,00 €            20%               450,00 €\n" +
+    "          Taux                                Montant TVA                        Base HT                 Total HT                                     600,00 €\n" +
+    "          20%                                          120,00 €                   600,00 €               Total TVA                                    120,00 €\n" +
+    "                                                                                                         Total TTC                                   720,00 €";
+  assert.equal(extraireMontantHTFacture(texte), 600);
+  assert.equal(extraireMontantTTCFacture(texte), 720);
+});
+
+test("extraireMontantFacture : montant TTC sans decimale initiale a 0 (vraie facture SylApps)", () => {
+  const texte =
+    "                                                                                                                      Total HT                                       261,00\n" +
+    "                                                                                                                      Total TVA                                      52,20\n" +
+    "Total TVA                52,20 52,20                                                                                  Total TTC                                   313,20 €";
+  assert.equal(extraireMontantHTFacture(texte), 261);
+  assert.equal(extraireMontantTTCFacture(texte), 313.2);
+});
+
+test("extraireMontantFacture : ticket de caisse sans detail HT (vrai ticket Autobacs) -> HT absent, TTC trouve", () => {
+  const texte = "------------------------------------------\nTotal TTC :                       129.90€\n------------------------------------------";
+  assert.equal(extraireMontantHTFacture(texte), null);
+  assert.equal(extraireMontantTTCFacture(texte), 129.9);
+});
+
 test("sujet/corps generiques, mais le mot facture est dans le contenu du PDF -> reconnue (pas ambigue)", () => {
   const e = email({ sujet: "Voici vos documents", extraitCorps: "Bonjour, veuillez trouver ci-joint." });
   const type = classifierPieceJointe(

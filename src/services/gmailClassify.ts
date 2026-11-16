@@ -215,30 +215,121 @@ export function extraireNumeroFacture(texte: string): string | null {
   return m ? m[1] : null;
 }
 
-// Ordre de priorite : "net a payer" est le montant reellement du (apres
-// acompte/avoir eventuels sur le document), plus fiable que les autres
-// libelles quand plusieurs sont presents sur la meme facture. Les autres
-// libelles sont les formulations usuelles d'un total TTC.
+// Ordre de priorite pour le TTC. "net a payer"/"a payer" delibrement EN
+// DERNIER (et non en premier comme dans une version precedente) : sur une
+// vraie facture Prolians payee par traite/prelevement automatique, "NET A
+// PAYER" vaut 0,00 € (rien a regler directement) alors que le TOTAL TTC
+// reel est de 27,25 € - utiliser "net a payer" en priorite y renvoyait a
+// tort 0 € comme depense. Les libelles de total explicite (toujours
+// representatifs du montant reel de la facture, quel que soit le mode de
+// paiement) passent donc avant.
 const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
-  /net\s*à\s*payer/i,
   /montant\s*total\s*ttc/i,
-  /total\s*ttc/i,
+  /total\s*€?\s*ttc/i,
   /montant\s*ttc/i,
+  /net\s*à\s*payer/i,
   /à\s*payer/i,
 ];
 
 // Memes principes que pour le TTC, pour le montant hors taxes (demande
 // explicite de l'utilisateur : suivre aussi le HT, pas seulement le TTC).
-const MOTIFS_MONTANT_HT_PAR_PRIORITE = [/montant\s*total\s*ht/i, /total\s*ht/i, /montant\s*ht/i];
+// "€?" entre "total"/"montant" et "ht" : vu sur une vraie facture Kiloutou
+// ("Total € HT"), le symbole monetaire s'intercale dans le libelle lui-meme.
+const MOTIFS_MONTANT_HT_PAR_PRIORITE = [/montant\s*total\s*ht/i, /total\s*€?\s*ht/i, /montant\s*ht/i];
+
+// Un montant en euros s'ecrit avec deux conventions decimales reellement
+// rencontrees en production : virgule francaise ("1 234,56", la plupart
+// des fournisseurs) ou point anglo-saxon ("48.07", vu sur de vraies
+// factures Leroy Merlin et Autobacs). Le motif accepte les deux (point,
+// virgule OU espace comme separateur de milliers, suivi d'un point ou
+// d'une virgule puis exactement deux decimales) ; normaliserMontant plus
+// bas determine ensuite lequel est reellement le separateur decimal.
+const MOTIF_NOMBRE = "\\d{1,3}(?:[.,\\s]\\d{3})*[.,]\\d{2}";
+
+/**
+ * Convertit le texte d'un montant ("1.234,56", "1,234.56" ou "48.07") en
+ * nombre, quelle que soit sa convention decimale : le DERNIER separateur
+ * ('.' ou ',') du texte est toujours le separateur decimal (toujours
+ * suivi d'exactement deux chiffres dans ce contexte - des montants en
+ * euros), tout separateur avant lui n'est que du regroupement de milliers.
+ */
+function normaliserMontant(brut: string): number {
+  const nettoye = brut.replace(/[\s€]/g, "");
+  const dernierSeparateur = Math.max(nettoye.lastIndexOf(","), nettoye.lastIndexOf("."));
+  const partieEntiere = nettoye.slice(0, dernierSeparateur).replace(/[.,]/g, "");
+  const partieDecimale = nettoye.slice(dernierSeparateur + 1);
+  return Number(`${partieEntiere}.${partieDecimale}`);
+}
+
+/**
+ * Cherche un montant associe a un libelle donne (ex. "Total TTC") dans le
+ * texte extrait d'un PDF (toujours via `pdftotext -layout`, voir
+ * extractPdfText dans bankStatementPdf.ts - les colonnes d'un tableau y
+ * restent alignees entre deux lignes). Deux mises en page reellement
+ * rencontrees en production :
+ *  - le montant suit le libelle SUR LA MEME LIGNE (cas le plus frequent,
+ *    ex. Cedeo "TOTAL TTC EUR 80,36") ;
+ *  - le libelle n'est que l'en-tete d'une colonne de tableau, sa valeur
+ *    se trouvant sur la ou les lignes suivantes, A LA MEME POSITION
+ *    HORIZONTALE (ex. PUM Plastique : "TOTAL HT EUR ... TOTAL TTC ..."
+ *    sur une ligne, les montants juste en-dessous) - pdftotext -layout
+ *    aligne les colonnes d'un tableau entre son en-tete et ses valeurs,
+ *    jamais a une position anterieure a celle du libelle.
+ * Un libelle immediatement suivi d'un AUTRE MOT (au-dela d'une unite
+ * monetaire "€"/"EUR" tout de suite apres) est ecarte : il qualifie une
+ * ligne differente du vrai total recherche (ex. une vraie facture Leroy
+ * Merlin imprime successivement "Total TTC sans remise", "Total TTC
+ * remise fidélité"... avant son "Total TTC" final, le seul a retenir).
+ * Quand le libelle apparait plusieurs fois (ex. "Total HT" a la fois comme
+ * en-tete de colonne par ligne d'article ET comme total general dans le
+ * recapitulatif final, vu sur une vraie facture JD Assainissement), la
+ * DERNIERE occurrence valable est retenue : le recapitulatif general suit
+ * toujours le detail des lignes dans la mise en page d'une facture.
+ */
+function trouverMontantPourMotif(texte: string, motif: RegExp): number | null {
+  const motifNonQualifie = new RegExp(`${motif.source}(?:\\s*€|\\s*EUR)?(?!\\s{1,3}[a-zà-ÿ])`, "i");
+  const lignes = texte.split("\n");
+  let dernierTrouve: number | null = null;
+
+  for (let i = 0; i < lignes.length; i++) {
+    const correspondance = lignes[i].match(motifNonQualifie);
+    if (!correspondance || correspondance.index == null) continue;
+    const colonne = correspondance.index;
+
+    const suite = lignes[i].slice(correspondance.index + correspondance[0].length);
+    const surLaMemeLigne = suite.match(new RegExp(MOTIF_NOMBRE));
+    if (surLaMemeLigne && surLaMemeLigne.index != null && surLaMemeLigne.index < 100) {
+      dernierTrouve = normaliserMontant(surLaMemeLigne[0]);
+      continue;
+    }
+
+    // Sinon, en-tete de tableau sur sa propre ligne : cherche dans la
+    // prochaine ligne non vide le nombre le plus proche, en colonne, a
+    // partir de la position du libelle (jamais avant, voir le
+    // commentaire ci-dessus).
+    for (let j = i + 1; j < Math.min(i + 4, lignes.length); j++) {
+      if (!lignes[j].trim()) continue;
+      let meilleur: { valeur: string; distance: number } | null = null;
+      for (const correspondanceNombre of lignes[j].matchAll(new RegExp(MOTIF_NOMBRE, "g"))) {
+        const position = correspondanceNombre.index ?? 0;
+        if (position < colonne) continue;
+        const distance = position - colonne;
+        if (distance <= 80 && (!meilleur || distance < meilleur.distance)) {
+          meilleur = { valeur: correspondanceNombre[0], distance };
+        }
+      }
+      if (meilleur) dernierTrouve = normaliserMontant(meilleur.valeur);
+      break;
+    }
+  }
+
+  return dernierTrouve;
+}
 
 function extraireMontantParLibelles(texte: string, motifs: RegExp[]): number | null {
   for (const motif of motifs) {
-    const motifAvecMontant = new RegExp(`${motif.source}[^\\d]{0,20}(\\d{1,3}(?:[\\s.]\\d{3})*,\\d{2}|\\d+,\\d{2})`, "i");
-    const m = texte.match(motifAvecMontant);
-    if (m) {
-      const nombre = Number(m[1].replace(/[\s.]/g, "").replace(",", "."));
-      if (Number.isFinite(nombre) && nombre > 0) return nombre;
-    }
+    const montant = trouverMontantPourMotif(texte, motif);
+    if (montant != null && Number.isFinite(montant) && montant > 0) return montant;
   }
   return null;
 }

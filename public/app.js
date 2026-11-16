@@ -2132,45 +2132,54 @@ function libellePeriodeDepense(periode, granularite) {
   return libelleJour(periode);
 }
 
-async function chargerDepensesFournisseurs() {
+// Donnees de la derniere requete, mises en cache pour que la recherche par
+// nom (demande explicite de l'utilisateur) filtre instantanement sans
+// refaire d'appel reseau a chaque frappe.
+let derniereDepensesLignes = [];
+let derniereDepensesGranularite = "mois";
+
+function rendreDepensesFournisseurs() {
   const resume = document.getElementById("depenses-fournisseurs-resume");
   const detail = document.getElementById("depenses-fournisseurs-detail");
   if (!resume || !detail) return;
-  const granularite = document.getElementById("depenses-granularite")?.value || "mois";
-  try {
-    const res = await fetch(`/api/depenses-fournisseurs?granularite=${granularite}`);
-    const lignes = await res.json();
-    if (!res.ok) throw new Error(lignes.erreur || "Chargement impossible.");
+  const granularite = derniereDepensesGranularite;
+  const recherche = (document.getElementById("depenses-recherche")?.value || "").trim().toLowerCase();
+  const lignes = recherche ? derniereDepensesLignes.filter((l) => l.fournisseurNom.toLowerCase().includes(recherche)) : derniereDepensesLignes;
 
-    if (lignes.length === 0) {
-      resume.innerHTML = "";
-      detail.innerHTML = `<p class="liste-vide">Aucune facture avec un montant renseigné pour le moment.</p>`;
-      return;
-    }
+  if (derniereDepensesLignes.length === 0) {
+    resume.innerHTML = "";
+    detail.innerHTML = `<p class="liste-vide">Aucune facture avec un montant renseigné pour le moment.</p>`;
+    return;
+  }
+  if (lignes.length === 0) {
+    resume.innerHTML = "";
+    detail.innerHTML = `<p class="liste-vide">Aucun fournisseur ne correspond à "${echapper(recherche)}".</p>`;
+    return;
+  }
 
-    // Resume : total toutes periodes confondues, par fournisseur, du plus
-    // gros au plus petit (sur le TTC) - repond directement a "ce que
-    // representent mes depenses chez mes differents fournisseurs".
-    const totauxParFournisseur = new Map();
-    for (const l of lignes) {
-      const cle = l.fournisseurId || l.fournisseurNom;
-      const existant = totauxParFournisseur.get(cle) || { nom: l.fournisseurNom, totalHT: 0, totalTTC: 0, nombreSansMontantHT: 0, nombreSansMontantTTC: 0 };
-      existant.totalHT += l.totalHT;
-      existant.totalTTC += l.totalTTC;
-      existant.nombreSansMontantHT += l.nombreSansMontantHT;
-      existant.nombreSansMontantTTC += l.nombreSansMontantTTC;
-      totauxParFournisseur.set(cle, existant);
-    }
-    const tous = [...totauxParFournisseur.values()].sort((a, b) => b.totalTTC - a.totalTTC);
-    // Separe les fournisseurs sans le moindre montant exploitable (ni HT ni
-    // TTC sur toute la periode) - les afficher en tete, tous a "0,00 €",
-    // noyait les vrais totaux dans un mur de zeros (signale par
-    // l'utilisateur) sans rien apporter : releguees dans un repli replie
-    // par defaut plutot que dans le classement principal.
-    const avecMontant = tous.filter((f) => f.totalHT > 0 || f.totalTTC > 0);
-    const sansMontant = tous.filter((f) => f.totalHT === 0 && f.totalTTC === 0);
+  // Resume : total toutes periodes confondues, par fournisseur, du plus
+  // gros au plus petit (sur le TTC) - repond directement a "ce que
+  // representent mes depenses chez mes differents fournisseurs".
+  const totauxParFournisseur = new Map();
+  for (const l of lignes) {
+    const cle = l.fournisseurId || l.fournisseurNom;
+    const existant = totauxParFournisseur.get(cle) || { nom: l.fournisseurNom, totalHT: 0, totalTTC: 0, nombreSansMontantHT: 0, nombreSansMontantTTC: 0 };
+    existant.totalHT += l.totalHT;
+    existant.totalTTC += l.totalTTC;
+    existant.nombreSansMontantHT += l.nombreSansMontantHT;
+    existant.nombreSansMontantTTC += l.nombreSansMontantTTC;
+    totauxParFournisseur.set(cle, existant);
+  }
+  const tous = [...totauxParFournisseur.values()].sort((a, b) => b.totalTTC - a.totalTTC);
+  // Separe les fournisseurs sans le moindre montant exploitable (ni HT ni
+  // TTC sur toute la periode) - les afficher en tete, tous a "0,00 €",
+  // noyait les vrais totaux dans un mur de zeros (signale par
+  // l'utilisateur) sans rien apporter : releguees dans un repli replie
+  // par defaut plutot que dans le classement principal.
+  const avecMontant = tous.filter((f) => f.totalHT > 0 || f.totalTTC > 0);
+  const sansMontant = tous.filter((f) => f.totalHT === 0 && f.totalTTC === 0);
 
-    const ligneResume = (f) => `
+  const ligneResume = (f) => `
       <div class="depense-ligne">
         <span class="depense-nom">${echapper(f.nom)}</span>
         <span class="depense-montants">
@@ -2184,29 +2193,29 @@ async function chargerDepensesFournisseurs() {
         </span>
       </div>`;
 
-    resume.innerHTML =
-      (avecMontant.length > 0
-        ? avecMontant.map(ligneResume).join("")
-        : `<p class="liste-vide">Aucun montant exploitable sur cette période - voir "Récupérer les montants manquants" ci-dessus.</p>`) +
-      (sansMontant.length > 0
-        ? `<details class="depense-sans-montant">
+  resume.innerHTML =
+    (avecMontant.length > 0
+      ? avecMontant.map(ligneResume).join("")
+      : `<p class="liste-vide">Aucun montant exploitable sur cette période - voir "Récupérer les montants manquants" ci-dessus.</p>`) +
+    (sansMontant.length > 0
+      ? `<details class="depense-sans-montant">
              <summary>${sansMontant.length} fournisseur(s) sans aucun montant extrait</summary>
              ${sansMontant.map(ligneResume).join("")}
            </details>`
-        : "");
+      : "");
 
-    // Detail : par periode, du plus recent au plus ancien (l'API renvoie
-    // deja trie du plus ancien au plus recent, regroupe par periode donc
-    // inverse ici).
-    const groupes = new Map();
-    for (const l of lignes) {
-      if (!groupes.has(l.periode)) groupes.set(l.periode, []);
-      groupes.get(l.periode).push(l);
-    }
-    detail.innerHTML = [...groupes.entries()]
-      .reverse()
-      .map(
-        ([periode, docs], index) => `
+  // Detail : par periode, du plus recent au plus ancien (l'API renvoie
+  // deja trie du plus ancien au plus recent, regroupe par periode donc
+  // inverse ici).
+  const groupes = new Map();
+  for (const l of lignes) {
+    if (!groupes.has(l.periode)) groupes.set(l.periode, []);
+    groupes.get(l.periode).push(l);
+  }
+  detail.innerHTML = [...groupes.entries()]
+    .reverse()
+    .map(
+      ([periode, docs], index) => `
       <details class="fournisseur-documents"${index === 0 ? " open" : ""}>
         <summary>${echapper(libellePeriodeDepense(periode, granularite))}</summary>
         <div>
@@ -2224,8 +2233,23 @@ async function chargerDepensesFournisseurs() {
             .join("")}
         </div>
       </details>`
-      )
-      .join("");
+    )
+    .join("");
+}
+document.getElementById("depenses-recherche")?.addEventListener("input", rendreDepensesFournisseurs);
+
+async function chargerDepensesFournisseurs() {
+  const resume = document.getElementById("depenses-fournisseurs-resume");
+  const detail = document.getElementById("depenses-fournisseurs-detail");
+  if (!resume || !detail) return;
+  const granularite = document.getElementById("depenses-granularite")?.value || "mois";
+  try {
+    const res = await fetch(`/api/depenses-fournisseurs?granularite=${granularite}`);
+    const lignes = await res.json();
+    if (!res.ok) throw new Error(lignes.erreur || "Chargement impossible.");
+    derniereDepensesLignes = lignes;
+    derniereDepensesGranularite = granularite;
+    rendreDepensesFournisseurs();
   } catch (err) {
     resume.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
     detail.innerHTML = "";
