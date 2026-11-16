@@ -201,3 +201,41 @@ export function extraireNumeroFacture(texte: string): string | null {
   const m = texte.match(/(?:facture|invoice|n°|no|num(?:ero)?)[\s:.#-]*([A-Z0-9][A-Z0-9\-\/]{2,20})/i);
   return m ? m[1] : null;
 }
+
+// Ordre de priorite : "net a payer" est le montant reellement du (apres
+// acompte/avoir eventuels sur le document), plus fiable que les autres
+// libelles quand plusieurs sont presents sur la meme facture. Les autres
+// libelles sont les formulations usuelles d'un total TTC - demande
+// explicite de l'utilisateur : suivre les depenses reelles (TTC), jamais
+// le HT.
+const MOTIFS_MONTANT_PAR_PRIORITE = [
+  /net\s*à\s*payer/i,
+  /montant\s*total\s*ttc/i,
+  /total\s*ttc/i,
+  /montant\s*ttc/i,
+  /à\s*payer/i,
+];
+
+/**
+ * Extraction best-effort du montant TTC d'une facture (demande explicite
+ * de l'utilisateur : suivre les depenses par fournisseur) a partir du
+ * texte extrait du PDF (section 7.2, meme source que la classification
+ * elle-meme) - mise en page trop variable d'un fournisseur a l'autre pour
+ * une garantie de succes (section 14, jamais deviner un format non vu) :
+ * retourne null si aucun des libelles connus n'est trouve plutot que de
+ * prendre le premier nombre venu sur la page (risque reel de confondre
+ * avec un HT, une TVA ou une reference), laissant alors la saisie
+ * manuelle du montant (voir la route PATCH dediee) avec une alerte
+ * explicite plutot qu'un chiffre invente.
+ */
+export function extraireMontantFacture(texte: string): number | null {
+  for (const motif of MOTIFS_MONTANT_PAR_PRIORITE) {
+    const motifAvecMontant = new RegExp(`${motif.source}[^\\d]{0,20}(\\d{1,3}(?:[\\s.]\\d{3})*,\\d{2}|\\d+,\\d{2})`, "i");
+    const m = texte.match(motifAvecMontant);
+    if (m) {
+      const nombre = Number(m[1].replace(/[\s.]/g, "").replace(",", "."));
+      if (Number.isFinite(nombre) && nombre > 0) return nombre;
+    }
+  }
+  return null;
+}

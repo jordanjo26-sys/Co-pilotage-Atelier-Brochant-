@@ -215,6 +215,20 @@
         <p class="aide">Fiches créées automatiquement à partir des documents reçus par e-mail — un fournisseur par expéditeur.</p>
         <div id="liste-fournisseurs"></div>
       </section>
+
+      <section class="carte accent-violet">
+        <h2>Dépenses par fournisseur</h2>
+        <p class="aide">Basé sur les factures reçues dont le montant est connu (extrait automatiquement, ou saisi à la main). Une facture sans montant renseigné n'est pas incluse dans les totaux ci-dessous.</p>
+        <div class="barre-filtres">
+          <select id="depenses-granularite">
+            <option value="jour">Par jour</option>
+            <option value="mois" selected>Par mois</option>
+            <option value="annee">Par année</option>
+          </select>
+        </div>
+        <div id="depenses-fournisseurs-resume"></div>
+        <div id="depenses-fournisseurs-detail"></div>
+      </section>
     </div>
 
     <!-- ===== Trésorerie ===== -->

@@ -4,6 +4,7 @@ import {
   classifierPieceJointe,
   choisirAdresseDext,
   extraireNumeroFacture,
+  extraireMontantFacture,
   EmailAClassifier,
 } from "../src/services/gmailClassify";
 
@@ -146,6 +147,18 @@ test("extraireNumeroFacture trouve un numero apres le mot facture", () => {
 
 test("extraireNumeroFacture retourne null si rien de reconnaissable", () => {
   assert.equal(extraireNumeroFacture("Merci pour votre commande"), null);
+});
+
+test("extraireMontantFacture trouve le net a payer en priorite", () => {
+  assert.equal(extraireMontantFacture("Total HT : 100,00 € Net à payer : 1 234,56 €"), 1234.56);
+});
+
+test("extraireMontantFacture se rabat sur le total TTC si pas de net a payer", () => {
+  assert.equal(extraireMontantFacture("Total HT: 100,00 € TVA: 20,00 € Total TTC : 120,00 €"), 120);
+});
+
+test("extraireMontantFacture retourne null si aucun libelle connu n'est trouve", () => {
+  assert.equal(extraireMontantFacture("Merci pour votre commande, livraison sous 48h."), null);
 });
 
 test("sujet/corps generiques, mais le mot facture est dans le contenu du PDF -> reconnue (pas ambigue)", () => {

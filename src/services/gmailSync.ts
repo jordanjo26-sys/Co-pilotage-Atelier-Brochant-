@@ -6,6 +6,7 @@ import {
   classifierPieceJointe,
   choisirAdresseDext,
   extraireNumeroFacture,
+  extraireMontantFacture,
   estPieceDocument,
   EmailAClassifier,
   PieceJointe,
@@ -367,6 +368,7 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
         donnees: Buffer;
         hashFichier: string;
         numero: string | null;
+        montant: number | null;
         classifiePar: "ia" | null;
       }
       const piecesAtraiter: PieceAClasser[] = [];
@@ -444,7 +446,13 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
           }
 
           const numero = extraireNumeroFacture(`${sujet} ${piece.nomFichier} ${contenuExtrait || ""}`);
-          piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, classifiePar });
+          // Montant TTC (demande explicite de l'utilisateur : suivre les
+          // depenses par fournisseur) - cherche uniquement dans le contenu
+          // extrait du PDF (contenuExtrait), jamais dans le sujet/corps : un
+          // sujet/corps peut mentionner un montant sans rapport (devis
+          // precedent, relance...) a la difference du document lui-meme.
+          const montant = contenuExtrait ? extraireMontantFacture(contenuExtrait) : null;
+          piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, montant, classifiePar });
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
           messageEnErreur = true;
@@ -477,7 +485,7 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
       const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu" && p.type !== "autre" && p.type !== "devis");
       const fournisseurId = auMoinsUnDocumentReconnu ? await resoudreFournisseur(prisma, expediteur, cacheFournisseurs) : null;
 
-      for (const { piece, type, donnees, hashFichier, numero, classifiePar } of piecesAtraiter) {
+      for (const { piece, type, donnees, hashFichier, numero, montant, classifiePar } of piecesAtraiter) {
         try {
           if (type === "ambigu") {
             // Enregistre aussi un DocumentFournisseur (type "ambigu") pour
@@ -535,6 +543,7 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
                 fournisseurId,
                 fichierNom: piece.nomFichier,
                 numero,
+                montant,
                 hashFichier,
                 statutDext: "envoye",
                 gmailMessageId: ref.id,
@@ -564,6 +573,7 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
                 fournisseurId,
                 fichierNom: piece.nomFichier,
                 numero,
+                montant,
                 hashFichier,
                 statutDext: "a_valider",
                 classifiePar,

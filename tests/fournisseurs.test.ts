@@ -210,3 +210,48 @@ test("suppression d'un document isole rattache a tort a un fournisseur", async (
 
   await prisma.$disconnect();
 });
+
+test("saisie manuelle du montant d'une facture fournisseur", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { saisirMontantDocumentFournisseur, MontantDocumentFournisseurError } = await import("../src/services/fournisseurs");
+  const prisma = new PrismaClient();
+
+  await t.test("montant positif -> enregistre sur le document", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "Cedeo" } });
+    const doc = await prisma.documentFournisseur.create({
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "f.pdf" },
+    });
+    await saisirMontantDocumentFournisseur(prisma, doc.id, 123.45);
+    const miseAJour = await prisma.documentFournisseur.findUnique({ where: { id: doc.id } });
+    assert.equal(miseAJour?.montant, 123.45);
+  });
+
+  await t.test("montant negatif ou nul -> erreur", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "Point P" } });
+    const doc = await prisma.documentFournisseur.create({
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "f.pdf" },
+    });
+    await assert.rejects(saisirMontantDocumentFournisseur(prisma, doc.id, 0), MontantDocumentFournisseurError);
+    await assert.rejects(saisirMontantDocumentFournisseur(prisma, doc.id, -10), MontantDocumentFournisseurError);
+  });
+
+  await t.test("document inexistant -> erreur", async () => {
+    await assert.rejects(saisirMontantDocumentFournisseur(prisma, "inexistant", 50), MontantDocumentFournisseurError);
+  });
+
+  await prisma.$disconnect();
+});

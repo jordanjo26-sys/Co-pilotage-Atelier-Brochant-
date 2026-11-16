@@ -2047,6 +2047,7 @@ async function chargerFacturesDextEnvoyees() {
         <div class="fournisseur-document-ligne" id="document-ligne-${d.id}">
           <span>${echapper(d.fichierNom || "Document")}</span>
           <span class="anomalie-meta">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")} · ${new Date(d.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+          ${renduMontantFacture(d)}
           <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
           <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this, true)">Supprimer</button>
         </div>`
@@ -2101,7 +2102,8 @@ async function chargerFacturesFournisseurs() {
           ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
           ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
         </div>
-        <div class="fournisseur-actions fournisseur-actions-ligne">
+        <div class="fournisseur-actions fournisseur-actions-ligne" id="document-ligne-${d.id}">
+          ${renduMontantFacture(d)}
           <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
           <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
         </div>
@@ -2112,6 +2114,114 @@ async function chargerFacturesFournisseurs() {
     )
     .join("");
 }
+
+// --- Dépenses par fournisseur ----------------------------------------------
+//
+// Demande explicite de l'utilisateur : "connaître mes dépenses chez les
+// fournisseurs... pour savoir ce que représente les dépenses autour de
+// l'année chez mes différents fournisseurs". Fondé sur
+// DocumentFournisseur.montant (voir depensesFournisseurs.ts) - une facture
+// sans montant renseigné (extraction automatique infructueuse, pas encore
+// saisie à la main) est explicitement exclue des totaux plutôt que comptée
+// comme 0 €, pour ne jamais sous-estimer silencieusement une dépense
+// réelle.
+
+function libellePeriodeDepense(periode, granularite) {
+  if (granularite === "annee") return periode;
+  if (granularite === "mois") return libelleMoisAnnee(`${periode}-01`);
+  return libelleJour(periode);
+}
+
+async function chargerDepensesFournisseurs() {
+  const resume = document.getElementById("depenses-fournisseurs-resume");
+  const detail = document.getElementById("depenses-fournisseurs-detail");
+  if (!resume || !detail) return;
+  const granularite = document.getElementById("depenses-granularite")?.value || "mois";
+  try {
+    const res = await fetch(`/api/depenses-fournisseurs?granularite=${granularite}`);
+    const lignes = await res.json();
+    if (!res.ok) throw new Error(lignes.erreur || "Chargement impossible.");
+
+    if (lignes.length === 0) {
+      resume.innerHTML = "";
+      detail.innerHTML = `<p class="liste-vide">Aucune facture avec un montant renseigné pour le moment.</p>`;
+      return;
+    }
+
+    // Resume : total toutes periodes confondues, par fournisseur, du plus
+    // gros au plus petit - repond directement a "ce que representent mes
+    // depenses chez mes differents fournisseurs".
+    const totauxParFournisseur = new Map();
+    let sansMontantTotal = 0;
+    for (const l of lignes) {
+      const cle = l.fournisseurId || l.fournisseurNom;
+      const existant = totauxParFournisseur.get(cle) || { nom: l.fournisseurNom, total: 0, nombreSansMontant: 0 };
+      existant.total += l.total;
+      existant.nombreSansMontant += l.nombreSansMontant;
+      totauxParFournisseur.set(cle, existant);
+      sansMontantTotal += l.nombreSansMontant;
+    }
+    const classement = [...totauxParFournisseur.values()].sort((a, b) => b.total - a.total);
+
+    resume.innerHTML = `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fournisseur</th><th>Total</th></tr></thead>
+          <tbody>
+            ${classement
+              .map(
+                (f) => `
+              <tr>
+                <td>${echapper(f.nom)}</td>
+                <td>${fmtMontant(f.total)}${f.nombreSansMontant > 0 ? ` <span class="anomalie-meta">(+ ${f.nombreSansMontant} facture(s) sans montant)</span>` : ""}</td>
+              </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      ${sansMontantTotal > 0 ? `<p class="aide-inline">⚠️ ${sansMontantTotal} facture(s) au total sans montant renseigné, exclue(s) de ces totaux - voir l'onglet Fournisseurs pour les compléter.</p>` : ""}`;
+
+    // Detail : par periode, du plus recent au plus ancien (l'API renvoie
+    // deja trie du plus ancien au plus recent, regroupe par periode donc
+    // inverse ici).
+    const groupes = new Map();
+    for (const l of lignes) {
+      if (!groupes.has(l.periode)) groupes.set(l.periode, []);
+      groupes.get(l.periode).push(l);
+    }
+    detail.innerHTML = [...groupes.entries()]
+      .reverse()
+      .map(
+        ([periode, docs], index) => `
+      <details class="fournisseur-documents"${index === 0 ? " open" : ""}>
+        <summary>${echapper(libellePeriodeDepense(periode, granularite))}</summary>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Fournisseur</th><th>Total</th><th>Factures</th></tr></thead>
+            <tbody>
+              ${docs
+                .map(
+                  (l) => `
+                <tr>
+                  <td>${echapper(l.fournisseurNom)}</td>
+                  <td>${fmtMontant(l.total)}</td>
+                  <td>${l.nombreFactures}${l.nombreSansMontant > 0 ? ` <span class="anomalie-meta">(dont ${l.nombreSansMontant} sans montant)</span>` : ""}</td>
+                </tr>`
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      </details>`
+      )
+      .join("");
+  } catch (err) {
+    resume.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+    detail.innerHTML = "";
+  }
+}
+document.getElementById("depenses-granularite")?.addEventListener("change", chargerDepensesFournisseurs);
 
 // --- Fournisseurs ---------------------------------------------------------
 
@@ -2195,6 +2305,7 @@ async function chargerDocumentsFournisseur(fournisseurId, conteneur) {
         ${d.classifiePar === "ia" ? `<span class="badge badge-palier-ambre">classé par IA</span>` : ""}
         <span>${echapper(d.fichierNom || "Document")}</span>
         ${d.dateReceptionMail ? `<span class="anomalie-meta">reçu le ${fmtDate(d.dateReceptionMail)}</span>` : ""}
+        ${renduMontantFacture(d)}
         <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
         <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this, ${d.statutDext === "envoye"})">Supprimer</button>
       </div>`
@@ -2237,6 +2348,54 @@ async function supprimerDocumentFournisseur(id, bouton, dejaEnvoye) {
   }
 }
 window.supprimerDocumentFournisseur = supprimerDocumentFournisseur;
+
+// Affichage du montant d'une facture fournisseur (demande explicite de
+// l'utilisateur : suivre les depenses par fournisseur) - uniquement pour
+// le type "facture", jamais pour un devis/bon d'enlevement/releve ou
+// autre type sans rapport avec une depense. Montant non trouve
+// automatiquement (extraireMontantFacture, mise en page atypique...) :
+// alerte visible plutot qu'un silence qui laisserait croire a tort que
+// cette facture represente 0 € de depense dans le futur module de suivi.
+function renduMontantFacture(d) {
+  if (d.type !== "facture") return "";
+  if (d.montant != null) return `<span class="badge badge-ok">${fmtMontant(d.montant)}</span>`;
+  return `<span class="badge badge-palier-ambre montant-manquant" title="Le montant n'a pas pu être extrait automatiquement de ce document">⚠️ Montant non renseigné</span>
+    <button type="button" class="ghost bouton-lien" onclick="saisirMontantFacture('${d.id}', this)">Renseigner le montant</button>`;
+}
+
+async function saisirMontantFacture(id, bouton) {
+  const saisie = prompt("Montant TTC de cette facture (en euros) :");
+  if (saisie === null) return;
+  const montant = Number(saisie.replace(",", "."));
+  if (!Number.isFinite(montant) || montant <= 0) {
+    alert("Montant invalide : indiquez un nombre positif (ex. 123,45).");
+    return;
+  }
+  bouton.disabled = true;
+  try {
+    const res = await fetch(`/api/documents-fournisseurs/${id}/montant`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ montant }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Enregistrement impossible.");
+    }
+    // Remplace l'alerte par le montant, sans recharger toute la liste (meme
+    // raisonnement que supprimerDocumentFournisseur ci-dessus).
+    const ligne = document.getElementById(`document-ligne-${id}`);
+    if (ligne) {
+      const alerte = ligne.querySelector(".montant-manquant");
+      if (alerte) alerte.outerHTML = `<span class="badge badge-ok">${fmtMontant(montant)}</span>`;
+      bouton.remove();
+    }
+  } catch (err) {
+    bouton.disabled = false;
+    alert(err.message);
+  }
+}
+window.saisirMontantFacture = saisirMontantFacture;
 
 async function chargerFournisseurs() {
   const res = await fetch("/api/fournisseurs");
@@ -2423,7 +2582,7 @@ async function chargerJournal() {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

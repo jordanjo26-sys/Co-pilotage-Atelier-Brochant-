@@ -299,3 +299,22 @@ export async function supprimerDocumentFournisseur(prisma: PrismaClient, documen
   if (!document) throw new Error("Document introuvable.");
   await prisma.documentFournisseur.delete({ where: { id: documentId } });
 }
+
+export class MontantDocumentFournisseurError extends Error {}
+
+/**
+ * Saisie manuelle du montant d'une facture fournisseur, quand
+ * l'extraction automatique (extraireMontantFacture, voir gmailClassify.ts)
+ * n'a pas trouve de montant exploitable dans le document (mise en page
+ * atypique, releve mensuel recapitulant plusieurs factures...) - demande
+ * explicite de l'utilisateur, avec un montant jamais invente : l'absence
+ * reste visible (alerte cote interface) jusqu'a cette saisie volontaire.
+ */
+export async function saisirMontantDocumentFournisseur(prisma: PrismaClient, documentId: string, montant: number): Promise<void> {
+  if (!Number.isFinite(montant) || montant <= 0) {
+    throw new MontantDocumentFournisseurError("Le montant doit être un nombre positif.");
+  }
+  const document = await prisma.documentFournisseur.findUnique({ where: { id: documentId } });
+  if (!document) throw new MontantDocumentFournisseurError("Document introuvable.");
+  await prisma.documentFournisseur.update({ where: { id: documentId }, data: { montant } });
+}

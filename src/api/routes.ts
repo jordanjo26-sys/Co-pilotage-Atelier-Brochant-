@@ -19,6 +19,7 @@ import { repondreMorgane, MessageMorgane, PieceJointeMorgane, MIME_PIECES_JOINTE
 import { transcrireAudio, TranscriptionAudioError } from "../services/transcriptionAudio";
 import { listerComptesBusinessProfile, listerFichesBusinessProfile, GoogleBusinessProfileError } from "../services/googleBusinessProfile";
 import { listerFacturesARelancer, envoyerRelance } from "../services/relances";
+import { obtenirDepensesFournisseurs, GranulariteDepense } from "../services/depensesFournisseurs";
 import {
   listerFournisseurs,
   obtenirFournisseur,
@@ -26,6 +27,8 @@ import {
   renommerFournisseur,
   FournisseurAvecFacturesError,
   supprimerDocumentFournisseur,
+  saisirMontantDocumentFournisseur,
+  MontantDocumentFournisseurError,
 } from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
@@ -429,6 +432,21 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.json(mouvements);
   });
 
+  // Depenses par fournisseur, par jour/mois/annee (demande explicite de
+  // l'utilisateur) - voir obtenirDepensesFournisseurs.
+  router.get("/depenses-fournisseurs", async (req, res) => {
+    const granulariteBrute = typeof req.query.granularite === "string" ? req.query.granularite : "mois";
+    if (!["jour", "mois", "annee"].includes(granulariteBrute)) {
+      return res.status(400).json({ erreur: "Paramètre 'granularite' invalide, attendu : jour, mois ou annee." });
+    }
+    const debut = typeof req.query.debut === "string" ? new Date(req.query.debut) : undefined;
+    const fin = typeof req.query.fin === "string" ? new Date(req.query.fin) : undefined;
+    if ((debut && Number.isNaN(debut.getTime())) || (fin && Number.isNaN(fin.getTime()))) {
+      return res.status(400).json({ erreur: "Paramètre 'debut' ou 'fin' invalide (date attendue)." });
+    }
+    res.json(await obtenirDepensesFournisseurs(prisma, { granularite: granulariteBrute as GranulariteDepense, debut, fin }));
+  });
+
   router.get("/journal", async (_req, res) => {
     const journal = await prisma.journalEvenement.findMany({ orderBy: { horodatage: "desc" }, take: 200 });
     res.json(journal);
@@ -776,6 +794,20 @@ export function buildRouter(prisma: PrismaClient): Router {
       await supprimerDocumentFournisseur(prisma, req.params.id);
       res.status(204).end();
     } catch (err) {
+      res.status(404).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Saisie manuelle du montant (demande explicite de l'utilisateur : suivre
+  // les depenses par fournisseur meme quand l'extraction automatique
+  // n'a rien trouve - voir saisirMontantDocumentFournisseur).
+  router.patch("/documents-fournisseurs/:id/montant", async (req, res) => {
+    const montant = Number(req.body?.montant);
+    try {
+      await saisirMontantDocumentFournisseur(prisma, req.params.id, montant);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof MontantDocumentFournisseurError) return res.status(400).json({ erreur: err.message });
       res.status(404).json({ erreur: (err as Error).message });
     }
   });
