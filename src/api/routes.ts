@@ -802,9 +802,10 @@ export function buildRouter(prisma: PrismaClient): Router {
   // les depenses par fournisseur meme quand l'extraction automatique
   // n'a rien trouve - voir saisirMontantDocumentFournisseur).
   router.patch("/documents-fournisseurs/:id/montant", async (req, res) => {
-    const montant = Number(req.body?.montant);
+    const montantHT = req.body?.montantHT != null ? Number(req.body.montantHT) : null;
+    const montantTTC = req.body?.montantTTC != null ? Number(req.body.montantTTC) : null;
     try {
-      await saisirMontantDocumentFournisseur(prisma, req.params.id, montant);
+      await saisirMontantDocumentFournisseur(prisma, req.params.id, { montantHT, montantTTC });
       res.status(204).end();
     } catch (err) {
       if (err instanceof MontantDocumentFournisseurError) return res.status(400).json({ erreur: err.message });

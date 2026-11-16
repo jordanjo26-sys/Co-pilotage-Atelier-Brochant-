@@ -4,12 +4,14 @@ import { PrismaClient } from "@prisma/client";
  * Dépenses par fournisseur, par jour/mois/année (demande explicite de
  * l'utilisateur : "connaître mes dépenses chez les fournisseurs... pour
  * savoir ce que représente les dépenses autour de l'année"). Fondé sur
- * DocumentFournisseur.montant (type "facture" uniquement - une dépense
- * réelle, ni un devis ni un bon d'enlèvement), rempli soit
- * automatiquement à la réception (extraireMontantFacture, voir
- * gmailClassify.ts), soit par saisie manuelle (voir
- * saisirMontantDocumentFournisseur dans fournisseurs.ts) quand
- * l'extraction automatique échoue.
+ * DocumentFournisseur.montantHT/montantTTC (type "facture" uniquement -
+ * une dépense réelle, ni un devis ni un bon d'enlèvement), remplis soit
+ * automatiquement à la réception (extraireMontantHTFacture/
+ * extraireMontantTTCFacture, voir gmailClassify.ts), soit par saisie
+ * manuelle (voir saisirMontantDocumentFournisseur dans fournisseurs.ts)
+ * quand l'extraction automatique échoue. Les deux montants sont suivis
+ * indépendamment (demande explicite de l'utilisateur) : une facture peut
+ * avoir l'un connu et l'autre non.
  *
  * Regroupé en JavaScript plutôt qu'en SQL brut (GROUP BY avec troncature
  * de date) : le volume de factures fournisseurs reste modeste, et ça évite
@@ -22,9 +24,11 @@ export interface DepensePeriode {
   fournisseurId: string | null;
   fournisseurNom: string;
   periode: string; // "2026-11-16" | "2026-11" | "2026" selon la granularité
-  total: number;
+  totalHT: number;
+  totalTTC: number;
   nombreFactures: number;
-  nombreSansMontant: number; // factures du type "facture" sans montant renseigné sur cette période - le total ci-dessus est alors incomplet
+  nombreSansMontantHT: number; // factures du type "facture" sans montant HT renseigné sur cette période - totalHT alors incomplet
+  nombreSansMontantTTC: number; // idem pour le montant TTC
 }
 
 function cleDePeriode(date: Date, granularite: GranulariteDepense): string {
@@ -60,13 +64,26 @@ export async function obtenirDepensesFournisseurs(
 
     let groupe = groupes.get(cle);
     if (!groupe) {
-      groupe = { fournisseurId: doc.fournisseurId, fournisseurNom, periode, total: 0, nombreFactures: 0, nombreSansMontant: 0 };
+      groupe = {
+        fournisseurId: doc.fournisseurId,
+        fournisseurNom,
+        periode,
+        totalHT: 0,
+        totalTTC: 0,
+        nombreFactures: 0,
+        nombreSansMontantHT: 0,
+        nombreSansMontantTTC: 0,
+      };
       groupes.set(cle, groupe);
     }
     groupe.nombreFactures++;
-    if (doc.montant != null) groupe.total += doc.montant;
-    else groupe.nombreSansMontant++;
+    if (doc.montantHT != null) groupe.totalHT += doc.montantHT;
+    else groupe.nombreSansMontantHT++;
+    if (doc.montantTTC != null) groupe.totalTTC += doc.montantTTC;
+    else groupe.nombreSansMontantTTC++;
   }
 
-  return Array.from(groupes.values()).sort((a, b) => (a.periode === b.periode ? b.total - a.total : a.periode.localeCompare(b.periode)));
+  return Array.from(groupes.values()).sort((a, b) =>
+    a.periode === b.periode ? b.totalTTC - a.totalTTC : a.periode.localeCompare(b.periode)
+  );
 }

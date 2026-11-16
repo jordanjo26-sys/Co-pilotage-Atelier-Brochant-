@@ -29,44 +29,49 @@ function ref(prefixe: string): string {
   return `${prefixe}-${compteur}`;
 }
 
-test("depenses par fournisseur : regroupement, somme des montants, et comptage des montants manquants", async () => {
+test("depenses par fournisseur : regroupement, somme des montants HT/TTC, et comptage des montants manquants", async () => {
   const { PrismaClient } = await import("@prisma/client");
   const { obtenirDepensesFournisseurs } = await import("../src/services/depensesFournisseurs");
   const prisma = new PrismaClient();
 
   const cedeo = await prisma.fournisseur.create({ data: { nom: ref("Cedeo") } });
 
-  async function facture(fournisseurId: string, dateReceptionMail: Date, montant: number | null) {
+  async function facture(fournisseurId: string, dateReceptionMail: Date, montantHT: number | null, montantTTC: number | null) {
     return prisma.documentFournisseur.create({
-      data: { type: "facture", fournisseurId, montant, hashFichier: ref("hash"), dateReceptionMail },
+      data: { type: "facture", fournisseurId, montantHT, montantTTC, hashFichier: ref("hash"), dateReceptionMail },
     });
   }
 
-  await facture(cedeo.id, new Date("2026-03-05"), 100);
-  await facture(cedeo.id, new Date("2026-03-20"), 50);
-  // Montant manquant (extraction automatique echouee, pas encore saisi a la main) : compte dans nombreSansMontant, pas dans total.
-  await facture(cedeo.id, new Date("2026-03-25"), null);
+  await facture(cedeo.id, new Date("2026-03-05"), 80, 100);
+  await facture(cedeo.id, new Date("2026-03-20"), 40, 50);
+  // Montant TTC manquant mais HT connu (ou l'inverse) : chaque montant compte independamment dans son propre nombreSansMontant*.
+  await facture(cedeo.id, new Date("2026-03-25"), 60, null);
   // Mois different : groupe separe.
-  await facture(cedeo.id, new Date("2026-04-10"), 200);
+  await facture(cedeo.id, new Date("2026-04-10"), 160, 200);
 
   const parMois = await obtenirDepensesFournisseurs(prisma, { granularite: "mois" });
   const mars = parMois.find((d) => d.periode === "2026-03" && d.fournisseurId === cedeo.id);
   const avril = parMois.find((d) => d.periode === "2026-04" && d.fournisseurId === cedeo.id);
 
   assert.ok(mars, "le groupe de mars doit exister");
-  assert.equal(mars!.total, 150);
+  assert.equal(mars!.totalHT, 180);
+  assert.equal(mars!.totalTTC, 150);
   assert.equal(mars!.nombreFactures, 3);
-  assert.equal(mars!.nombreSansMontant, 1);
+  assert.equal(mars!.nombreSansMontantHT, 0);
+  assert.equal(mars!.nombreSansMontantTTC, 1);
   assert.equal(mars!.fournisseurNom, cedeo.nom);
 
   assert.ok(avril, "le groupe d'avril doit exister");
-  assert.equal(avril!.total, 200);
-  assert.equal(avril!.nombreSansMontant, 0);
+  assert.equal(avril!.totalHT, 160);
+  assert.equal(avril!.totalTTC, 200);
+  assert.equal(avril!.nombreSansMontantHT, 0);
+  assert.equal(avril!.nombreSansMontantTTC, 0);
 
   const parAnnee = await obtenirDepensesFournisseurs(prisma, { granularite: "annee" });
   const annee2026 = parAnnee.find((d) => d.periode === "2026" && d.fournisseurId === cedeo.id);
   assert.ok(annee2026, "le groupe de l'annee doit exister");
-  assert.equal(annee2026!.total, 350);
+  assert.equal(annee2026!.totalHT, 340);
+  assert.equal(annee2026!.totalTTC, 350);
 
   const filtre = await obtenirDepensesFournisseurs(prisma, {
     granularite: "mois",
@@ -83,7 +88,14 @@ test("depenses par fournisseur : type different de 'facture' (devis, avoir...) i
 
   const f = await prisma.fournisseur.create({ data: { nom: ref("AutreFournisseur") } });
   await prisma.documentFournisseur.create({
-    data: { type: "devis", fournisseurId: f.id, montant: 999, hashFichier: ref("hash"), dateReceptionMail: new Date("2026-05-01") },
+    data: {
+      type: "devis",
+      fournisseurId: f.id,
+      montantHT: 999,
+      montantTTC: 999,
+      hashFichier: ref("hash"),
+      dateReceptionMail: new Date("2026-05-01"),
+    },
   });
 
   const resultat = await obtenirDepensesFournisseurs(prisma, { granularite: "mois" });

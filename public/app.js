@@ -2119,12 +2119,12 @@ async function chargerFacturesFournisseurs() {
 //
 // Demande explicite de l'utilisateur : "connaître mes dépenses chez les
 // fournisseurs... pour savoir ce que représente les dépenses autour de
-// l'année chez mes différents fournisseurs". Fondé sur
-// DocumentFournisseur.montant (voir depensesFournisseurs.ts) - une facture
-// sans montant renseigné (extraction automatique infructueuse, pas encore
-// saisie à la main) est explicitement exclue des totaux plutôt que comptée
-// comme 0 €, pour ne jamais sous-estimer silencieusement une dépense
-// réelle.
+// l'année chez mes différents fournisseurs", en HT comme en TTC. Fondé sur
+// DocumentFournisseur.montantHT/montantTTC (voir depensesFournisseurs.ts) -
+// une facture sans l'un de ces montants renseigné (extraction automatique
+// infructueuse, pas encore saisie à la main) est explicitement exclue du
+// total correspondant plutôt que comptée comme 0 €, pour ne jamais
+// sous-estimer silencieusement une dépense réelle.
 
 function libellePeriodeDepense(periode, granularite) {
   if (granularite === "annee") return periode;
@@ -2149,38 +2149,47 @@ async function chargerDepensesFournisseurs() {
     }
 
     // Resume : total toutes periodes confondues, par fournisseur, du plus
-    // gros au plus petit - repond directement a "ce que representent mes
-    // depenses chez mes differents fournisseurs".
+    // gros au plus petit (sur le TTC) - repond directement a "ce que
+    // representent mes depenses chez mes differents fournisseurs".
     const totauxParFournisseur = new Map();
-    let sansMontantTotal = 0;
+    let sansMontantHTTotal = 0;
+    let sansMontantTTCTotal = 0;
     for (const l of lignes) {
       const cle = l.fournisseurId || l.fournisseurNom;
-      const existant = totauxParFournisseur.get(cle) || { nom: l.fournisseurNom, total: 0, nombreSansMontant: 0 };
-      existant.total += l.total;
-      existant.nombreSansMontant += l.nombreSansMontant;
+      const existant = totauxParFournisseur.get(cle) || { nom: l.fournisseurNom, totalHT: 0, totalTTC: 0, nombreSansMontantHT: 0, nombreSansMontantTTC: 0 };
+      existant.totalHT += l.totalHT;
+      existant.totalTTC += l.totalTTC;
+      existant.nombreSansMontantHT += l.nombreSansMontantHT;
+      existant.nombreSansMontantTTC += l.nombreSansMontantTTC;
       totauxParFournisseur.set(cle, existant);
-      sansMontantTotal += l.nombreSansMontant;
+      sansMontantHTTotal += l.nombreSansMontantHT;
+      sansMontantTTCTotal += l.nombreSansMontantTTC;
     }
-    const classement = [...totauxParFournisseur.values()].sort((a, b) => b.total - a.total);
+    const classement = [...totauxParFournisseur.values()].sort((a, b) => b.totalTTC - a.totalTTC);
 
     resume.innerHTML = `
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Fournisseur</th><th>Total</th></tr></thead>
+          <thead><tr><th>Fournisseur</th><th>Total HT</th><th>Total TTC</th></tr></thead>
           <tbody>
             ${classement
               .map(
                 (f) => `
               <tr>
                 <td>${echapper(f.nom)}</td>
-                <td>${fmtMontant(f.total)}${f.nombreSansMontant > 0 ? ` <span class="anomalie-meta">(+ ${f.nombreSansMontant} facture(s) sans montant)</span>` : ""}</td>
+                <td>${fmtMontant(f.totalHT)}${f.nombreSansMontantHT > 0 ? ` <span class="anomalie-meta">(+ ${f.nombreSansMontantHT} sans montant HT)</span>` : ""}</td>
+                <td>${fmtMontant(f.totalTTC)}${f.nombreSansMontantTTC > 0 ? ` <span class="anomalie-meta">(+ ${f.nombreSansMontantTTC} sans montant TTC)</span>` : ""}</td>
               </tr>`
               )
               .join("")}
           </tbody>
         </table>
       </div>
-      ${sansMontantTotal > 0 ? `<p class="aide-inline">⚠️ ${sansMontantTotal} facture(s) au total sans montant renseigné, exclue(s) de ces totaux - voir l'onglet Fournisseurs pour les compléter.</p>` : ""}`;
+      ${
+        sansMontantHTTotal > 0 || sansMontantTTCTotal > 0
+          ? `<p class="aide-inline">⚠️ ${sansMontantHTTotal} facture(s) sans montant HT et ${sansMontantTTCTotal} sans montant TTC, exclue(s) des totaux correspondants - voir l'onglet Fournisseurs pour les compléter.</p>`
+          : ""
+      }`;
 
     // Detail : par periode, du plus recent au plus ancien (l'API renvoie
     // deja trie du plus ancien au plus recent, regroupe par periode donc
@@ -2198,15 +2207,16 @@ async function chargerDepensesFournisseurs() {
         <summary>${echapper(libellePeriodeDepense(periode, granularite))}</summary>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Fournisseur</th><th>Total</th><th>Factures</th></tr></thead>
+            <thead><tr><th>Fournisseur</th><th>Total HT</th><th>Total TTC</th><th>Factures</th></tr></thead>
             <tbody>
               ${docs
                 .map(
                   (l) => `
                 <tr>
                   <td>${echapper(l.fournisseurNom)}</td>
-                  <td>${fmtMontant(l.total)}</td>
-                  <td>${l.nombreFactures}${l.nombreSansMontant > 0 ? ` <span class="anomalie-meta">(dont ${l.nombreSansMontant} sans montant)</span>` : ""}</td>
+                  <td>${fmtMontant(l.totalHT)}</td>
+                  <td>${fmtMontant(l.totalTTC)}</td>
+                  <td>${l.nombreFactures}${l.nombreSansMontantTTC > 0 ? ` <span class="anomalie-meta">(dont ${l.nombreSansMontantTTC} sans montant TTC)</span>` : ""}</td>
                 </tr>`
                 )
                 .join("")}
@@ -2349,25 +2359,50 @@ async function supprimerDocumentFournisseur(id, bouton, dejaEnvoye) {
 }
 window.supprimerDocumentFournisseur = supprimerDocumentFournisseur;
 
-// Affichage du montant d'une facture fournisseur (demande explicite de
-// l'utilisateur : suivre les depenses par fournisseur) - uniquement pour
-// le type "facture", jamais pour un devis/bon d'enlevement/releve ou
-// autre type sans rapport avec une depense. Montant non trouve
-// automatiquement (extraireMontantFacture, mise en page atypique...) :
-// alerte visible plutot qu'un silence qui laisserait croire a tort que
-// cette facture represente 0 € de depense dans le futur module de suivi.
+// Affichage des montants HT et TTC d'une facture fournisseur (demande
+// explicite de l'utilisateur : suivre les depenses par fournisseur, en HT
+// comme en TTC) - uniquement pour le type "facture", jamais pour un
+// devis/bon d'enlevement/releve ou autre type sans rapport avec une
+// depense. Montant non trouve automatiquement (extraireMontantHTFacture/
+// extraireMontantTTCFacture, mise en page atypique...) : alerte visible
+// plutot qu'un silence qui laisserait croire a tort que cette facture
+// represente 0 € de depense dans le module de suivi.
 function renduMontantFacture(d) {
   if (d.type !== "facture") return "";
-  if (d.montant != null) return `<span class="badge badge-ok">${fmtMontant(d.montant)}</span>`;
-  return `<span class="badge badge-palier-ambre montant-manquant" title="Le montant n'a pas pu être extrait automatiquement de ce document">⚠️ Montant non renseigné</span>
-    <button type="button" class="ghost bouton-lien" onclick="saisirMontantFacture('${d.id}', this)">Renseigner le montant</button>`;
+  const ht =
+    d.montantHT != null
+      ? `<span class="badge badge-ok">HT ${fmtMontant(d.montantHT)}</span>`
+      : `<span class="badge badge-palier-ambre montant-ht-manquant" title="Le montant HT n'a pas pu être extrait automatiquement de ce document">⚠️ HT non renseigné</span>`;
+  const ttc =
+    d.montantTTC != null
+      ? `<span class="badge badge-ok">TTC ${fmtMontant(d.montantTTC)}</span>`
+      : `<span class="badge badge-palier-ambre montant-ttc-manquant" title="Le montant TTC n'a pas pu être extrait automatiquement de ce document">⚠️ TTC non renseigné</span>`;
+  const boutonSaisie =
+    d.montantHT == null || d.montantTTC == null
+      ? `<button type="button" class="ghost bouton-lien" onclick="saisirMontantFacture('${d.id}', this, ${d.montantHT ?? "null"}, ${d.montantTTC ?? "null"})">Renseigner le(s) montant(s)</button>`
+      : "";
+  return `${ht} ${ttc} ${boutonSaisie}`;
 }
 
-async function saisirMontantFacture(id, bouton) {
-  const saisie = prompt("Montant TTC de cette facture (en euros) :");
-  if (saisie === null) return;
-  const montant = Number(saisie.replace(",", "."));
-  if (!Number.isFinite(montant) || montant <= 0) {
+async function saisirMontantFacture(id, bouton, montantHTActuel, montantTTCActuel) {
+  const saisieHT = prompt(
+    "Montant HT de cette facture (en euros, laissez vide pour ne pas le renseigner) :",
+    montantHTActuel != null ? String(montantHTActuel).replace(".", ",") : ""
+  );
+  if (saisieHT === null) return;
+  const saisieTTC = prompt(
+    "Montant TTC de cette facture (en euros, laissez vide pour ne pas le renseigner) :",
+    montantTTCActuel != null ? String(montantTTCActuel).replace(".", ",") : ""
+  );
+  if (saisieTTC === null) return;
+
+  const montantHT = saisieHT.trim() === "" ? null : Number(saisieHT.replace(",", "."));
+  const montantTTC = saisieTTC.trim() === "" ? null : Number(saisieTTC.replace(",", "."));
+  if (montantHT == null && montantTTC == null) {
+    alert("Indiquez au moins un des deux montants.");
+    return;
+  }
+  if ((montantHT != null && (!Number.isFinite(montantHT) || montantHT <= 0)) || (montantTTC != null && (!Number.isFinite(montantTTC) || montantTTC <= 0))) {
     alert("Montant invalide : indiquez un nombre positif (ex. 123,45).");
     return;
   }
@@ -2376,19 +2411,29 @@ async function saisirMontantFacture(id, bouton) {
     const res = await fetch(`/api/documents-fournisseurs/${id}/montant`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ montant }),
+      body: JSON.stringify({ montantHT, montantTTC }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.erreur || "Enregistrement impossible.");
     }
-    // Remplace l'alerte par le montant, sans recharger toute la liste (meme
-    // raisonnement que supprimerDocumentFournisseur ci-dessus).
+    // Remplace l'alerte par le montant saisi, sans recharger toute la liste
+    // (meme raisonnement que supprimerDocumentFournisseur ci-dessus).
     const ligne = document.getElementById(`document-ligne-${id}`);
     if (ligne) {
-      const alerte = ligne.querySelector(".montant-manquant");
-      if (alerte) alerte.outerHTML = `<span class="badge badge-ok">${fmtMontant(montant)}</span>`;
-      bouton.remove();
+      if (montantHT != null) {
+        const alerteHT = ligne.querySelector(".montant-ht-manquant");
+        if (alerteHT) alerteHT.outerHTML = `<span class="badge badge-ok">HT ${fmtMontant(montantHT)}</span>`;
+      }
+      if (montantTTC != null) {
+        const alerteTTC = ligne.querySelector(".montant-ttc-manquant");
+        if (alerteTTC) alerteTTC.outerHTML = `<span class="badge badge-ok">TTC ${fmtMontant(montantTTC)}</span>`;
+      }
+      if (ligne.querySelector(".montant-ht-manquant") || ligne.querySelector(".montant-ttc-manquant")) {
+        bouton.disabled = false;
+      } else {
+        bouton.remove();
+      }
     }
   } catch (err) {
     bouton.disabled = false;

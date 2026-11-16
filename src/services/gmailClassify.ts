@@ -205,16 +205,30 @@ export function extraireNumeroFacture(texte: string): string | null {
 // Ordre de priorite : "net a payer" est le montant reellement du (apres
 // acompte/avoir eventuels sur le document), plus fiable que les autres
 // libelles quand plusieurs sont presents sur la meme facture. Les autres
-// libelles sont les formulations usuelles d'un total TTC - demande
-// explicite de l'utilisateur : suivre les depenses reelles (TTC), jamais
-// le HT.
-const MOTIFS_MONTANT_PAR_PRIORITE = [
+// libelles sont les formulations usuelles d'un total TTC.
+const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
   /net\s*à\s*payer/i,
   /montant\s*total\s*ttc/i,
   /total\s*ttc/i,
   /montant\s*ttc/i,
   /à\s*payer/i,
 ];
+
+// Memes principes que pour le TTC, pour le montant hors taxes (demande
+// explicite de l'utilisateur : suivre aussi le HT, pas seulement le TTC).
+const MOTIFS_MONTANT_HT_PAR_PRIORITE = [/montant\s*total\s*ht/i, /total\s*ht/i, /montant\s*ht/i];
+
+function extraireMontantParLibelles(texte: string, motifs: RegExp[]): number | null {
+  for (const motif of motifs) {
+    const motifAvecMontant = new RegExp(`${motif.source}[^\\d]{0,20}(\\d{1,3}(?:[\\s.]\\d{3})*,\\d{2}|\\d+,\\d{2})`, "i");
+    const m = texte.match(motifAvecMontant);
+    if (m) {
+      const nombre = Number(m[1].replace(/[\s.]/g, "").replace(",", "."));
+      if (Number.isFinite(nombre) && nombre > 0) return nombre;
+    }
+  }
+  return null;
+}
 
 /**
  * Extraction best-effort du montant TTC d'une facture (demande explicite
@@ -228,14 +242,11 @@ const MOTIFS_MONTANT_PAR_PRIORITE = [
  * manuelle du montant (voir la route PATCH dediee) avec une alerte
  * explicite plutot qu'un chiffre invente.
  */
-export function extraireMontantFacture(texte: string): number | null {
-  for (const motif of MOTIFS_MONTANT_PAR_PRIORITE) {
-    const motifAvecMontant = new RegExp(`${motif.source}[^\\d]{0,20}(\\d{1,3}(?:[\\s.]\\d{3})*,\\d{2}|\\d+,\\d{2})`, "i");
-    const m = texte.match(motifAvecMontant);
-    if (m) {
-      const nombre = Number(m[1].replace(/[\s.]/g, "").replace(",", "."));
-      if (Number.isFinite(nombre) && nombre > 0) return nombre;
-    }
-  }
-  return null;
+export function extraireMontantTTCFacture(texte: string): number | null {
+  return extraireMontantParLibelles(texte, MOTIFS_MONTANT_TTC_PAR_PRIORITE);
+}
+
+/** Meme logique que extraireMontantTTCFacture, pour le montant hors taxes. */
+export function extraireMontantHTFacture(texte: string): number | null {
+  return extraireMontantParLibelles(texte, MOTIFS_MONTANT_HT_PAR_PRIORITE);
 }

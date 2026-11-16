@@ -302,19 +302,41 @@ export async function supprimerDocumentFournisseur(prisma: PrismaClient, documen
 
 export class MontantDocumentFournisseurError extends Error {}
 
+export interface MontantsFacture {
+  montantHT?: number | null;
+  montantTTC?: number | null;
+}
+
 /**
- * Saisie manuelle du montant d'une facture fournisseur, quand
- * l'extraction automatique (extraireMontantFacture, voir gmailClassify.ts)
- * n'a pas trouve de montant exploitable dans le document (mise en page
- * atypique, releve mensuel recapitulant plusieurs factures...) - demande
- * explicite de l'utilisateur, avec un montant jamais invente : l'absence
- * reste visible (alerte cote interface) jusqu'a cette saisie volontaire.
+ * Saisie manuelle du montant HT et/ou TTC d'une facture fournisseur, quand
+ * l'extraction automatique (extraireMontantHTFacture/extraireMontantTTCFacture,
+ * voir gmailClassify.ts) n'a pas trouve de montant exploitable dans le
+ * document (mise en page atypique, releve mensuel recapitulant plusieurs
+ * factures...) - demande explicite de l'utilisateur, avec un montant jamais
+ * invente : l'absence reste visible (alerte cote interface) jusqu'a cette
+ * saisie volontaire. Les deux montants sont independants : seul celui
+ * fourni est mis a jour, l'autre reste inchange.
  */
-export async function saisirMontantDocumentFournisseur(prisma: PrismaClient, documentId: string, montant: number): Promise<void> {
-  if (!Number.isFinite(montant) || montant <= 0) {
-    throw new MontantDocumentFournisseurError("Le montant doit être un nombre positif.");
+export async function saisirMontantDocumentFournisseur(prisma: PrismaClient, documentId: string, montants: MontantsFacture): Promise<void> {
+  const { montantHT, montantTTC } = montants;
+  if (montantHT == null && montantTTC == null) {
+    throw new MontantDocumentFournisseurError("Indiquez au moins un montant (HT ou TTC).");
+  }
+  for (const [libelle, valeur] of [
+    ["HT", montantHT],
+    ["TTC", montantTTC],
+  ] as const) {
+    if (valeur != null && (!Number.isFinite(valeur) || valeur <= 0)) {
+      throw new MontantDocumentFournisseurError(`Le montant ${libelle} doit être un nombre positif.`);
+    }
   }
   const document = await prisma.documentFournisseur.findUnique({ where: { id: documentId } });
   if (!document) throw new MontantDocumentFournisseurError("Document introuvable.");
-  await prisma.documentFournisseur.update({ where: { id: documentId }, data: { montant } });
+  await prisma.documentFournisseur.update({
+    where: { id: documentId },
+    data: {
+      ...(montantHT != null ? { montantHT } : {}),
+      ...(montantTTC != null ? { montantTTC } : {}),
+    },
+  });
 }

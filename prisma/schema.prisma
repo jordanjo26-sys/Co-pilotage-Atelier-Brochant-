@@ -208,7 +208,8 @@ model DocumentFournisseur {
   fichierNom     String?
   numero         String?
   date           DateTime?
-  montant        Float?
+  montantHT      Float?
+  montantTTC     Float?
   statutDext     String    @default("non_envoye") // non_envoye | envoye | archive | a_valider
   hashFichier    String?   @unique
   // "ia" quand le type provient du filet de securite Claude (uniquement
