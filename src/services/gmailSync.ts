@@ -469,7 +469,12 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
       // DOMAINES_EXPEDITEURS_NON_FOURNISSEURS dans gmailClassify.ts) exclu au
       // meme titre que "ambigu" : ce n'est jamais un vrai fournisseur, lui
       // creer une fiche polluerait la liste des fournisseurs.
-      const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu" && p.type !== "autre");
+      // "devis" exclu au meme titre que "ambigu"/"autre" (demande explicite
+      // de l'utilisateur, novembre 2026) : un devis seul ne doit jamais
+      // creer de fiche fournisseur - ni une photo client mal classee avant
+      // le correctif ci-dessus, ni meme un vrai devis fournisseur, qu'il ne
+      // veut pas voir dans cet onglet.
+      const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu" && p.type !== "autre" && p.type !== "devis");
       const fournisseurId = auMoinsUnDocumentReconnu ? await resoudreFournisseur(prisma, expediteur, cacheFournisseurs) : null;
 
       for (const { piece, type, donnees, hashFichier, numero, classifiePar } of piecesAtraiter) {
@@ -580,10 +585,15 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
           } else {
             // avoir | bon_enlevement | releve | devis | autre : jamais
             // envoyes a Dext, archives pour controle (sections 6.3, 6.4).
+            // "devis" force fournisseurId a null meme si le message
+            // contient par ailleurs une facture/avoir ayant deja resolu une
+            // fiche fournisseur (variable partagee pour tout le message) :
+            // un devis ne doit jamais s'y attacher (demande explicite de
+            // l'utilisateur).
             await prisma.documentFournisseur.create({
               data: {
                 type,
-                fournisseurId,
+                fournisseurId: type === "devis" ? null : fournisseurId,
                 fichierNom: piece.nomFichier,
                 numero,
                 hashFichier,
