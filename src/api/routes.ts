@@ -45,6 +45,7 @@ import {
   listerDemandesIntervention,
   marquerDemandeInterventionSaisie,
   modifierDemandeIntervention,
+  supprimerDemandeIntervention,
   DemandeInterventionValidationError,
 } from "../services/demandesIntervention";
 import { envoyerDemandeVersSynec, SynecEcritureError } from "../services/synecEcriture";
@@ -1025,6 +1026,18 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.patch("/demandes-intervention/:id/marquer-saisie", async (req, res) => {
     try {
       res.json(await marquerDemandeInterventionSaisie(prisma, req.params.id));
+    } catch {
+      res.status(404).json({ erreur: "Demande introuvable." });
+    }
+  });
+
+  // Suppression definitive (demande explicite de l'utilisateur : aucun
+  // moyen de retirer une fiche en double ou erronee avant envoi vers
+  // Synec, voir supprimerDemandeIntervention).
+  router.delete("/demandes-intervention/:id", async (req, res) => {
+    try {
+      await supprimerDemandeIntervention(prisma, req.params.id);
+      res.status(204).end();
     } catch {
       res.status(404).json({ erreur: "Demande introuvable." });
     }

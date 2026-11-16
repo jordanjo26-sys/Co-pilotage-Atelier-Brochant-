@@ -174,3 +174,14 @@ export async function marquerDemandeInterventionSaisie(prisma: PrismaClient, id:
     data: { statut: "saisie", saisieLe: new Date() },
   });
 }
+
+/**
+ * Supprime definitivement une demande (demande explicite de l'utilisateur :
+ * aucun moyen de retirer une fiche en double ou erronee avant envoi vers
+ * Synec). Suppression reelle plutot qu'un statut "supprimee" : cette file
+ * d'attente ne sert qu'a preparer la saisie dans Synec, pas d'historique a
+ * conserver pour une fiche jamais envoyee.
+ */
+export async function supprimerDemandeIntervention(prisma: PrismaClient, id: string): Promise<void> {
+  await prisma.demandeIntervention.delete({ where: { id } });
+}

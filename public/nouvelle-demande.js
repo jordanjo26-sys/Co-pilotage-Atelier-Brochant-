@@ -74,6 +74,7 @@ async function chargerDemandes() {
         <button type="button" data-envoyer-synec="${d.id}">Envoyer vers Synec</button>
         <button type="button" class="ghost" data-modifier="${d.id}">Modifier</button>
         <button type="button" class="ghost" data-marquer-saisie="${d.id}">Marquer comme saisie à la main</button>
+        <button type="button" class="ghost" data-supprimer="${d.id}">Supprimer</button>
       </div>
     </div>`
     )
@@ -90,6 +91,21 @@ async function chargerDemandes() {
     bouton.addEventListener("click", async () => {
       try {
         await appelApi(`/api/demandes-intervention/${bouton.dataset.marquerSaisie}/marquer-saisie`, { method: "PATCH" });
+        await chargerDemandes();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  // Suppression definitive (demande explicite de l'utilisateur : retirer
+  // une fiche en double ou erronee avant envoi vers Synec) - confirmation
+  // car irreversible.
+  conteneur.querySelectorAll("[data-supprimer]").forEach((bouton) => {
+    bouton.addEventListener("click", async () => {
+      if (!confirm("Supprimer définitivement cette demande ?")) return;
+      try {
+        await appelApi(`/api/demandes-intervention/${bouton.dataset.supprimer}`, { method: "DELETE" });
         await chargerDemandes();
       } catch (err) {
         alert(err.message);
