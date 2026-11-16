@@ -25,6 +25,19 @@ const MIME_TYPES_DOCUMENT = ["application/pdf", "image/jpeg", "image/png", "imag
 
 const MOTIF_BON_ENLEVEMENT = /bon[\s.-]*d['\s]*enl[eè]vement|bon[\s.-]*de[\s.-]*sortie|bordereau[\s.-]*d['\s]*enl[eè]vement/i;
 const MOTIF_RELEVE = /relev[eé][\s.-]*(de[\s.-]*)?factures?|relev[eé][\s.-]*fournisseur|statement[\s.-]*of[\s.-]*account/i;
+// Les relevés Cedeo reçus en production (exemple réel fourni par
+// l'utilisateur, novembre 2026) n'ont pas forcément ce mot dans le
+// sujet/corps de l'e-mail - seul le PDF lui-même s'auto-titre "Relevé
+// <référence> du <date>" en tout début de document (ex. "Relevé
+// 889C6004972251 du 31/10/2026 N° Client..."), à la différence d'une
+// vraie facture qui s'auto-titre "Facture <référence> du <date>". Sans ce
+// repli sur le contenu du PDF, un sujet/corps generique ferait retomber
+// sur la détection "facture" ci-dessous (le mot "facture" apparaît aussi
+// dans le relevé lui-même, dans l'en-tête de tableau "N° de facture et
+// références") - risque reel de compter deux fois la meme depense
+// (une fois via chaque facture individuelle, une fois via le relevé qui
+// les recapitule).
+const MOTIF_RELEVE_TITRE_DOCUMENT = /^\s*relev[eé]\s+\S+\s+du\s+\d{2}\/\d{2}\/\d{4}/i;
 // "avoir" est a la fois le nom du document comptable ("Avoir n°123") ET
 // l'un des verbes les plus courants du francais, presque toujours utilise
 // dans des tournures qui n'ont rien a voir avec un avoir ("merci d'avoir
@@ -144,7 +157,7 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   if (!estPieceDocument(piece)) return "ambigu";
 
   if (MOTIF_BON_ENLEVEMENT.test(contexte)) return "bon_enlevement";
-  if (MOTIF_RELEVE.test(contexte)) return "releve";
+  if (MOTIF_RELEVE.test(contexte) || MOTIF_RELEVE_TITRE_DOCUMENT.test(contenuExtrait || "")) return "releve";
   if (MOTIF_AVOIR.test(contexte)) return "avoir";
   // Une facture n'est jamais transmise a Dext si ce n'est pas un PDF : un
   // e-mail de facture contient souvent d'autres pieces jointes (logo de

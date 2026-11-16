@@ -63,6 +63,38 @@ test("classifie un releve de factures fournisseur", () => {
   assert.equal(type, "releve");
 });
 
+// Regression a partir d'un exemple reel fourni par l'utilisateur (relevé
+// mensuel Cedeo, novembre 2026) : le sujet/corps de l'e-mail ne contient
+// pas forcement le mot "relevé" (sujet generique ici), et le PDF lui-meme
+// mentionne "facture" dans son en-tete de tableau ("N° de facture et
+// références") - sans le repli sur le titre auto-genere du document
+// ("Relevé <ref> du <date>"), ce cas tombait a tort en "facture" (comptant
+// deux fois la meme depense : une fois par facture individuelle, une fois
+// via ce relevé qui les recapitule).
+test("un releve Cedeo reel (sujet generique, PDF mentionnant 'facture' dans son en-tete) n'est jamais classe facture", () => {
+  const e = email({ sujet: "Vos documents" });
+  const type = classifierPieceJointe(
+    e,
+    { nomFichier: "releve.pdf", mimeType: "application/pdf" },
+    "Relevé 889C6004972251 du 31/10/2026 N° Client G9B4C / 1000750064\n" +
+      "Agence N° de facture et références Montant Devise\n" +
+      "3235 N° 889C6004955165 - du 31/10/2026 767,69 EUR\n" +
+      "1076 N° 889C6004956987 - du 31/10/2026 80,36 EUR\n" +
+      "TOTAL TTC EUR 848,05"
+  );
+  assert.equal(type, "releve");
+});
+
+test("une vraie facture Cedeo (auto-titree 'Facture <ref> du <date>') n'est jamais confondue avec un releve", () => {
+  const e = email({ sujet: "Vos documents" });
+  const type = classifierPieceJointe(
+    e,
+    { nomFichier: "facture.pdf", mimeType: "application/pdf" },
+    "Facture 889C6004956987 du 31/10/2026 N° Client G9B4C / 1000750064\nTOTAL HT 66,97\nTOTAL TTC EUR 80,36"
+  );
+  assert.equal(type, "facture");
+});
+
 test("classifie un avoir (mot en tete de sujet)", () => {
   const e = email({ sujet: "Avoir suite a votre reclamation" });
   const type = classifierPieceJointe(e, { nomFichier: "avoir.pdf", mimeType: "application/pdf" });
@@ -168,6 +200,30 @@ test("extraireMontantHTFacture trouve le total HT", () => {
 
 test("extraireMontantHTFacture retourne null si aucun libelle connu n'est trouve", () => {
   assert.equal(extraireMontantHTFacture("Merci pour votre commande, livraison sous 48h."), null);
+});
+
+// Regression a partir de deux vraies factures Cedeo (exemples fournis par
+// l'utilisateur, novembre 2026) : "TOTAL HT" et "TOTAL TTC" apparaissent
+// dans un tableau recapitulatif de taxes, separes du montant par d'autres
+// colonnes (BASE/TAXE a 0,00) sur la meme ligne de texte extrait.
+test("extraireMontantHTFacture/extraireMontantTTCFacture sur une vraie facture Cedeo", () => {
+  const texte =
+    "Traite directe   TAUX K=20.0%\n" +
+    "Votre IBAN FR76 1020 7000 5622 2102 3737 516   BASE 66,97 0,00 0,00\n" +
+    "CCBPFRPPMTG   TAXE 13,39 0,00 0,00  TOTAL HT 66,97\n" +
+    "TOTAL TTC EUR 80,36";
+  assert.equal(extraireMontantHTFacture(texte), 66.97);
+  assert.equal(extraireMontantTTCFacture(texte), 80.36);
+});
+
+test("extraireMontantHTFacture/extraireMontantTTCFacture sur une seconde vraie facture Cedeo (avec frais de gestion)", () => {
+  const texte =
+    "Traite directe   TAUX K=20.0% Frais Gestion   3,5    K\n" +
+    "Votre IBAN FR76 1020 7000 5622 2102 3737 516   BASE 639,74 0,00 0,00\n" +
+    "CCBPFRPPMTG   TAXE 127,95 0,00 0,00  TOTAL HT 639,74\n" +
+    "TOTAL TTC EUR 767,69";
+  assert.equal(extraireMontantHTFacture(texte), 639.74);
+  assert.equal(extraireMontantTTCFacture(texte), 767.69);
 });
 
 test("sujet/corps generiques, mais le mot facture est dans le contenu du PDF -> reconnue (pas ambigue)", () => {
