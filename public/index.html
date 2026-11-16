@@ -199,6 +199,12 @@
 
     <!-- ===== Fournisseurs ===== -->
     <div class="onglet-panneau" data-panneau="fournisseurs" hidden>
+      <section class="carte accent-teal">
+        <h2>Gmail → Dext</h2>
+        <p class="aide">Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext.</p>
+        <div id="gmail-statut"></div>
+      </section>
+
       <section class="carte accent-ambre">
         <h2>Anomalies à valider</h2>
         <p class="aide">Documents ambigus reçus par e-mail, en attente de classification manuelle.</p>
@@ -276,12 +282,6 @@
 
     <!-- ===== Système ===== -->
     <div class="onglet-panneau" data-panneau="systeme" hidden>
-      <section class="carte accent-teal">
-        <h2>Gmail → Dext</h2>
-        <p class="aide">Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext.</p>
-        <div id="gmail-statut"></div>
-      </section>
-
       <section class="carte accent-ambre">
         <h2>Google Ads (import manuel)</h2>
         <p class="aide">Repli si l'accès API live est indisponible : déposez ici un export CSV « Campagnes » téléchargé depuis Google Ads, Morgane l'utilisera pour analyser vos campagnes.</p>
@@ -368,7 +368,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=44"></script>
+  <script src="/app.js?v=45"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

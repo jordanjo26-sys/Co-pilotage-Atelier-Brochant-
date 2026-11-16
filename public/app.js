@@ -42,24 +42,28 @@ function definirBadge(onglet, valeur) {
 
 function mettreAJourAlerteBandeau() {
   const bandeau = document.getElementById("alerte-bandeau");
+  // Chaque probleme porte desormais son propre onglet cible (le bouton
+  // "Voir" pointait toujours vers "systeme", meme pour Stripe/Synec deja
+  // gere dans "tresorerie" - incoherence reprise en deplacant Gmail -> Dext
+  // vers l'onglet Fournisseurs, sa vraie place).
   const problemes = [];
-  if (etatIndicateurs.gmailMotif) problemes.push(`Gmail : ${etatIndicateurs.gmailMotif}`);
-  if (etatIndicateurs.stripeMotif) problemes.push(`Stripe : ${etatIndicateurs.stripeMotif}`);
-  if (etatIndicateurs.synecMotif) problemes.push(`Synec : ${etatIndicateurs.synecMotif}`);
+  if (etatIndicateurs.gmailMotif) problemes.push({ message: `Gmail : ${etatIndicateurs.gmailMotif}`, onglet: "fournisseurs" });
+  if (etatIndicateurs.stripeMotif) problemes.push({ message: `Stripe : ${etatIndicateurs.stripeMotif}`, onglet: "tresorerie" });
+  if (etatIndicateurs.synecMotif) problemes.push({ message: `Synec : ${etatIndicateurs.synecMotif}`, onglet: "tresorerie" });
   if (problemes.length === 0) {
     bandeau.hidden = true;
     bandeau.innerHTML = "";
     return;
   }
   bandeau.hidden = false;
-  bandeau.innerHTML = `<span>⚠ ${problemes.map(echapper).join(" · ")}</span><button type="button" class="ghost" onclick="basculerOnglet('systeme')">Voir</button>`;
+  bandeau.innerHTML = `<span>⚠ ${problemes.map((p) => echapper(p.message)).join(" · ")}</span><button type="button" class="ghost" onclick="basculerOnglet('${problemes[0].onglet}')">Voir</button>`;
 }
 
 function mettreAJourActionsRequises() {
   const conteneur = document.getElementById("actions-requises");
   if (!conteneur) return;
   const actions = [];
-  if (etatIndicateurs.gmailMotif) actions.push({ libelle: `Reconnecter Gmail (${etatIndicateurs.gmailMotif})`, onglet: "systeme" });
+  if (etatIndicateurs.gmailMotif) actions.push({ libelle: `Reconnecter Gmail (${etatIndicateurs.gmailMotif})`, onglet: "fournisseurs" });
   if (etatIndicateurs.stripeMotif) actions.push({ libelle: `Reconnecter Stripe (${etatIndicateurs.stripeMotif})`, onglet: "tresorerie" });
   if (etatIndicateurs.synecMotif) actions.push({ libelle: `Reconnecter Synec (${etatIndicateurs.synecMotif})`, onglet: "tresorerie" });
   if (etatIndicateurs.anomalies > 0) actions.push({ libelle: "document(s) à classer manuellement", compte: etatIndicateurs.anomalies, onglet: "fournisseurs" });
@@ -85,10 +89,13 @@ function mettreAJourActionsRequises() {
 }
 
 function mettreAJourBadges() {
-  definirBadge("fournisseurs", etatIndicateurs.anomalies);
+  // Gmail -> Dext a rejoint l'onglet Fournisseurs (sa vraie place, voir
+  // plus haut) : son indicateur de panne rejoint donc ce badge plutot que
+  // celui de "systeme", meme principe que Stripe/Synec regroupes sur le
+  // badge Tresorerie ci-dessous.
+  definirBadge("fournisseurs", etatIndicateurs.anomalies + (etatIndicateurs.gmailMotif ? 1 : 0));
   definirBadge("factures", etatIndicateurs.relances + etatIndicateurs.facturesFournisseurs);
   definirBadge("tresorerie", etatIndicateurs.aValiderImports + (etatIndicateurs.stripeMotif ? 1 : 0) + (etatIndicateurs.synecMotif ? 1 : 0));
-  definirBadge("systeme", etatIndicateurs.gmailMotif ? 1 : 0);
   mettreAJourAlerteBandeau();
   mettreAJourActionsRequises();
 }
