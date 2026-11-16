@@ -17,6 +17,18 @@ test("classifie une facture standard (mot-cle dans le sujet)", () => {
   assert.equal(type, "facture");
 });
 
+// Regression reelle en production (novembre 2026) : "Valority" est un
+// donneur d'ordre de l'utilisateur, jamais un fournisseur - une mission
+// confiee par Valority genere une facture de VENTE (emise par
+// l'utilisateur), pas une facture fournisseur. Creait a tort une fiche
+// fournisseur au nom du client final et envoyait la facture de vente a
+// Dext (fiches "Kenza GHILAS"/"YOBOUET Samaecken").
+test("une facture mentionnant Valority (donneur d'ordre) n'est jamais classee comme facture fournisseur", () => {
+  const e = email({ sujet: "Votre facture" });
+  const type = classifierPieceJointe(e, { nomFichier: "Facture VALORITY PO FROMENTIN Lucien.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "autre");
+});
+
 // Regression reelle en production (facture Trenois Decamps, novembre
 // 2026) : le systeme de facturation de l'expediteur declarait la piece
 // jointe en mimeType application/octet-stream (generique) au lieu

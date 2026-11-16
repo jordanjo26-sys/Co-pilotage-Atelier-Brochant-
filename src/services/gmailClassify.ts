@@ -54,6 +54,25 @@ function estExpediteurNonFournisseurConnu(expediteur: string): boolean {
   return DOMAINES_EXPEDITEURS_NON_FOURNISSEURS.some((motif) => motif.test(expediteur));
 }
 
+// "Valority" est un DONNEUR D'ORDRE de l'utilisateur (confirme par
+// l'utilisateur, novembre 2026) : une mission confiee par Valority genere
+// une FACTURE DE VENTE (emise par l'utilisateur, a facturer A Valority ou
+// au client final), jamais une facture fournisseur a l'utilisateur -
+// l'inverse exact de la relation presumee par la regle "facture" ci-
+// dessous. Un e-mail/fichier mentionnant "Valority" ne doit donc jamais
+// creer de fiche fournisseur ni partir vers Dext (signale en production :
+// fiches "Kenza GHILAS"/"YOBOUET Samaecken" creees a tort, au nom des
+// clients finaux de Valority, avec la facture de vente envoyee a Dext).
+// Detection par contenu (pas d'expediteur fixe connu, contrairement a
+// DOMAINES_EXPEDITEURS_NON_FOURNISSEURS) : "Valority" est un nom propre
+// suffisamment distinctif pour ne pas risquer de faux positif sur un vrai
+// document fournisseur.
+const MOTIF_DONNEUR_ORDRE_CONNU = /\bvalority\b/i;
+
+function mentionneDonneurOrdreConnu(contexte: string): boolean {
+  return MOTIF_DONNEUR_ORDRE_CONNU.test(contexte);
+}
+
 // "application/octet-stream" est le type MIME generique utilise par de
 // nombreux systemes de facturation/ERP quand ils ne renseignent pas (ou
 // mal) le type reel de la piece jointe - constate en production : une
@@ -103,7 +122,6 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   // ni meme un cas ambigu dans ce cas precis (voir le commentaire de
   // DOMAINES_EXPEDITEURS_NON_FOURNISSEURS).
   if (estExpediteurNonFournisseurConnu(email.expediteur)) return "autre";
-  if (!estPieceDocument(piece)) return "ambigu";
 
   // Contexte "sûr" (sujet, corps, nom de fichier) : ces quatre autres types
   // de document restent verifies UNIQUEMENT ici, jamais dans le contenu
@@ -117,6 +135,13 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   // (signale par l'utilisateur en production : une facture recue disparait
   // sans laisser de trace, ni dans les anomalies ni dans les factures).
   const contexte = `${email.sujet} ${email.extraitCorps} ${piece.nomFichier}`;
+
+  // Verifie avant meme le filtre MIME, comme le filtre expediteur ci-dessus :
+  // une mention de Valority (donneur d'ordre, voir MOTIF_DONNEUR_ORDRE_CONNU)
+  // n'est jamais une facture fournisseur quel que soit le format de la piece
+  // jointe.
+  if (mentionneDonneurOrdreConnu(contexte)) return "autre";
+  if (!estPieceDocument(piece)) return "ambigu";
 
   if (MOTIF_BON_ENLEVEMENT.test(contexte)) return "bon_enlevement";
   if (MOTIF_RELEVE.test(contexte)) return "releve";
