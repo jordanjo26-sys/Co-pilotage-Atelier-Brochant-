@@ -44,7 +44,19 @@ const CHEMIN_CAPTURE_EXPLORATION = path.join(process.cwd(), "synec-exploration-d
  * ouvrirMenuFacturation : "Clients, Planning, Abonnements, Devis,
  * Factures...").
  */
-async function allerAuxDevis(page: import("playwright").Page): Promise<string[]> {
+/**
+ * `force` (par defaut false, comportement inchange partout ailleurs)
+ * ignore le raccourci "deja sur Devis" et repasse systematiquement par le
+ * menu. Necessaire pour revenir a la LISTE des devis depuis l'ecran
+ * "Produits du devis" (ouvert apres ajout des lignes, voir
+ * creerDevisSynec) : le texte "Nouveau devis" utilise par ce raccourci
+ * s'est avere visible aussi sur cet ecran de detail (menu lateral
+ * persistant), faisant croire a tort qu'on etait deja sur la liste et
+ * annulant le correctif prevu pour lireResumeDevis - defaut reel constate
+ * en production malgre ce correctif deja deploye (client "Alphonse
+ * Vivanloc", confirmation toujours illisible).
+ */
+async function allerAuxDevis(page: import("playwright").Page, force = false): Promise<string[]> {
   const dejaSurDevis = async () =>
     page
       .getByText(/nouveau devis/i)
@@ -53,7 +65,7 @@ async function allerAuxDevis(page: import("playwright").Page): Promise<string[]>
       .then(() => true)
       .catch(() => false);
 
-  if (await dejaSurDevis()) return ["deja_sur_devis:true"];
+  if (!force && (await dejaSurDevis())) return ["deja_sur_devis:true"];
 
   const { etapes, diagnosticApresMenu, candidats } = await ouvrirMenuFacturation(page);
   etapes.push(`devis:${await cliquerSiVisible(page, /^devis$/i)}`);
@@ -663,7 +675,7 @@ export async function creerDevisSynec(prisma: PrismaClient, params: ParametresDe
     // apres une creation entierement reussie (defaut reel constate en
     // production : client "Czapura", confirmation illisible deux fois de
     // suite malgre deux devis complets et identiques crees).
-    await allerAuxDevis(page);
+    await allerAuxDevis(page, true);
     const resultat = await lireResumeDevis(page, params.clientNom);
 
     await logEvenement(prisma, {
