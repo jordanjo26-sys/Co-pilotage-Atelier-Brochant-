@@ -43,6 +43,9 @@
       <span class="onglet-libelle">Trésorerie</span>
       <span class="onglet-badge" data-badge="tresorerie" hidden>0</span>
     </button>
+    <button type="button" class="onglet" data-onglet="google-ads" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Google Ads</span>
+    </button>
     <button type="button" class="onglet" data-onglet="reseaux-sociaux" role="tab" aria-selected="false">
       <span class="onglet-libelle">Réseaux sociaux</span>
     </button>
@@ -283,9 +286,9 @@
       </section>
     </div>
 
-    <!-- ===== Système ===== -->
-    <div class="onglet-panneau" data-panneau="systeme" hidden>
-      <section class="carte accent-ambre" id="section-google-ads">
+    <!-- ===== Google Ads ===== -->
+    <div class="onglet-panneau" data-panneau="google-ads" hidden>
+      <section class="carte accent-ambre">
         <h2>Google Ads (import manuel)</h2>
         <p class="aide">Repli si l'accès API live est indisponible : déposez ici un export CSV « Campagnes » téléchargé depuis Google Ads, Morgane l'utilisera pour analyser vos campagnes.</p>
         <div id="google-ads-statut"></div>
@@ -301,8 +304,11 @@
         <p class="aide">Mises en pause/réactivations et nouvelles campagnes proposées par Morgane après discussion avec vous. Rien n'est appliqué sur Google Ads tant que vous n'acceptez pas ici — une nouvelle campagne est toujours créée en pause.</p>
         <div id="liste-propositions-ads"></div>
       </section>
+    </div>
 
-      <section class="carte accent-violet" id="section-memoire-systeme">
+    <!-- ===== Système ===== -->
+    <div class="onglet-panneau" data-panneau="systeme" hidden>
+      <section class="carte accent-violet">
         <h2>Mémoire de Morgane</h2>
         <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>
         <div id="liste-decisions"></div>
@@ -396,7 +402,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=46"></script>
+  <script src="/app.js?v=47"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

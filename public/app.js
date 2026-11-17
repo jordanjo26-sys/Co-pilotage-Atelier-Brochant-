@@ -131,10 +131,13 @@ document.querySelectorAll(".onglet").forEach((b) => {
 // dernier onglet consulte, elle-meme utilisee a defaut. Accepte aussi
 // l'id d'une section precise a l'interieur d'un onglet (ex.
 // #section-reseaux-sociaux) : bascule sur l'onglet qui la contient puis
-// y defile - sans ca, plusieurs cartes de l'accueil pointant sur le meme
-// onglet "systeme" (Google Ads, Reseaux sociaux, Systeme lui-meme)
-// atterrissaient toutes en haut de l'onglet, sur la premiere carte
-// (Google Ads), jamais sur celle visee (signale par l'utilisateur).
+// y defile - utile quand deux cartes de l'accueil visent le meme onglet
+// mais pas la meme section (ex. Reseaux sociaux -> #section-reseaux-sociaux
+// alors que la carte "Reseaux sociaux" de l'accueil vise directement cet
+// onglet). Google Ads et Systeme ont desormais chacun leur propre onglet
+// (#google-ads / #systeme), cas qui declenchait ce mecanisme avant d'etre
+// separes (signale par l'utilisateur : "Google Ads" atterrissait dans
+// "Systeme", jamais sur son propre contenu).
 const ongletDepuisHash = location.hash.replace("#", "");
 try {
   if (ongletDepuisHash && document.querySelector(`.onglet-panneau[data-panneau="${ongletDepuisHash}"]`)) {
