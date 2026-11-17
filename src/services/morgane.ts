@@ -371,7 +371,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), ajustement des encheres par appareil, suppression definitive d'une campagne, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui. Pour supprimer_campagne : operation IRREVERSIBLE (contrairement a pause_campagne) - la campagne ne peut plus etre reactivee ni modifiee ensuite. Assure-toi que l'utilisateur comprend bien ce caractere definitif avant de deposer cette proposition, et prefere pause_campagne si un doute existe sur son intention reelle.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, ajout d'un GROUPE D'ANNONCES supplementaire a une campagne existante, modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), ajustement des encheres par appareil, suppression definitive d'une campagne, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui. IMPORTANT, limite structurelle : creer_campagne ne cree qu'UN SEUL groupe d'annonces (un jeu de titres/descriptions/mots-cles/URL) - pour une campagne a PLUSIEURS groupes (ex. plusieurs sous-metiers avec chacun sa page), cree la campagne avec le premier groupe via creer_campagne, puis ajoute chaque groupe supplementaire via ajouter_groupe_annonces (un appel par groupe). Pour ajouter_groupe_annonces : l'annonce du nouveau groupe est toujours creee EN PAUSE, meme si la campagne qui l'accueille est deja active - a activer manuellement apres verification. Pour supprimer_campagne : operation IRREVERSIBLE (contrairement a pause_campagne) - la campagne ne peut plus etre reactivee ni modifiee ensuite. Assure-toi que l'utilisateur comprend bien ce caractere definitif avant de deposer cette proposition, et prefere pause_campagne si un doute existe sur son intention reelle.",
     input_schema: {
       type: "object",
       properties: {
@@ -395,8 +395,13 @@ const OUTILS: Anthropic.Tool[] = [
             "ajouter_annonce_test",
             "supprimer_campagne",
             "ajuster_encheres_appareil",
+            "ajouter_groupe_annonces",
           ],
           description: "Action proposee.",
+        },
+        nomGroupe: {
+          type: "string",
+          description: "Nom du nouveau groupe d'annonces (affichage et identification). REQUIS pour ajouter_groupe_annonces.",
         },
         typeConversionSite: {
           type: "string",
@@ -407,7 +412,7 @@ const OUTILS: Anthropic.Tool[] = [
         campagneId: {
           type: "string",
           description:
-            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus/modifier_budget_campagne/ajouter_mots_cles_positifs/ajouter_extensions_campagne/modifier_strategie_encheres/definir_horaires_campagne/ajouter_audiences_campagne. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle/ajouter_annonce_test (groupeId suffit), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
+            "Identifiant Google Ads de la campagne existante (campaign.id, voir obtenir_campagnes_ads). Requis pour pause_campagne/reactiver_campagne/ajouter_mots_cles_exclus/modifier_budget_campagne/ajouter_mots_cles_positifs/ajouter_extensions_campagne/modifier_strategie_encheres/definir_horaires_campagne/ajouter_audiences_campagne/ajouter_groupe_annonces. Omis/vide pour creer_campagne (elle n'existe pas encore), pour pause_mot_cle/reactiver_mot_cle/ajouter_annonce_test (groupeId suffit), pour exclure_action_conversion et creer_action_conversion_site (actions au niveau du compte, pas d'une campagne).",
         },
         conversionActionId: {
           type: "string",
@@ -439,21 +444,21 @@ const OUTILS: Anthropic.Tool[] = [
           description:
             "Budget quotidien en euros, decide avec l'utilisateur dans la conversation. REQUIS pour creer_campagne (budget initial) et modifier_budget_campagne (nouveau budget).",
         },
-        urlFinale: { type: "string", description: "Page de destination des annonces (URL complete). Pour creer_campagne et ajouter_annonce_test (REQUIS dans ce dernier cas)." },
+        urlFinale: { type: "string", description: "Page de destination des annonces (URL complete). Pour creer_campagne, ajouter_annonce_test et ajouter_groupe_annonces (REQUIS dans ces deux derniers cas)." },
         titres: {
           type: "array",
           items: { type: "string" },
-          description: "Entre 3 et 15 titres d'annonce (30 caracteres max chacun, contrainte Google Ads). Pour creer_campagne et ajouter_annonce_test.",
+          description: "Entre 3 et 15 titres d'annonce (30 caracteres max chacun, contrainte Google Ads). Pour creer_campagne, ajouter_annonce_test et ajouter_groupe_annonces.",
         },
         descriptions: {
           type: "array",
           items: { type: "string" },
-          description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Pour creer_campagne et ajouter_annonce_test.",
+          description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Pour creer_campagne, ajouter_annonce_test et ajouter_groupe_annonces.",
         },
         motsCles: {
           type: "array",
           items: { type: "string" },
-          description: "Mots-cles pertinents a cibler (au moins un). REQUIS pour creer_campagne et ajouter_mots_cles_positifs.",
+          description: "Mots-cles pertinents a cibler (au moins un). REQUIS pour creer_campagne, ajouter_mots_cles_positifs et ajouter_groupe_annonces.",
         },
         motsClesExclus: {
           type: "array",
@@ -476,7 +481,7 @@ const OUTILS: Anthropic.Tool[] = [
           type: "string",
           enum: ["EXACT", "PHRASE", "BROAD"],
           description:
-            "Type de correspondance applique a TOUS les mots-cles de motsCles (pas de reglage par mot-cle individuel aujourd'hui). Optionnel pour creer_campagne et ajouter_mots_cles_positifs - PHRASE par defaut si omis (plus sur pour le budget que BROAD, moins restrictif que EXACT).",
+            "Type de correspondance applique a TOUS les mots-cles de motsCles (pas de reglage par mot-cle individuel aujourd'hui). Optionnel pour creer_campagne, ajouter_mots_cles_positifs et ajouter_groupe_annonces - PHRASE par defaut si omis (plus sur pour le budget que BROAD, moins restrictif que EXACT).",
         },
         sitelinks: {
           type: "array",
@@ -1078,6 +1083,7 @@ async function executerOutil(
         type,
         campagneId,
         campagneNom,
+        nomGroupe,
         justification,
         budgetQuotidien,
         urlFinale,
@@ -1120,6 +1126,7 @@ async function executerOutil(
         "ajouter_annonce_test",
         "supprimer_campagne",
         "ajuster_encheres_appareil",
+        "ajouter_groupe_annonces",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
@@ -1186,6 +1193,7 @@ async function executerOutil(
           type: type as TypePropositionAds,
           campagneId: typeof campagneId === "string" ? campagneId : "",
           campagneNom,
+          nomGroupe: typeof nomGroupe === "string" ? nomGroupe : undefined,
           justification,
           budgetQuotidien: typeof budgetQuotidien === "number" ? budgetQuotidien : undefined,
           urlFinale: typeof urlFinale === "string" ? urlFinale : undefined,
@@ -1221,7 +1229,9 @@ async function executerOutil(
               ? "Proposition de creation deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : l'utilisateur doit l'accepter la-bas, et meme une fois acceptee, la campagne sera creee EN PAUSE (ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads)."
               : type === "creer_action_conversion_site"
                 ? "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : une fois acceptee la-bas, utilise obtenir_actions_conversion_ads pour recuperer son id, puis obtenir_snippet_conversion_ads pour obtenir le code a donner a l'utilisateur."
-                : "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
+                : type === "ajouter_groupe_annonces"
+                  ? "Proposition de nouveau groupe d'annonces deposee sur l'ecran de validation Google Ads. Rien n'a ete cree : une fois acceptee la-bas, l'annonce de ce groupe sera creee EN PAUSE (a activer manuellement, meme si la campagne qui l'accueille est deja active)."
+                  : "Proposition deposee sur l'ecran de validation Google Ads. Rien n'a ete modifie : l'utilisateur doit l'accepter la-bas pour que ce soit applique.",
           avertissement:
             type === "supprimer_campagne"
               ? "IRREVERSIBLE : une fois acceptee, cette campagne ne pourra plus etre reactivee ni modifiee. Assure-toi que l'utilisateur a bien confirme vouloir une suppression definitive, pas juste une pause."

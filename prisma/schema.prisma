@@ -626,7 +626,7 @@ model CampagneAdsImport {
 // l'utilisateur doit l'activer lui-meme dans Google Ads apres verification.
 model PropositionAds {
   id              String    @id @default(cuid())
-  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion" | "creer_action_conversion_site" | "modifier_budget_campagne" | "ajouter_mots_cles_positifs" | "ajouter_extensions_campagne" | "modifier_strategie_encheres" | "definir_horaires_campagne" | "ajouter_audiences_campagne" | "ajouter_annonce_test" | "supprimer_campagne" | "ajuster_encheres_appareil"
+  type            String // "pause_campagne" | "reactiver_campagne" | "creer_campagne" | "ajouter_mots_cles_exclus" | "pause_mot_cle" | "reactiver_mot_cle" | "exclure_action_conversion" | "creer_action_conversion_site" | "modifier_budget_campagne" | "ajouter_mots_cles_positifs" | "ajouter_extensions_campagne" | "modifier_strategie_encheres" | "definir_horaires_campagne" | "ajouter_audiences_campagne" | "ajouter_annonce_test" | "supprimer_campagne" | "ajuster_encheres_appareil" | "ajouter_groupe_annonces"
   campagneId      String // identifiant Google Ads de la campagne (campaign.id) ; vide pour une proposition de creation pas encore appliquee
   campagneNom     String
   justification   String // explication de Morgane, affichee a l'utilisateur sur l'ecran de validation
@@ -636,7 +636,8 @@ model PropositionAds {
   descriptions    String[] @default([]) // descriptions d'annonce (2 a 4), uniquement pour "creer_campagne"
   motsCles        String[] @default([]) // mots-cles pertinents, pour "creer_campagne" et "ajouter_mots_cles_positifs"
   motsClesExclus  String[] @default([]) // mots-cles exclus (negatifs), pour "creer_campagne" et "ajouter_mots_cles_exclus"
-  groupeId        String? // ad_group.id, requis pour "pause_mot_cle"/"reactiver_mot_cle"/"ajouter_mots_cles_positifs"
+  groupeId        String? // ad_group.id : requis en entree pour "pause_mot_cle"/"reactiver_mot_cle"/"ajouter_mots_cles_positifs"/"ajouter_annonce_test" ; rempli APRES coup pour "ajouter_groupe_annonces" (le groupe n'existe pas encore au depot de la proposition)
+  nomGroupe       String? // nom du nouveau groupe d'annonces, requis pour "ajouter_groupe_annonces"
   criterionId     String? // ad_group_criterion.criterion_id, requis pour "pause_mot_cle"/"reactiver_mot_cle"
   motCleTexte     String? // texte du mot-cle, affichage uniquement, pour "pause_mot_cle"/"reactiver_mot_cle"
   conversionActionId String? // conversion_action.id, requis pour "exclure_action_conversion" ; rempli apres creation reussie pour "creer_action_conversion_site"

@@ -22,6 +22,7 @@ import {
   supprimerCampagne,
   ajusterEncheresAppareil,
   AjustementAppareilAds,
+  ajouterGroupeAnnonces,
 } from "./googleAds";
 import { logEvenement } from "./journalService";
 
@@ -51,7 +52,8 @@ export type TypePropositionAds =
   | "ajouter_audiences_campagne"
   | "ajouter_annonce_test"
   | "supprimer_campagne"
-  | "ajuster_encheres_appareil";
+  | "ajuster_encheres_appareil"
+  | "ajouter_groupe_annonces";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -64,7 +66,8 @@ export interface PropositionAdsEntree {
   descriptions?: string[];
   motsCles?: string[];
   motsClesExclus?: string[];
-  groupeId?: string; // requis pour pause_mot_cle/reactiver_mot_cle/ajouter_mots_cles_positifs
+  groupeId?: string; // requis en entree pour pause_mot_cle/reactiver_mot_cle/ajouter_mots_cles_positifs/ajouter_annonce_test ; rempli apres coup pour ajouter_groupe_annonces
+  nomGroupe?: string; // nom du nouveau groupe d'annonces, requis pour ajouter_groupe_annonces
   criterionId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
   motCleTexte?: string; // requis pour pause_mot_cle/reactiver_mot_cle (affichage)
   conversionActionId?: string; // requis pour exclure_action_conversion ; rempli apres creation pour creer_action_conversion_site
@@ -171,6 +174,16 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
     const nbDescriptions = entree.descriptions?.length ?? 0;
     if (nbDescriptions < 2 || nbDescriptions > 4) throw new Error(`descriptions : ${nbDescriptions} fournie(s), il en faut entre 2 et 4.`);
   }
+  if (entree.type === "ajouter_groupe_annonces") {
+    if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_groupe_annonces - la campagne doit deja exister).");
+    if (!entree.nomGroupe) throw new Error("nomGroupe manquant (requis pour ajouter_groupe_annonces).");
+    if (!entree.urlFinale) throw new Error("urlFinale manquante (requis pour ajouter_groupe_annonces).");
+    const nbTitres = entree.titres?.length ?? 0;
+    if (nbTitres < 3 || nbTitres > 15) throw new Error(`titres : ${nbTitres} fourni(s), il en faut entre 3 et 15.`);
+    const nbDescriptions = entree.descriptions?.length ?? 0;
+    if (nbDescriptions < 2 || nbDescriptions > 4) throw new Error(`descriptions : ${nbDescriptions} fournie(s), il en faut entre 2 et 4.`);
+    if (!entree.motsCles || entree.motsCles.length === 0) throw new Error("motsCles : au moins un mot-cle pertinent est requis.");
+  }
 
   // sitelinks/structuredSnippets sont des tableaux d'objets structures,
   // stockes en colonne Json - Prisma attend InputJsonValue pour ce champ,
@@ -213,6 +226,7 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
     let campagneIdCreee: string | undefined;
     let avertissementsCreation: string[] = [];
     let conversionActionIdCreee: string | undefined;
+    let groupeIdCree: string | undefined;
     switch (proposition.type) {
       case "pause_campagne":
         await changerStatutCampagne(prisma, proposition.campagneId, "PAUSED");
@@ -302,6 +316,19 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
       case "ajuster_encheres_appareil":
         await ajusterEncheresAppareil(prisma, proposition.campagneId, (proposition.ajustementsAppareil as unknown as AjustementAppareilAds[] | null) ?? []);
         break;
+      case "ajouter_groupe_annonces": {
+        const resultat = await ajouterGroupeAnnonces(prisma, {
+          campagneId: proposition.campagneId,
+          nomGroupe: proposition.nomGroupe ?? "",
+          urlFinale: proposition.urlFinale ?? "",
+          titres: proposition.titres,
+          descriptions: proposition.descriptions,
+          motsCles: proposition.motsCles,
+          typeCorrespondance: (proposition.typeCorrespondance as "EXACT" | "PHRASE" | "BROAD" | null) ?? undefined,
+        });
+        groupeIdCree = resultat.groupeId;
+        break;
+      }
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -312,6 +339,7 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
         statut: "appliquee",
         ...(campagneIdCreee ? { campagneId: campagneIdCreee } : {}),
         ...(conversionActionIdCreee ? { conversionActionId: conversionActionIdCreee } : {}),
+        ...(groupeIdCree ? { groupeId: groupeIdCree } : {}),
       },
     });
     await logEvenement(prisma, {
@@ -346,7 +374,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
                                   ? `Campagne "${proposition.campagneNom}" supprimee (statut REMOVED) - operation definitive, elle n'est plus geree ni modifiable.`
                                   : proposition.type === "ajuster_encheres_appareil"
                                     ? `Enchere(s) ajustee(s) par appareil sur "${proposition.campagneNom}" : ${((proposition.ajustementsAppareil as unknown as AjustementAppareilAds[] | null) ?? []).map((a) => `${a.appareil} ${a.pourcentage > 0 ? "+" : ""}${a.pourcentage}%`).join(", ")}.`
-                                    : "Applique avec succes sur Google Ads.",
+                                    : proposition.type === "ajouter_groupe_annonces"
+                                      ? `Groupe d'annonces "${proposition.nomGroupe}" (id ${groupeIdCree}) ajoute a "${proposition.campagneNom}", annonce creee EN PAUSE - a activer manuellement apres verification.`
+                                      : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {

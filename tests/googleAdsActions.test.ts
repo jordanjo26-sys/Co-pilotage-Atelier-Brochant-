@@ -524,6 +524,46 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
     assert.equal(refusee.statut, "refusee");
   });
 
+  await t.test("creerPropositionAds (ajouter_groupe_annonces) : rejette une entree incomplete", async () => {
+    const base = {
+      type: "ajouter_groupe_annonces" as const,
+      campagneId: "123456",
+      campagneNom: "VOREA – Assainissement",
+      justification: "Ajouter le groupe curage/hydrocurage a la campagne.",
+      nomGroupe: "Curage / hydrocurage",
+      urlFinale: "https://vorea-france.com/curage-canalisation/",
+      titres: ["Hydrocurage Canalisation", "Curage de Canalisation Pro", "Intervention 24h/24"],
+      descriptions: ["Curage et hydrocurage de canalisations.", "Intervention en Île-de-France."],
+      motsCles: ["hydrocurage", "curage canalisation"],
+    };
+    await assert.rejects(creerPropositionAds(prisma, { ...base, campagneId: "" }), /campagneId/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, nomGroupe: undefined }), /nomGroupe/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, urlFinale: undefined }), /urlFinale/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, titres: ["Un seul titre"] }), /titres/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, descriptions: ["Une seule description"] }), /descriptions/);
+    await assert.rejects(creerPropositionAds(prisma, { ...base, motsCles: [] }), /motsCles/);
+  });
+
+  await t.test("creerPropositionAds (ajouter_groupe_annonces) : entree valide -> deposee en_attente", async () => {
+    const proposition = await creerPropositionAds(prisma, {
+      type: "ajouter_groupe_annonces",
+      campagneId: "123456",
+      campagneNom: "VOREA – Assainissement",
+      justification: "Ajouter le groupe curage/hydrocurage a la campagne.",
+      nomGroupe: "Curage / hydrocurage",
+      urlFinale: "https://vorea-france.com/curage-canalisation/",
+      titres: ["Hydrocurage Canalisation", "Curage de Canalisation Pro", "Intervention 24h/24"],
+      descriptions: ["Curage et hydrocurage de canalisations.", "Intervention en Île-de-France."],
+      motsCles: ["hydrocurage", "curage canalisation"],
+    });
+    assert.equal(proposition.statut, "en_attente");
+    assert.equal(proposition.nomGroupe, "Curage / hydrocurage");
+    assert.equal(proposition.campagneId, "123456");
+
+    const refusee = await refuserPropositionAds(prisma, proposition.id);
+    assert.equal(refusee.statut, "refusee");
+  });
+
   await t.test("accepterPropositionAds sans configuration Google Ads -> proposition marquee echec, jamais d'appel API reel", async () => {
     // Retire deliberement GOOGLE_ADS_* le temps de ce test (meme principe
     // que tests/stripeSync.test.ts pour STRIPE_API_KEY) : garantit que
@@ -704,6 +744,22 @@ test("propositions Google Ads : creation, liste, refus (jamais d'appel API reel 
       const resultatAnnonceTest = await accepterPropositionAds(prisma, propositionAnnonceTest.id);
       assert.equal(resultatAnnonceTest.statut, "echec");
       assert.match(resultatAnnonceTest.erreur || "", /non configure/);
+
+      // Meme verification pour ajouter_groupe_annonces.
+      const propositionGroupe = await creerPropositionAds(prisma, {
+        type: "ajouter_groupe_annonces",
+        campagneId: "123456",
+        campagneNom: "VOREA – Assainissement",
+        justification: "Ajouter le groupe curage/hydrocurage a la campagne.",
+        nomGroupe: "Curage / hydrocurage",
+        urlFinale: "https://vorea-france.com/curage-canalisation/",
+        titres: ["Hydrocurage Canalisation", "Curage de Canalisation Pro", "Intervention 24h/24"],
+        descriptions: ["Curage et hydrocurage de canalisations.", "Intervention en Île-de-France."],
+        motsCles: ["hydrocurage", "curage canalisation"],
+      });
+      const resultatGroupe = await accepterPropositionAds(prisma, propositionGroupe.id);
+      assert.equal(resultatGroupe.statut, "echec");
+      assert.match(resultatGroupe.erreur || "", /non configure/);
     } finally {
       vars.forEach((v) => {
         if (sauvegarde[v] !== undefined) process.env[v] = sauvegarde[v];

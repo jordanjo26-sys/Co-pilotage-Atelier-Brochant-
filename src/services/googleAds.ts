@@ -1382,6 +1382,98 @@ export async function ajouterMotsClesPositifs(
   );
 }
 
+export interface ParametresGroupeAnnonces {
+  campagneId: string;
+  nomGroupe: string;
+  urlFinale: string;
+  titres: string[]; // 3 a 15 titres d'annonce
+  descriptions: string[]; // 2 a 4 descriptions d'annonce
+  motsCles: string[];
+  typeCorrespondance?: "EXACT" | "PHRASE" | "BROAD"; // defaut PHRASE
+}
+
+/**
+ * Ajoute un groupe d'annonces (mots-cles + annonce) a une campagne Search
+ * EXISTANTE - par opposition a creerCampagne, qui en cree une nouvelle avec
+ * un seul groupe. Necessaire pour une campagne a plusieurs groupes : l'API
+ * Google Ads ne permet pas de creer plusieurs groupes en un seul appel de
+ * creerCampagne (un groupe = une annonce = un jeu de mots-cles/titres/
+ * descriptions/URL, voir la structure de ParametresCreationCampagne).
+ * L'annonce est creee EN PAUSE (meme principe que ajouterAnnonceTest) : la
+ * campagne qui accueille ce groupe peut deja etre active, et ajouter un
+ * groupe ne doit jamais declencher de depense sans activation manuelle
+ * explicite de cette annonce precise. JAMAIS appelee directement par
+ * Morgane : uniquement par googleAdsActions.ts, lors de l'application
+ * d'une PropositionAds deja validee par l'utilisateur sur l'ecran dedie.
+ */
+export async function ajouterGroupeAnnonces(prisma: PrismaClient, params: ParametresGroupeAnnonces): Promise<{ groupeId: string }> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(params.campagneId)) throw new Error(`campagneId invalide : "${params.campagneId}" (attendu : uniquement des chiffres).`);
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  const campagneResourceName = ResourceNames.campaign(customerId, params.campagneId);
+
+  const groupeResultat = await customer.adGroups.create([
+    {
+      name: params.nomGroupe,
+      campaign: campagneResourceName,
+      status: enums.AdGroupStatus.ENABLED,
+      type: enums.AdGroupType.SEARCH_STANDARD,
+    },
+  ]);
+  const groupeResourceName = groupeResultat.results?.[0]?.resource_name;
+  if (!groupeResourceName) throw new Error("Echec de la creation du groupe d'annonces (aucun resource_name retourne).");
+  const groupeId = groupeResourceName.split("/").pop()!;
+
+  // Meme logique de nettoyage automatique que creerCampagne : si les
+  // mots-cles ou l'annonce echouent, on ne laisse pas une coquille de
+  // groupe vide trainer sur le compte (voir le commentaire detaille sur
+  // creerCampagne pour le bug reel qui a motive cette discipline).
+  try {
+    const typeCorrespondance = enums.KeywordMatchType[params.typeCorrespondance ?? "PHRASE"];
+    if (params.motsCles.length > 0) {
+      await creerMotsClesAvecExemption(
+        customer,
+        params.motsCles.map((texte) => ({
+          ad_group: groupeResourceName,
+          status: enums.AdGroupCriterionStatus.ENABLED,
+          keyword: { text: texte, match_type: typeCorrespondance },
+        }))
+      );
+    }
+
+    await customer.adGroupAds.create([
+      {
+        ad_group: groupeResourceName,
+        status: enums.AdGroupAdStatus.PAUSED,
+        ad: {
+          final_urls: [params.urlFinale],
+          responsive_search_ad: {
+            headlines: params.titres.map((texte) => ({ text: texte })),
+            descriptions: params.descriptions.map((texte) => ({ text: texte })),
+          },
+        },
+      },
+    ]);
+  } catch (err) {
+    let nettoye = false;
+    try {
+      await customer.adGroups.remove([groupeResourceName]);
+      nettoye = true;
+    } catch {
+      // Suppression best-effort : voir le commentaire equivalent sur creerCampagne.
+    }
+    throw new Error(
+      `${messageErreurGoogleAds(err)} (groupe ${groupeId} cree incomplet suite a cet echec, ${nettoye ? "supprime automatiquement" : "NON supprime - a nettoyer manuellement dans Google Ads"})`
+    );
+  }
+
+  return { groupeId };
+}
+
 function clauseCampagne(campagneId?: string): string {
   if (!campagneId) return "";
   if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);

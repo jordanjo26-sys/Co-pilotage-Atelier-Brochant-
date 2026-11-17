@@ -97,6 +97,7 @@ test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPosit
     listerPerformanceAnnonces,
     supprimerCampagne,
     ajusterEncheresAppareil,
+    ajouterGroupeAnnonces,
   } = await import("../src/services/googleAds");
   const prisma = new PrismaClient();
 
@@ -152,6 +153,20 @@ test("rechercherCiblesGeographiques, changerBudgetCampagne, ajouterMotsClesPosit
 
     await t.test("ajusterEncheresAppareil rejette avec un message explicite", async () => {
       await assert.rejects(ajusterEncheresAppareil(prisma, "123456", [{ appareil: "MOBILE", pourcentage: -20 }]), /Google Ads non configure/);
+    });
+
+    await t.test("ajouterGroupeAnnonces rejette avec un message explicite", async () => {
+      await assert.rejects(
+        ajouterGroupeAnnonces(prisma, {
+          campagneId: "123456",
+          nomGroupe: "Curage / hydrocurage",
+          urlFinale: "https://vorea-france.com/curage-canalisation/",
+          titres: ["Hydrocurage Canalisation", "Curage de Canalisation Pro", "Intervention 24h/24"],
+          descriptions: ["Curage et hydrocurage de canalisations.", "Intervention en Île-de-France."],
+          motsCles: ["hydrocurage", "curage canalisation"],
+        }),
+        /Google Ads non configure/
+      );
     });
   } finally {
     if (sauvegarde !== undefined) process.env.GOOGLE_ADS_DEVELOPER_TOKEN = sauvegarde;

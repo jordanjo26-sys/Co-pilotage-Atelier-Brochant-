@@ -817,6 +817,7 @@ const LIBELLE_TYPE_PROPOSITION_ADS = {
   ajouter_annonce_test: "Ajouter une annonce de test",
   supprimer_campagne: "Supprimer la campagne",
   ajuster_encheres_appareil: "Ajuster les enchères par appareil",
+  ajouter_groupe_annonces: "Ajouter un groupe d'annonces",
 };
 const BADGE_STATUT_PROPOSITION_ADS = {
   en_attente: "badge-partiel",
@@ -981,7 +982,13 @@ async function chargerPropositionsAds() {
                                   ? `<div class="anomalie-meta" style="color:var(--critical)"><strong>Action définitive</strong> : la campagne ne pourra plus être réactivée ni modifiée après suppression.</div>`
                                   : p.type === "ajuster_encheres_appareil"
                                     ? `<div class="anomalie-meta"><strong>Ajustements</strong> : ${((p.ajustementsAppareil || [])).map((a) => `${echapper(a.appareil)} ${a.pourcentage > 0 ? "+" : ""}${a.pourcentage}%`).join(", ") || "—"}</div>`
-                                    : "";
+                                    : p.type === "ajouter_groupe_annonces"
+                                      ? `<div class="anomalie-meta"><strong>Nouveau groupe</strong> : ${echapper(p.nomGroupe || "—")} · URL : ${echapper(p.urlFinale || "—")}</div>
+                                         <div class="anomalie-meta"><strong>Titres</strong> : ${(p.titres || []).map(echapper).join(" · ")}</div>
+                                         <div class="anomalie-meta"><strong>Descriptions</strong> : ${(p.descriptions || []).map(echapper).join(" · ")}</div>
+                                         <div class="anomalie-meta"><strong>Mots-clés</strong> : ${(p.motsCles || []).map(echapper).join(", ") || "—"}${p.typeCorrespondance ? ` (${echapper(p.typeCorrespondance)})` : ""}</div>
+                                         <div class="anomalie-meta">Annonce créée <strong>en pause</strong> : à activer toi-même, même si la campagne est déjà active.</div>`
+                                      : "";
       return `
     <div class="decision-carte">
       <div class="relance-entete">
