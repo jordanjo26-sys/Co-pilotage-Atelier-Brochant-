@@ -46,6 +46,9 @@
     <button type="button" class="onglet" data-onglet="reseaux-sociaux" role="tab" aria-selected="false">
       <span class="onglet-libelle">Réseaux sociaux</span>
     </button>
+    <button type="button" class="onglet" data-onglet="realisations" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Réalisations</span>
+    </button>
     <button type="button" class="onglet" data-onglet="systeme" role="tab" aria-selected="false">
       <span class="onglet-libelle">Système</span>
       <span class="onglet-badge" data-badge="systeme" hidden>0</span>
@@ -364,11 +367,36 @@
         <div id="liste-propositions-reseaux-sociaux"></div>
       </section>
     </div>
+
+    <!-- ===== Réalisations ===== -->
+    <div class="onglet-panneau" data-panneau="realisations" hidden>
+      <section class="carte accent-teal">
+        <h2>Réalisations</h2>
+        <p class="aide">Ajoutez des photos de chantier ici au lieu de les envoyer par WhatsApp : chaque lundi matin, un lien vers la galerie des nouvelles photos est envoyé automatiquement au bon prestataire, selon l'activité choisie ci-dessous — rien n'est envoyé s'il n'y a aucune nouvelle photo.</p>
+        <div id="liste-activites-realisations"></div>
+      </section>
+
+      <section class="carte accent-violet">
+        <h2>Ajouter des photos</h2>
+        <form id="form-realisations" class="form-grille">
+          <select id="realisations-activite" required></select>
+          <input type="text" id="realisations-chantier" placeholder="Nom du chantier (optionnel)" />
+          <input type="file" id="realisations-fichiers" accept="image/jpeg,image/png,image/webp" multiple required />
+          <button type="submit">Envoyer les photos</button>
+        </form>
+        <div id="resultat-realisations"></div>
+      </section>
+
+      <section class="carte accent-ambre">
+        <h2>Photos récentes</h2>
+        <div id="liste-photos-realisations"></div>
+      </section>
+    </div>
   </main>
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=45"></script>
+  <script src="/app.js?v=46"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

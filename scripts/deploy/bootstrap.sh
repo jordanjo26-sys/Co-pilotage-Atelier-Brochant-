@@ -558,6 +558,23 @@ ${AUTH_BASIC_CONF}
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Galerie de photos de realisations (module Realisations) : un
+    # prestataire externe (Google Maps/avis, site/referencement) ouvre ce
+    # lien recu par e-mail sans avoir les identifiants du site - protegee
+    # uniquement par le jeton imprevisible dans l'URL (voir realisations.ts).
+    # Les images qu'elle affiche sont deja sous /media-publics/ ci-dessus,
+    # donc deja exemptees.
+    location /galerie-realisations/ {
+        auth_basic off;
+        proxy_pass http://copilote_app;
+        proxy_connect_timeout 2s;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     location / {
         proxy_pass http://copilote_app;
         # Bascule sur l'instance de secours si la principale ne repond pas

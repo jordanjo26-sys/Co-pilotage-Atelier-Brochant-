@@ -8,6 +8,8 @@ import { buildProspectionRouter, buildProspectionTrackingRouter } from "./api/pr
 import { buildTelephonieRouter } from "./api/telephonieRoutes";
 import { buildReseauxSociauxRouter } from "./api/reseauxSociauxRoutes";
 import { buildPagesJaunesRouter } from "./api/pagesJaunesRoutes";
+import { buildRealisationsRouter } from "./api/realisationsRoutes";
+import { obtenirActiviteParToken, construireGaleriePageHtml } from "./services/realisations";
 import { installerRelaisVocal } from "./services/relaisVocal";
 import {
   demarrerSurveillanceGmail,
@@ -20,6 +22,7 @@ import {
   demarrerEnvoiAutomatiqueCampagnes,
   demarrerRecuperationMessagesSecours,
   demarrerRecapMailsImportants,
+  demarrerDigestHebdomadaireRealisations,
 } from "./services/scheduler";
 
 dotenv.config();
@@ -37,7 +40,18 @@ app.use("/api/prospection", buildProspectionRouter(prisma));
 app.use("/api/prospection/suivi", buildProspectionTrackingRouter(prisma));
 app.use("/api/reseaux-sociaux", buildReseauxSociauxRouter(prisma));
 app.use("/api/pagesjaunes", buildPagesJaunesRouter(prisma));
+app.use("/api/realisations", buildRealisationsRouter(prisma));
 app.use("/auth", buildAuthRouter(prisma));
+// Page de galerie publique (module Realisations) : sans authentification
+// (le prestataire externe n'a pas le mot de passe du site), protegee
+// uniquement par le jeton imprevisible dans l'URL - voir realisations.ts
+// et l'exception nginx dediee dans bootstrap.sh (meme principe que
+// /media-publics/, deja exempte pour Facebook/Instagram).
+app.get("/galerie-realisations/:token", async (req, res) => {
+  const activite = await obtenirActiviteParToken(prisma, req.params.token);
+  if (!activite) return res.status(404).send("Galerie introuvable.");
+  res.set("Content-Type", "text/html; charset=utf-8").send(await construireGaleriePageHtml(prisma, activite));
+});
 // Webhooks Twilio du standard telephonique IA (authentifies par signature).
 app.use("/telephonie", buildTelephonieRouter(prisma));
 // process.cwd() plutot que __dirname : ce dernier depend de la structure de
@@ -70,6 +84,7 @@ if (process.env.PLANIFICATEURS_DESACTIVES !== "true") {
   demarrerEnvoiAutomatiqueCampagnes(prisma);
   demarrerRecuperationMessagesSecours(prisma);
   demarrerRecapMailsImportants(prisma);
+  demarrerDigestHebdomadaireRealisations(prisma);
 }
 
 process.on("SIGINT", async () => {

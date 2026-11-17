@@ -2697,8 +2697,162 @@ async function chargerJournal() {
     .join("");
 }
 
+// --- Réalisations (galerie photos pour les prestataires externes) --------
+//
+// Demande explicite de l'utilisateur (novembre 2026) : il envoyait a la
+// main par WhatsApp des photos de chantiers a deux prestataires externes
+// (Google Maps/avis, site/referencement), en choisissant a chaque fois qui
+// devait recevoir quoi. Remplace par un upload unique ici, avec le choix de
+// l'activite (donc du prestataire) au moment de l'envoi - chaque lundi
+// matin, un lien de galerie est envoye automatiquement au prestataire
+// concerne si de nouvelles photos existent pour son activite (voir
+// realisations.ts).
+
+let activitesRealisationsCache = [];
+
+async function chargerActivitesRealisations() {
+  const conteneur = document.getElementById("liste-activites-realisations");
+  const selectActivite = document.getElementById("realisations-activite");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/realisations/activites");
+    const activites = await res.json();
+    if (!res.ok) throw new Error(activites.erreur || "Chargement impossible.");
+    activitesRealisationsCache = activites;
+
+    conteneur.innerHTML = activites
+      .map(
+        (a) => `
+      <div class="depense-ligne">
+        <span class="depense-nom">${echapper(a.nom)} <span class="depense-montant-ht">· ${a._count.photos} photo(s)</span></span>
+        <span class="depense-montants" style="align-items:flex-end">
+          <button type="button" class="ghost bouton-lien" onclick="modifierEmailActiviteRealisation('${a.id}', '${echapper(a.email)}', this)">${echapper(a.email)}</button>
+          <button type="button" class="ghost bouton-lien" onclick="copierLienGalerieRealisation('${a.tokenGalerie}', this)">Copier le lien de la galerie</button>
+        </span>
+      </div>`
+      )
+      .join("");
+
+    if (selectActivite && selectActivite.options.length === 0) {
+      selectActivite.innerHTML = activites.map((a) => `<option value="${a.id}">${echapper(a.nom)}</option>`).join("");
+    }
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+
+async function modifierEmailActiviteRealisation(id, emailActuel, bouton) {
+  const nouvelEmail = prompt("Adresse e-mail du prestataire pour cette activité :", emailActuel);
+  if (!nouvelEmail || !nouvelEmail.trim() || nouvelEmail.trim() === emailActuel) return;
+  bouton.disabled = true;
+  try {
+    const res = await fetch(`/api/realisations/activites/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: nouvelEmail.trim() }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Enregistrement impossible.");
+    }
+    await chargerActivitesRealisations();
+  } catch (err) {
+    bouton.disabled = false;
+    alert(err.message);
+  }
+}
+window.modifierEmailActiviteRealisation = modifierEmailActiviteRealisation;
+
+async function copierLienGalerieRealisation(token, bouton) {
+  const lien = `${location.origin}/galerie-realisations/${token}`;
+  try {
+    await navigator.clipboard.writeText(lien);
+    const texteInitial = bouton.textContent;
+    bouton.textContent = "Lien copié !";
+    setTimeout(() => (bouton.textContent = texteInitial), 2000);
+  } catch {
+    prompt("Copiez ce lien :", lien);
+  }
+}
+window.copierLienGalerieRealisation = copierLienGalerieRealisation;
+
+async function chargerPhotosRealisations() {
+  const conteneur = document.getElementById("liste-photos-realisations");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/realisations");
+    const photos = await res.json();
+    if (!res.ok) throw new Error(photos.erreur || "Chargement impossible.");
+    conteneur.innerHTML =
+      photos
+        .map(
+          (p) => `
+      <div class="fournisseur-document-ligne" id="photo-realisation-${p.id}">
+        <img src="/media-publics/realisations/${encodeURIComponent(p.fichierNom)}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:6px" />
+        <span class="badge badge-palier-neutre">${echapper(p.activite.nom)}</span>
+        ${p.chantierNom ? `<span>${echapper(p.chantierNom)}</span>` : ""}
+        <span class="anomalie-meta">${fmtDate(p.createdAt)}</span>
+        <button type="button" class="ghost bouton-lien" onclick="supprimerPhotoRealisation('${p.id}', this)">Supprimer</button>
+      </div>`
+        )
+        .join("") || `<p class="aide-inline">Aucune photo pour le moment.</p>`;
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+
+async function supprimerPhotoRealisation(id, bouton) {
+  if (!confirm("Supprimer cette photo ?")) return;
+  bouton.disabled = true;
+  try {
+    const res = await fetch(`/api/realisations/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Suppression impossible.");
+    }
+    document.getElementById(`photo-realisation-${id}`)?.remove();
+    await chargerActivitesRealisations();
+  } catch (err) {
+    bouton.disabled = false;
+    alert(err.message);
+  }
+}
+window.supprimerPhotoRealisation = supprimerPhotoRealisation;
+
+const formRealisations = document.getElementById("form-realisations");
+if (formRealisations) {
+  formRealisations.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const resultatDiv = document.getElementById("resultat-realisations");
+    const champFichiers = document.getElementById("realisations-fichiers");
+    const activiteId = document.getElementById("realisations-activite").value;
+    const chantierNom = document.getElementById("realisations-chantier").value.trim();
+    if (!champFichiers.files.length) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Choisissez au moins une photo.`;
+      return;
+    }
+
+    const donnees = new FormData();
+    donnees.append("activiteId", activiteId);
+    if (chantierNom) donnees.append("chantierNom", chantierNom);
+    for (const fichier of champFichiers.files) donnees.append("photos", fichier);
+
+    resultatDiv.textContent = "Envoi en cours…";
+    try {
+      const res = await fetch("/api/realisations", { method: "POST", body: donnees });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.erreur || "Échec de l'envoi.");
+      resultatDiv.innerHTML = `${data.length} photo(s) ajoutée(s).`;
+      formRealisations.reset();
+      await Promise.all([chargerActivitesRealisations(), chargerPhotosRealisations()]);
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

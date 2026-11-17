@@ -70,3 +70,17 @@ test("construireEmailHtml : sous-titre absent n'affiche rien a la place (pas de 
   assert.match(html, /Recapitulatif/);
   assert.match(html, /Rien a signaler/);
 });
+
+// Module Realisations (novembre 2026) : un lien de galerie doit etre un
+// vrai bouton cliquable, jamais juste du texte - le Markdown gere par
+// markdownSimpleVersHtml n'a aucune syntaxe de lien, d'ou ce parametre
+// dedie.
+test("construireEmailHtml : avec 'lien', ajoute un vrai bouton <a> cliquable vers l'URL fournie", () => {
+  const html = construireEmailHtml({ titre: "Nouvelles photos", corpsMarkdown: "2 photos.", lien: { texte: "Voir la galerie", url: "https://copilotage-brochant.fr/galerie-realisations/abc123" } });
+  assert.match(html, /<a href="https:\/\/copilotage-brochant\.fr\/galerie-realisations\/abc123"[^>]*>Voir la galerie<\/a>/);
+});
+
+test("construireEmailHtml : sans 'lien', n'ajoute aucun bouton", () => {
+  const html = construireEmailHtml({ titre: "Recapitulatif", corpsMarkdown: "Rien a signaler." });
+  assert.ok(!html.includes("<a href="), "aucun lien ne doit apparaitre si 'lien' n'est pas fourni");
+});

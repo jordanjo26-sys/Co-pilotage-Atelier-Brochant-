@@ -9,6 +9,7 @@ import { logEvenement } from "./journalService";
 import { detecterReponses, executerEnvoisAutomatiques } from "./prospection/campagnes";
 import { recupererMessagesSecours, renvoyerComptesRendusEnAttente } from "./messagerieSecours";
 import { verifierMailsImportants } from "./mailsImportants";
+import { envoyerDigestHebdomadaireRealisations } from "./realisations";
 import { gmailEnPause, signalerLimiteGmail, reinitialiserLimiteGmail } from "./gmailRateLimit";
 
 const INTERVALLE_PAR_DEFAUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -23,6 +24,11 @@ const HEURE_ANALYSE_ADS_PAR_DEFAUT = 8; // 8h, heure locale du serveur
 // largement et evite de noyer l'utilisateur.
 const HEURE_ANALYSE_PAGESJAUNES_PAR_DEFAUT = 10; // 10h, heure locale du serveur (demande explicite de l'utilisateur)
 const JOUR_ANALYSE_PAGESJAUNES_PAR_DEFAUT = 1; // lundi (0 = dimanche)
+// Demande explicite de l'utilisateur (module Realisations, novembre 2026) :
+// lundi 9h, meme logique que l'analyse PagesJaunes ci-dessus (debut de
+// semaine).
+const HEURE_DIGEST_REALISATIONS_PAR_DEFAUT = 9;
+const JOUR_DIGEST_REALISATIONS_PAR_DEFAUT = 1; // lundi
 // Les payouts Stripe arrivent typiquement une fois par jour au plus, jamais
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
@@ -258,6 +264,40 @@ export function demarrerAnalyseHebdomadairePagesJaunes(prisma: PrismaClient): vo
         action: "Analyse hebdomadaire PagesJaunes",
         resultat: `Echec : ${messageErreur}${dateReprise ? ` (Gmail en pause jusqu'a ${dateReprise.toISOString()})` : ""}`,
       }).catch(() => {});
+    }
+  }, INTERVALLE_VERIF_RECAP_MS);
+}
+
+/**
+ * Envoie chaque semaine (lundi 9h par defaut, configurable via
+ * REALISATIONS_DIGEST_HOUR/REALISATIONS_DIGEST_DAY) le lien de galerie de
+ * chaque activite (Atelier Brochant / France Dégorgement) a son
+ * prestataire externe, uniquement si au moins une nouvelle photo a ete
+ * ajoutee depuis le dernier envoi - voir envoyerDigestHebdomadaireRealisations.
+ * Idempotence assuree directement par ActiviteRealisation.derniereDigestEnvoyeeLe
+ * (mise a jour par activite des son propre envoi reussi) : contrairement aux
+ * autres planificateurs hebdomadaires/quotidiens ci-dessus, aucune
+ * verification supplementaire via le journal n'est necessaire ici - un
+ * nouveau tic dans la meme heure cible ne retrouve plus aucune photo plus
+ * recente que ce champ, donc n'envoie rien de plus.
+ */
+export function demarrerDigestHebdomadaireRealisations(prisma: PrismaClient): void {
+  const heureCible = Number(process.env.REALISATIONS_DIGEST_HOUR);
+  const heure = Number.isInteger(heureCible) && heureCible >= 0 && heureCible <= 23 ? heureCible : HEURE_DIGEST_REALISATIONS_PAR_DEFAUT;
+  const jourCibleBrut = Number(process.env.REALISATIONS_DIGEST_DAY);
+  const jourCible = Number.isInteger(jourCibleBrut) && jourCibleBrut >= 0 && jourCibleBrut <= 6 ? jourCibleBrut : JOUR_DIGEST_REALISATIONS_PAR_DEFAUT;
+
+  setInterval(async () => {
+    try {
+      const maintenant = new Date();
+      if (maintenant.getDay() !== jourCible || maintenant.getHours() !== heure) return;
+      if (gmailEnPause()) return;
+
+      await envoyerDigestHebdomadaireRealisations(prisma, maintenant);
+      reinitialiserLimiteGmail();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Digest hebdomadaire Realisations en echec :", (err as Error).message);
     }
   }, INTERVALLE_VERIF_RECAP_MS);
 }

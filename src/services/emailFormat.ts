@@ -142,8 +142,15 @@ export function markdownSimpleVersHtml(markdown: string): string {
  * (memes couleurs que styles.css, dupliquees ici en dur : un client mail
  * n'a pas acces aux variables CSS de l'application).
  */
-export function construireEmailHtml(params: { titre: string; sousTitre?: string; corpsMarkdown: string }): string {
+export function construireEmailHtml(params: { titre: string; sousTitre?: string; corpsMarkdown: string; lien?: { texte: string; url: string } }): string {
   const corpsHtml = markdownSimpleVersHtml(params.corpsMarkdown);
+  // Bouton optionnel (ex. lien vers une galerie de photos, voir
+  // realisations.ts) : construireEmailHtml echappe tout le Markdown, aucun
+  // moyen d'y glisser un vrai <a> cliquable - un parametre dedie plutot que
+  // d'etendre la syntaxe Markdown geree ci-dessus pour un seul usage.
+  const lienHtml = params.lien
+    ? `<p style="margin:18px 0 0;text-align:center;"><a href="${echapperHtml(params.lien.url)}" style="display:inline-block;background:${COULEUR_BRAND_BLEU};color:#FFFFFF;text-decoration:none;font-size:13.5px;font-weight:700;padding:10px 20px;border-radius:8px;">${echapperHtml(params.lien.texte)}</a></p>`
+    : "";
   return `<!doctype html>
 <html lang="fr">
   <body style="margin:0;padding:0;background:#F3F6FB;">
@@ -152,6 +159,7 @@ export function construireEmailHtml(params: { titre: string; sousTitre?: string;
         <h1 style="font-size:17px;font-weight:800;color:${COULEUR_INK};margin:0 0 4px;">${echapperHtml(params.titre)}</h1>
         ${params.sousTitre ? `<p style="font-size:12.5px;color:${COULEUR_INK_MUTED};margin:0 0 18px;">${echapperHtml(params.sousTitre)}</p>` : ""}
         ${corpsHtml}
+        ${lienHtml}
       </div>
       <p style="text-align:center;font-size:11px;color:${COULEUR_INK_MUTED};margin:16px 0 0;">Copilote de gestion Atelier Brochant</p>
     </div>

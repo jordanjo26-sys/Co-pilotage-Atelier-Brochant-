@@ -718,3 +718,33 @@ model PropositionPagesJaunes {
   decideLe       DateTime?
   publieeLe      DateTime?
 }
+
+// --- Module Realisations (galerie photos pour les prestataires externes) ---
+// Demande explicite de l'utilisateur (novembre 2026) : il envoyait a la main
+// par WhatsApp des photos de chantiers a deux prestataires externes (Google
+// Maps/avis, site/referencement), chacun ne devant recevoir que les photos
+// de son propre corps de metier (les deux marques deja geres dans Synec,
+// "Atelier Brochant" et "France Degorgement"). Une ActiviteRealisation par
+// marque, avec sa propre adresse e-mail (modifiable dans l'application,
+// jamais a redeployer pour la changer) et son propre jeton de galerie
+// (page publique sans mot de passe, le prestataire externe n'ayant pas les
+// identifiants du site - voir /galerie-realisations/:token et l'exception
+// nginx dediee dans bootstrap.sh).
+model ActiviteRealisation {
+  id                     String             @id @default(cuid())
+  nom                    String             @unique // "Atelier Brochant" | "France Dégorgement"
+  email                  String
+  tokenGalerie           String             @unique
+  derniereDigestEnvoyeeLe DateTime?
+  photos                 PhotoRealisation[]
+  createdAt              DateTime           @default(now())
+}
+
+model PhotoRealisation {
+  id          String              @id @default(cuid())
+  activiteId  String
+  activite    ActiviteRealisation @relation(fields: [activiteId], references: [id])
+  fichierNom  String // chemin relatif sous public/media-publics/realisations/
+  chantierNom String?
+  createdAt   DateTime            @default(now())
+}
