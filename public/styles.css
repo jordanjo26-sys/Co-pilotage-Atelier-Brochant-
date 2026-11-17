@@ -23,6 +23,11 @@
      (deja utilisee par le pole Google Ads) et de --critical (connotation
      d'alerte peu adaptee ici). */
   --brand-pink: #C23B82;
+  /* Dediee au pole Realisations (accueil.html) : tous les autres tons
+     (bleu, teal, violet, vert, ambre, rouge, rose) sont deja pris par un
+     autre pole - distincte de --brand-blue (plus violace) et --brand-teal
+     (plus verdatre) pour rester reconnaissable a cote d'eux. */
+  --brand-cyan: #1F8FB0;
   --shadow: 0 1px 2px rgba(22,33,62,0.06), 0 8px 24px -12px rgba(22,33,62,0.18);
   /* Teinte dediee au trait du graphique de CA : --brand-teal seul passe
      sous 3:1 de contraste sur fond clair (valide via le script du skill
@@ -51,6 +56,7 @@
     --critical: #E5677E;
     --critical-soft: #3B1620;
     --brand-pink: #E86FB3;
+    --brand-cyan: #4FC3E0;
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.55);
     /* --brand-teal (dejaplus clair en mode sombre) passe deja >=3:1 sur
        --surface ici, pas besoin d'une teinte separee comme en mode clair. */
@@ -76,6 +82,7 @@
   --critical: #E5677E;
   --critical-soft: #3B1620;
   --brand-pink: #E86FB3;
+  --brand-cyan: #4FC3E0;
   --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.55);
   --graphique-ligne: #4FCBA8;
 }

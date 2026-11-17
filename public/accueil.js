@@ -67,6 +67,18 @@ async function chargerReseauxSociaux() {
   }
 }
 
+async function chargerRealisations() {
+  try {
+    const res = await fetch("/api/realisations/activites");
+    if (!res.ok) return;
+    const activites = await res.json();
+    const total = activites.reduce((somme, a) => somme + a._count.photos, 0);
+    definirMeta("meta-realisations", total > 0 ? `${total} photo(s) au total` : "Aucune photo pour le moment");
+  } catch {
+    // carte conservee sans statistique
+  }
+}
+
 async function chargerResultat() {
   try {
     const res = await fetch("/api/dashboard/ca-serie?granularite=mois");
@@ -85,3 +97,4 @@ chargerDemandes();
 chargerAds();
 chargerReseauxSociaux();
 chargerResultat();
+chargerRealisations();
