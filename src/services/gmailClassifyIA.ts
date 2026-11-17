@@ -93,7 +93,12 @@ export async function classifierParIA(contexte: string): Promise<TypeDocument | 
       max_tokens: 200,
       system: PROMPT_SYSTEME,
       tools: [OUTIL_CLASSIFICATION],
-      tool_choice: { type: "tool", name: "classer_document" },
+      // Pas de tool_choice force ("type: tool") : ce modele renvoie une
+      // erreur 400 ("not supported for this model") des qu'on l'impose -
+      // regression reelle en production (novembre 2026), qui faisait
+      // echouer CHAQUE appel. Le prompt systeme demande deja explicitement
+      // d'appeler l'outil, et l'absence d'appel est deja geree comme un
+      // echec ordinaire ci-dessous (retourne null).
       messages: [{ role: "user", content: texte }],
     });
 
@@ -186,7 +191,8 @@ export async function classifierImageParIA(donnees: Buffer, mimeType: string, co
       max_tokens: 200,
       system: PROMPT_SYSTEME_IMAGE,
       tools: [OUTIL_CLASSIFICATION_IMAGE],
-      tool_choice: { type: "tool", name: "classer_image" },
+      // Pas de tool_choice force : voir le commentaire equivalent sur
+      // classifierParIA ci-dessus (meme regression, meme modele).
       messages: [
         {
           role: "user",

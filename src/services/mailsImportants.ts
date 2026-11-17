@@ -77,7 +77,11 @@ export async function classerMailImportant(mail: { sujet: string; expediteur: st
     max_tokens: 300,
     system: PROMPT_SYSTEME,
     tools: [OUTIL_CLASSIFICATION],
-    tool_choice: { type: "tool", name: "classer_mail" },
+    // Pas de tool_choice force : ce modele renvoie une erreur 400 ("not
+    // supported for this model") des qu'on l'impose - regression reelle en
+    // production (novembre 2026, voir le meme correctif sur
+    // gmailClassifyIA.ts). Le prompt systeme demande deja d'appeler
+    // l'outil, et l'absence d'appel reste geree comme une erreur ci-dessous.
     messages: [
       {
         role: "user",
