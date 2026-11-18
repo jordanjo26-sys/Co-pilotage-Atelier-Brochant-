@@ -128,7 +128,9 @@ apt-get update -y || echo "-- Echec de apt-get update (miroir indisponible ?) : 
 # ffmpeg : diaporamas video PagesJaunes a partir de vraies photos
 # (videoGenerationPagesJaunes.ts) - aucun fournisseur IA externe, juste un
 # assemblage local de photos deja uploadees.
-apt-get install -y curl git postgresql postgresql-contrib nginx poppler-utils ufw openssl rsync certbot ffmpeg
+# unzip : lecture des factures fournisseurs recues en archive ZIP (ex.
+# TotalEnergies / cartes carburant) - voir importers/zipAttachment.ts.
+apt-get install -y curl git postgresql postgresql-contrib nginx poppler-utils unzip ufw openssl rsync certbot ffmpeg
 
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | grep -oE '^v[0-9]+' | tr -d v)" -lt 20 ]; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -

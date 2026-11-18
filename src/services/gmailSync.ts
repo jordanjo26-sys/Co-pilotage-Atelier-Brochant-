@@ -9,6 +9,7 @@ import {
   extraireMontantTTCFacture,
   extraireMontantHTFacture,
   estPieceDocument,
+  estPieceJointeZip,
   EmailAClassifier,
   PieceJointe,
   TypeDocument,
@@ -19,6 +20,7 @@ import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
 import { controlerReleveFournisseur } from "./controleReleves";
 import { extractPdfText } from "../importers/bankStatementPdf";
+import { extraireTexteDepuisZip } from "../importers/zipAttachment";
 import fs from "node:fs/promises";
 
 export interface ResultatSyncGmail {
@@ -417,6 +419,11 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
               // classification, qui se rabat simplement sur le
               // sujet/corps/nom de fichier comme avant cette amelioration.
             }
+          } else if (estPieceJointeZip(piece.mimeType, piece.nomFichier)) {
+            // Certains fournisseurs (ex. TotalEnergies / cartes carburant)
+            // envoient leur facture sous forme d'archive ZIP contenant le
+            // PDF, plutot qu'un PDF direct - voir importers/zipAttachment.ts.
+            contenuExtrait = extraireTexteDepuisZip(donnees);
           }
 
           let type = classifierPieceJointe(emailContexte, piece, contenuExtrait);
@@ -835,7 +842,14 @@ export async function backfillMontantsFacturesSansMontant(prisma: PrismaClient):
         gmail.users.messages.attachments.get({ userId: "me", messageId: document.gmailMessageId!, id: document.gmailAttachmentId! })
       );
       const donnees = Buffer.from(attachment.data.data || "", "base64url");
-      const contenuExtrait = extractPdfText(donnees);
+      const mimeType = (document.mimeType || "").toLowerCase();
+      const contenuExtrait = estPieceJointeZip(mimeType, document.fichierNom || "")
+        ? extraireTexteDepuisZip(donnees)
+        : extractPdfText(donnees);
+      if (!contenuExtrait) {
+        resultat.toujoursSansMontant++;
+        continue;
+      }
       const montantHT = document.montantHT ?? extraireMontantHTFacture(contenuExtrait);
       const montantTTC = document.montantTTC ?? extraireMontantTTCFacture(contenuExtrait);
       if (montantHT != null || montantTTC != null) {

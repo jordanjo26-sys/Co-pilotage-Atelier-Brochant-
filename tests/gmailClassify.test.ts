@@ -6,6 +6,7 @@ import {
   extraireNumeroFacture,
   extraireMontantTTCFacture,
   extraireMontantHTFacture,
+  estPieceJointeZip,
   EmailAClassifier,
 } from "../src/services/gmailClassify";
 
@@ -354,4 +355,22 @@ test("le mot 'facture' dans le sujet d'un e-mail de l'agence d'interim ne devien
   const e = email({ expediteur: "contact@le-cercle-interimaire.fr", sujet: "Votre facture d'honoraires" });
   const type = classifierPieceJointe(e, { nomFichier: "doc.pdf", mimeType: "application/pdf" });
   assert.equal(type, "autre");
+});
+
+test("estPieceJointeZip reconnait les mimeTypes zip usuels", () => {
+  assert.equal(estPieceJointeZip("application/zip", "facture.zip"), true);
+  assert.equal(estPieceJointeZip("application/x-zip-compressed", "facture.zip"), true);
+  assert.equal(estPieceJointeZip("application/x-zip", "facture.zip"), true);
+});
+
+test("estPieceJointeZip reconnait un ZIP declare en octet-stream generique, via l'extension du nom de fichier (ex. Total Fuel Card)", () => {
+  assert.equal(estPieceJointeZip("application/octet-stream", "Total_Fuel_Card_20261115_FACPJ175002786_.zip"), true);
+});
+
+test("estPieceJointeZip ne confond pas un PDF en octet-stream generique avec un ZIP", () => {
+  assert.equal(estPieceJointeZip("application/octet-stream", "facture.pdf"), false);
+});
+
+test("estPieceJointeZip rejette un mimeType et une extension sans rapport", () => {
+  assert.equal(estPieceJointeZip("application/pdf", "facture.pdf"), false);
 });

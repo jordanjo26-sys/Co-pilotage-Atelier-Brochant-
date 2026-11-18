@@ -97,7 +97,21 @@ function mentionneDonneurOrdreConnu(contexte: string): boolean {
 // uniquement pour ce type generique, jamais pour un type MIME exotique et
 // non ambigu (ex. "application/json") qui n'a aucune raison d'etre un
 // document.
-const EXTENSIONS_DOCUMENT = [".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+const EXTENSIONS_DOCUMENT = [".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".zip"];
+
+// Certains fournisseurs (ex. TotalEnergies / cartes carburant) envoient
+// leur facture par e-mail sous forme d'archive ZIP contenant le PDF,
+// plutot qu'un PDF direct - voir importers/zipAttachment.ts pour
+// l'extraction du texte. Le mimeType exact varie selon le client mail
+// d'origine (application/zip la plupart du temps, mais aussi vu en
+// production application/x-zip-compressed et octet-stream generique avec
+// extension .zip).
+const MIME_TYPES_ZIP = ["application/zip", "application/x-zip-compressed", "application/x-zip"];
+
+export function estPieceJointeZip(mimeType: string, nomFichier: string): boolean {
+  if (MIME_TYPES_ZIP.includes(mimeType.toLowerCase())) return true;
+  return mimeType.toLowerCase() === "application/octet-stream" && nomFichier.toLowerCase().endsWith(".zip");
+}
 
 function aUneExtensionDocument(piece: PieceJointe): boolean {
   const nom = piece.nomFichier.toLowerCase();
