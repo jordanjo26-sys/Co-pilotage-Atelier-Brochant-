@@ -305,6 +305,42 @@ test("extraireMontantFacture : ticket de caisse sans detail HT (vrai ticket Auto
   assert.equal(extraireMontantTTCFacture(texte), 129.9);
 });
 
+// Regressions a partir d'exemples reels fournis par l'utilisateur (video,
+// novembre 2026) : d'autres mises en page reelles restaient elles aussi a
+// "non renseigne" malgre un contenu PDF/texte bien extrait - "TOT TTC"
+// (abrege) et "Net" (vrai ticket carte bancaire station E.Leclerc), et
+// "Montant du" en dollars sans notion de TVA francaise (vraie facture
+// Emergent Labs Inc, abonnement emergent.sh).
+test("extraireMontantFacture : ticket de carte bancaire abrege 'TOT TTC' / 'Net' (vrai ticket station E.Leclerc)", () => {
+  const texte =
+    "TOT TTC                                                                € 100,00\n" +
+    "TVA                                          20,00 %                   € 16,67\n" +
+    "Net                                                                     € 83,33";
+  assert.equal(extraireMontantTTCFacture(texte), 100);
+  assert.equal(extraireMontantHTFacture(texte), 83.33);
+});
+
+test("extraireMontantHTFacture : le filet 'Net' n'est jamais pris pour le HT a l'interieur de 'Net à payer' (deux sens differents du meme mot)", () => {
+  const texte = "Total TTC : 90,00 €\nNet à payer : 90,00 €";
+  assert.equal(extraireMontantHTFacture(texte), null);
+});
+
+test("extraireMontantHTFacture : le filet 'Net' ne matche jamais a l'interieur d'un autre mot (ex. 'Internet')", () => {
+  const texte = "Abonnement Internet : 29,99 €\nTotal TTC : 29,99 €";
+  assert.equal(extraireMontantHTFacture(texte), null);
+});
+
+test("extraireMontantTTCFacture : 'Montant dû' en dernier recours (vraie facture Emergent Labs Inc, en dollars, sans notion de TVA francaise)", () => {
+  const texte = "Sous-total                              20,00 $US\nTotal                                     20,00 $US\nMontant dû                                20,00 $US";
+  assert.equal(extraireMontantTTCFacture(texte), 20);
+  assert.equal(extraireMontantHTFacture(texte), null);
+});
+
+test("extraireMontantTTCFacture : 'Montant dû' ne prime jamais sur un vrai Total TTC (meme protection que 'Net à payer')", () => {
+  const texte = "Total TTC : 120,00 €\nMontant dû : 0,00 €";
+  assert.equal(extraireMontantTTCFacture(texte), 120);
+});
+
 test("sujet/corps generiques, mais le mot facture est dans le contenu du PDF -> reconnue (pas ambigue)", () => {
   const e = email({ sujet: "Voici vos documents", extraitCorps: "Bonjour, veuillez trouver ci-joint." });
   const type = classifierPieceJointe(

@@ -237,19 +237,44 @@ export function extraireNumeroFacture(texte: string): string | null {
 // tort 0 € comme depense. Les libelles de total explicite (toujours
 // representatifs du montant reel de la facture, quel que soit le mode de
 // paiement) passent donc avant.
+// "tot ttc" : abrege, vu sur un vrai ticket de carte bancaire (station
+// E.Leclerc - format differe d'une facture classique, mais reste un
+// libelle explicite et non ambigu) - au meme rang que "total ttc", pas de
+// risque de confusion similaire a "net a payer".
+// "montant du" : vu sur une vraie facture Emergent Labs Inc (abonnement
+// emergent.sh, en dollars, sans notion de TVA francaise) - EN DERNIER,
+// au meme rang que "net a payer"/"a payer" et pour la MEME raison : sur
+// une facture partiellement reglee ou financee, le "montant du" restant
+// peut etre 0 ou partiel alors que le total reel de la facture est plus
+// eleve (jamais verifie sur une vraie facture Emergent Labs avec acompte,
+// par precaution).
 const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
   /montant\s*total\s*ttc/i,
   /total\s*€?\s*ttc/i,
   /montant\s*ttc/i,
+  /tot\.?\s*ttc/i,
   /net\s*à\s*payer/i,
   /à\s*payer/i,
+  /montant\s*d[ûu]/i,
 ];
 
 // Memes principes que pour le TTC, pour le montant hors taxes (demande
 // explicite de l'utilisateur : suivre aussi le HT, pas seulement le TTC).
 // "€?" entre "total"/"montant" et "ht" : vu sur une vraie facture Kiloutou
 // ("Total € HT"), le symbole monetaire s'intercale dans le libelle lui-meme.
-const MOTIFS_MONTANT_HT_PAR_PRIORITE = [/montant\s*total\s*ht/i, /total\s*€?\s*ht/i, /montant\s*ht/i];
+// "net" seul, EN DERNIER (filet de securite, jamais prioritaire sur un
+// vrai libelle HT) : vu sur un vrai ticket de carte bancaire (station
+// E.Leclerc) qui n'ecrit jamais "HT", seulement "TOT TTC" / "TVA 20,00%" /
+// "Net" (le montant hors taxes, par definition). Exclut explicitement
+// "net à payer" (deja gere comme motif TTC ci-dessus, un sens totalement
+// different : le reste a regler, pas le hors-taxes) et exige une limite de
+// mot pour ne jamais matcher a l'interieur d'un autre mot (ex. "Internet").
+const MOTIFS_MONTANT_HT_PAR_PRIORITE = [
+  /montant\s*total\s*ht/i,
+  /total\s*€?\s*ht/i,
+  /montant\s*ht/i,
+  /\bnet\b(?!\s*à\s*payer)/i,
+];
 
 // Un montant en euros s'ecrit avec deux conventions decimales reellement
 // rencontrees en production : virgule francaise ("1 234,56", la plupart
