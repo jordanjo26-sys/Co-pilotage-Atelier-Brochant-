@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractReleveTransactions } from "../src/importers/bankStatementPdf";
+import { extractReleveTransactions, texteSignificatif } from "../src/importers/bankStatementPdf";
 
 // Texte fictif reproduisant la mise en page reelle d'un relevé Banque
 // Populaire telle qu'extraite par `pdftotext -layout` : colonnes alignees
@@ -80,4 +80,23 @@ test("extractReleveTransactions deduit l'annee a partir de l'entete du relevé, 
 test("extractReleveTransactions retourne un tableau vide si la mise en page n'est pas reconnue", () => {
   const txs = extractReleveTransactions("Un texte quelconque sans rapport avec un releve bancaire.");
   assert.deepEqual(txs, []);
+});
+
+// Bug reel trouve en production (novembre 2026, tickets Leclerc/REVIVAL,
+// deux scans sans aucune couche de texte) : pdftotext emet toujours au
+// moins un saut de page ("\f"), jamais une chaine litteralement vide,
+// meme pour une page entierement sans texte. Un appelant qui testait
+// juste `if (texte)` considerait alors a tort qu'il y avait du texte
+// (une chaine non vide est "truthy" en JS), et ne declenchait jamais le
+// repli vers la vision IA sur l'image rendue de la page.
+test("texteSignificatif : un saut de page seul (\"\\f\", ce que pdftotext emet pour une page sans texte) est traite comme une absence de texte", () => {
+  assert.equal(texteSignificatif("\f"), undefined);
+  assert.equal(texteSignificatif("\f\f"), undefined);
+  assert.equal(texteSignificatif("   \n\t  "), undefined);
+  assert.equal(texteSignificatif(""), undefined);
+  assert.equal(texteSignificatif(undefined), undefined);
+});
+
+test("texteSignificatif : du vrai texte est conserve (debarrasse des blancs en tete/fin)", () => {
+  assert.equal(texteSignificatif("  Total TTC 120,00 €\f"), "Total TTC 120,00 €");
 });

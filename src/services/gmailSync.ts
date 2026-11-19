@@ -21,7 +21,7 @@ import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
 import { controlerReleveFournisseur } from "./controleReleves";
-import { extractPdfText } from "../importers/bankStatementPdf";
+import { extractPdfText, texteSignificatif } from "../importers/bankStatementPdf";
 import { extraireTexteDepuisZip } from "../importers/zipAttachment";
 import { rendrePremierePageEnImage } from "../importers/pdfRenderImage";
 import fs from "node:fs/promises";
@@ -483,6 +483,13 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
             // PDF, plutot qu'un PDF direct - voir importers/zipAttachment.ts.
             contenuExtrait = extraireTexteDepuisZip(donnees);
           }
+          // pdftotext emet toujours au moins un saut de page ("\f"), jamais
+          // une chaine vraiment vide, meme sur un PDF sans aucune couche de
+          // texte (scan/photo integree) - sans cette normalisation, ce "\f"
+          // isole est "truthy" en JS et le document est a tort traite comme
+          // ayant du texte, sans jamais declencher le repli vision IA
+          // (voir texteSignificatif).
+          contenuExtrait = texteSignificatif(contenuExtrait);
 
           let type = classifierPieceJointe(emailContexte, piece, contenuExtrait);
           let classifiePar: "ia" | null = null;
@@ -947,6 +954,11 @@ async function traiterBackfillMontants(
           // (rendrePremierePageEnImage), contenuExtrait reste undefined.
         }
       }
+      // Voir texteSignificatif : pdftotext emet toujours au moins un saut
+      // de page ("\f"), jamais une chaine vraiment vide, meme sans aucune
+      // couche de texte - sans cette normalisation, resoudreMontantsFacture
+      // ne declenchait jamais son repli vision IA sur ces documents.
+      contenuExtrait = texteSignificatif(contenuExtrait);
       const resolu = await resoudreMontantsFacture(prisma, mimeType, donnees, contenuExtrait);
       const montantTTC = document.montantTTC ?? resolu.montantTTC;
       const montantHT = document.montantHT ?? resolu.montantHT;

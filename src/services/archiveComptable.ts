@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { extraireFichiersDepuisZip, mimeTypeDepuisNom, FichierExtrait } from "../importers/zipBulk";
-import { extractPdfText } from "../importers/bankStatementPdf";
+import { extractPdfText, texteSignificatif } from "../importers/bankStatementPdf";
 import { rendrePremierePageEnImage } from "../importers/pdfRenderImage";
 import { extraireMontantHTFacture, extraireMontantTTCFacture, completerMontantHTSansTva } from "./gmailClassify";
 import { extraireChampsFacturePdf, extraireChampsFactureImage } from "./archiveComptableIA";
@@ -122,12 +122,20 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
   let classifiePar: string | null = null;
 
   if (mimeType === "application/pdf") {
-    let texte = "";
+    let texte: string | undefined;
     try {
-      texte = extractPdfText(fichier.donnees);
+      // texteSignificatif : pdftotext emet toujours au moins un saut de
+      // page ("\f"), jamais une chaine vraiment vide, meme sur un PDF sans
+      // aucune couche de texte (scan/photo integree) - sans cette
+      // normalisation, ce "\f" isole est "truthy" en JS et le fichier est
+      // a tort traite comme ayant du texte, sans jamais declencher le
+      // repli vision IA ci-dessous (bug reel trouve en production,
+      // novembre 2026 : deux scans reels restaient indefiniment
+      // "a verifier" sans la moindre erreur nulle part).
+      texte = texteSignificatif(extractPdfText(fichier.donnees));
     } catch {
       // pdftotext manquant ou PDF illisible : repli ci-dessous sur le
-      // rendu en image (texte reste vide).
+      // rendu en image (texte reste undefined).
     }
     if (texte) {
       montantHT = extraireMontantHTFacture(texte);

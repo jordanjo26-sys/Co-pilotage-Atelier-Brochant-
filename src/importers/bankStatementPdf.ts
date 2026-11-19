@@ -34,6 +34,25 @@ export function extractPdfText(buffer: Buffer): string {
   }
 }
 
+/**
+ * Normalise le texte extrait d'un PDF quand ce qui compte est seulement
+ * "y a-t-il du texte exploitable" (classification, extraction de
+ * montants) - PAS le releve bancaire, qui lit extractPdfText directement
+ * et se moque de ce detail. Bug reel trouve en production (novembre 2026,
+ * tickets Leclerc/REVIVAL, deux scans sans aucune couche de texte) :
+ * pdftotext n'imprime JAMAIS une chaine litteralement vide, meme pour une
+ * page entierement sans texte - il emet toujours au moins un saut de page
+ * ("\f") par page. Un appelant qui teste juste `if (texte)` considere
+ * donc a tort qu'il y a du texte (une chaine non vide est "truthy" en
+ * JS), et ne declenche jamais le repli vers la vision IA sur l'image
+ * rendue de la page - le document reste alors "non renseigne" sans la
+ * moindre erreur nulle part, indiscernable d'une vraie panne.
+ */
+export function texteSignificatif(texte: string | undefined): string | undefined {
+  const nettoye = texte?.trim();
+  return nettoye ? nettoye : undefined;
+}
+
 // Delimite la section "ledger" chronologique du relevé (celle qui doit
 // etre importee) des annexes "DETAIL DE VOS MOUVEMENTS SEPA" /
 // "VIREMENTS SEPA RECUS" en fin de document, qui ne font que detailler
