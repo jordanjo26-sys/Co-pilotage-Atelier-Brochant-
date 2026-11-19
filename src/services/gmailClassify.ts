@@ -393,3 +393,19 @@ export function extraireMontantTTCFacture(texte: string): number | null {
 export function extraireMontantHTFacture(texte: string): number | null {
   return extraireMontantParLibelles(texte, MOTIFS_MONTANT_HT_PAR_PRIORITE);
 }
+
+/**
+ * Repli explicite demande par l'utilisateur (video, novembre 2026, facture
+ * Emergent Labs Inc en dollars - abonnement emergent.sh) : si le TTC a ete
+ * trouve mais pas le HT, ET qu'aucune mention de TVA/VAT n'apparait nulle
+ * part dans le document, le HT vaut le TTC (TVA = 0) plutot que de rester
+ * "non renseigne". Une facture qui ne mentionne JAMAIS la TVA/VAT (ex. une
+ * societe etrangere sans assujettissement francais) n'y est simplement pas
+ * soumise - a la difference d'un vrai HT non trouve a cause d'une mise en
+ * page non reconnue sur un document qui, lui, mentionne la TVA quelque part.
+ */
+export function completerMontantHTSansTva(texte: string, montantHT: number | null, montantTTC: number | null): number | null {
+  if (montantHT != null) return montantHT;
+  if (montantTTC != null && !/tva|vat/i.test(texte)) return montantTTC;
+  return montantHT;
+}

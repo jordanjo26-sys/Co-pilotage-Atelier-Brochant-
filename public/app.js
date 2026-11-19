@@ -2030,13 +2030,27 @@ function libelleJour(date) {
   return texte.charAt(0).toUpperCase() + texte.slice(1);
 }
 
-async function chargerFacturesDextEnvoyees() {
-  const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=envoye");
-  const documents = await res.json();
+// Conserve le dernier resultat pour filtrer cote client sans refaire
+// d'appel reseau a chaque frappe (meme principe que facturesImpayeesBrutes
+// ci-dessus) : demande explicite de l'utilisateur (video, novembre 2026),
+// cette liste devient tres longue avec l'historique et un filtre texte
+// permet de retrouver un fournisseur sans tout faire defiler a la main.
+let facturesDextEnvoyeesBrutes = [];
+
+function afficherFacturesDextEnvoyeesFiltrees() {
   const conteneur = document.getElementById("liste-factures-dext-envoyees");
+  if (!conteneur) return;
+
+  const recherche = (document.getElementById("filtre-dext-fournisseur")?.value || "").trim().toLowerCase();
+  const documents = recherche
+    ? facturesDextEnvoyeesBrutes.filter((d) => {
+        const fournisseurNom = d.fournisseur ? d.fournisseur.nom : d.gmailExpediteur || "";
+        return (d.fichierNom || "").toLowerCase().includes(recherche) || fournisseurNom.toLowerCase().includes(recherche);
+      })
+    : facturesDextEnvoyeesBrutes;
 
   if (documents.length === 0) {
-    conteneur.innerHTML = `<p class="liste-vide">Aucune facture envoyée à Dext pour le moment.</p>`;
+    conteneur.innerHTML = `<p class="liste-vide">${facturesDextEnvoyeesBrutes.length === 0 ? "Aucune facture envoyée à Dext pour le moment." : "Aucune facture ne correspond à cette recherche."}</p>`;
     return;
   }
 
@@ -2062,7 +2076,7 @@ async function chargerFacturesDextEnvoyees() {
           .map(
             (d) => `
         <div class="fournisseur-document-ligne" id="document-ligne-${d.id}">
-          <span>${echapper(d.fichierNom || "Document")}</span>
+          <span><span class="fournisseur-nom-icone">📄</span>${echapper(d.fichierNom || "Document")}</span>
           <span class="anomalie-meta">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")} · ${new Date(d.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
           ${renduMontantFacture(d)}
           <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
@@ -2074,6 +2088,18 @@ async function chargerFacturesDextEnvoyees() {
     </details>`
     )
     .join("");
+}
+
+async function chargerFacturesDextEnvoyees() {
+  const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=envoye");
+  facturesDextEnvoyeesBrutes = await res.json();
+  afficherFacturesDextEnvoyeesFiltrees();
+
+  const champFiltre = document.getElementById("filtre-dext-fournisseur");
+  if (champFiltre && !champFiltre.dataset.initialise) {
+    champFiltre.addEventListener("input", afficherFacturesDextEnvoyeesFiltrees);
+    champFiltre.dataset.initialise = "1";
+  }
 }
 
 async function chargerFacturesFournisseurs() {
@@ -2112,7 +2138,7 @@ async function chargerFacturesFournisseurs() {
         .map(
           (d) => `
       <div class="fournisseur-carte">
-        <div class="fournisseur-nom">${echapper(d.fichierNom || "Document")}</div>
+        <div class="fournisseur-nom"><span class="fournisseur-nom-icone">📄</span>${echapper(d.fichierNom || "Document")}</div>
         <div class="anomalie-meta">
           ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
           ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
@@ -2453,11 +2479,11 @@ function renduMontantFacture(d) {
   const ht =
     d.montantHT != null
       ? `<span class="badge badge-ok">HT ${fmtMontant(d.montantHT)}</span>`
-      : `<span class="badge badge-palier-ambre montant-ht-manquant" title="Le montant HT n'a pas pu être extrait automatiquement de ce document">⚠️ HT non renseigné</span>`;
+      : `<span class="alerte-montant-manquant montant-ht-manquant" title="Le montant HT n'a pas pu être extrait automatiquement de ce document">HT non renseigné</span>`;
   const ttc =
     d.montantTTC != null
       ? `<span class="badge badge-ok">TTC ${fmtMontant(d.montantTTC)}</span>`
-      : `<span class="badge badge-palier-ambre montant-ttc-manquant" title="Le montant TTC n'a pas pu être extrait automatiquement de ce document">⚠️ TTC non renseigné</span>`;
+      : `<span class="alerte-montant-manquant montant-ttc-manquant" title="Le montant TTC n'a pas pu être extrait automatiquement de ce document">TTC non renseigné</span>`;
   const boutonSaisie =
     d.montantHT == null || d.montantTTC == null
       ? `<button type="button" class="ghost bouton-lien" onclick="saisirMontantFacture('${d.id}', this, ${d.montantHT ?? "null"}, ${d.montantTTC ?? "null"})">Renseigner le(s) montant(s)</button>`
@@ -2940,7 +2966,7 @@ function afficherArchivesComptablesFiltrees() {
         .map(
           (a) => `
       <div class="fournisseur-carte" id="archive-comptable-${a.id}">
-        <div class="fournisseur-nom">${echapper(a.fournisseurNom || "Fournisseur non identifié")}</div>
+        <div class="fournisseur-nom"><span class="fournisseur-nom-icone">📄</span>${echapper(a.fournisseurNom || "Fournisseur non identifié")}</div>
         <div class="anomalie-meta">
           ${echapper(a.fichierNom)}
           ${a.dateFacture ? ` · ${fmtDate(a.dateFacture)}` : ""}
@@ -2948,8 +2974,8 @@ function afficherArchivesComptablesFiltrees() {
           ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
         </div>
         <div class="fournisseur-actions fournisseur-actions-ligne">
-          ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="badge badge-palier-ambre">⚠️ HT non renseigné</span>`}
-          ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="badge badge-palier-ambre">⚠️ TTC non renseigné</span>`}
+          ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
+          ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="alerte-montant-manquant">TTC non renseigné</span>`}
           <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/archives-comptables/${a.id}/fichier')">Voir</button>
           <button type="button" class="ghost bouton-lien" onclick="corrigerArchiveComptable('${a.id}')">Corriger</button>
           <button type="button" class="ghost bouton-lien" onclick="supprimerArchiveComptable('${a.id}', this)">Supprimer</button>

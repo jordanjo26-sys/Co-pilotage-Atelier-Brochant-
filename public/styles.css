@@ -264,6 +264,14 @@ button:disabled { opacity: 0.4; cursor: default; }
 .badge-echec, .badge-type_inconnu { background: var(--critical-soft); color: var(--critical); }
 .badge-doublon_fichier { background: var(--surface-2); color: var(--ink-muted); }
 
+/* Alerte "montant non renseigne" sur une facture fournisseur : texte seul,
+   sans pastille de fond (a la difference de .badge-palier-ambre) - demande
+   explicite de l'utilisateur (video, novembre 2026) : repetee deux fois
+   par document sur une longue liste, la pastille ambre pleine finissait
+   par fatiguer l'oeil ("ça va me mal a la tete"). Reste bien visible (gras,
+   couleur d'alerte) sans le poids visuel d'un aplat de couleur repete. */
+.alerte-montant-manquant { color: var(--warning); font-size: 11.5px; font-weight: 700; }
+
 /* ---------- Gmail status ---------- */
 .gmail-connecte { font-size: 13.5px; line-height: 1.7; }
 .gmail-connecte .adresse { color: var(--ink); font-weight: 700; }
@@ -598,15 +606,19 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 10.5px;
   font-weight: 700;
 }
-.fournisseur-carte { padding: 12px 0; border-top: 1px solid var(--line); }
+/* border-top en --line-strong (pas --line) : demande explicite de
+   l'utilisateur (video, novembre 2026), la ligne precedente etait trop
+   discrete pour vraiment separer les factures d'une longue liste a l'oeil. */
+.fournisseur-carte { padding: 12px 0; border-top: 1px solid var(--line-strong); }
 .fournisseur-carte:first-of-type { border-top: none; padding-top: 0; }
 .fournisseur-nom { font-size: 13px; font-weight: 600; color: var(--ink); }
+.fournisseur-nom .fournisseur-nom-icone { margin-right: 4px; }
 .fournisseur-actions { margin-top: 6px; }
 .fournisseur-actions-ligne { display: flex; gap: 8px; flex-wrap: wrap; }
 .fournisseur-documents { margin-top: 8px; font-size: 12.5px; }
 .fournisseur-documents summary { cursor: pointer; color: var(--brand-blue); font-weight: 600; }
 .fournisseur-documents-liste { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-.fournisseur-document-ligne { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
+.fournisseur-document-ligne { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line-strong); }
 .fournisseur-document-ligne:first-child { border-top: none; padding-top: 0; }
 
 /* Un encadrement par jour sur "Factures envoyees a Dext" (demande explicite

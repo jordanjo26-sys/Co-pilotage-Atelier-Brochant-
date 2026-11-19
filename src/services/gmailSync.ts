@@ -8,6 +8,7 @@ import {
   extraireNumeroFacture,
   extraireMontantTTCFacture,
   extraireMontantHTFacture,
+  completerMontantHTSansTva,
   estPieceDocument,
   estPieceJointeZip,
   EmailAClassifier,
@@ -461,8 +462,8 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
           // jamais dans le sujet/corps : un sujet/corps peut mentionner un
           // montant sans rapport (devis precedent, relance...) a la
           // difference du document lui-meme.
-          const montantHT = contenuExtrait ? extraireMontantHTFacture(contenuExtrait) : null;
           const montantTTC = contenuExtrait ? extraireMontantTTCFacture(contenuExtrait) : null;
+          const montantHT = contenuExtrait ? completerMontantHTSansTva(contenuExtrait, extraireMontantHTFacture(contenuExtrait), montantTTC) : null;
           piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, montantHT, montantTTC, classifiePar });
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
@@ -850,8 +851,8 @@ export async function backfillMontantsFacturesSansMontant(prisma: PrismaClient):
         resultat.toujoursSansMontant++;
         continue;
       }
-      const montantHT = document.montantHT ?? extraireMontantHTFacture(contenuExtrait);
       const montantTTC = document.montantTTC ?? extraireMontantTTCFacture(contenuExtrait);
+      const montantHT = document.montantHT ?? completerMontantHTSansTva(contenuExtrait, extraireMontantHTFacture(contenuExtrait), montantTTC);
       if (montantHT != null || montantTTC != null) {
         await prisma.documentFournisseur.update({ where: { id: document.id }, data: { montantHT, montantTTC } });
         resultat.miseAJour++;

@@ -6,6 +6,7 @@ import {
   extraireNumeroFacture,
   extraireMontantTTCFacture,
   extraireMontantHTFacture,
+  completerMontantHTSansTva,
   estPieceJointeZip,
   EmailAClassifier,
 } from "../src/services/gmailClassify";
@@ -339,6 +340,28 @@ test("extraireMontantTTCFacture : 'Montant dû' en dernier recours (vraie factur
 test("extraireMontantTTCFacture : 'Montant dû' ne prime jamais sur un vrai Total TTC (meme protection que 'Net à payer')", () => {
   const texte = "Total TTC : 120,00 €\nMontant dû : 0,00 €";
   assert.equal(extraireMontantTTCFacture(texte), 120);
+});
+
+// completerMontantHTSansTva : repli explicite demande par l'utilisateur
+// (video, novembre 2026) - HT = TTC (TVA = 0) uniquement quand le document
+// ne mentionne JAMAIS la TVA/VAT nulle part, jamais pour un vrai HT non
+// trouve sur un document qui, lui, mentionne la TVA quelque part.
+test("completerMontantHTSansTva : HT deja trouve -> inchange", () => {
+  assert.equal(completerMontantHTSansTva("peu importe", 100, 120), 100);
+});
+
+test("completerMontantHTSansTva : TTC trouve, HT absent, aucune mention de TVA/VAT -> HT = TTC (vraie facture Emergent Labs Inc)", () => {
+  const texte = "Sous-total 20,00 $US\nTotal 20,00 $US\nMontant dû 20,00 $US";
+  assert.equal(completerMontantHTSansTva(texte, null, 20), 20);
+});
+
+test("completerMontantHTSansTva : TTC trouve, HT absent, mais le document mentionne la TVA ailleurs -> HT reste non renseigne (mise en page non reconnue, pas une absence reelle de TVA)", () => {
+  const texte = "TVA 20,00% incluse\nTotal TTC 120,00 €";
+  assert.equal(completerMontantHTSansTva(texte, null, 120), null);
+});
+
+test("completerMontantHTSansTva : pas de TTC trouve non plus -> reste null", () => {
+  assert.equal(completerMontantHTSansTva("Merci de votre commande.", null, null), null);
 });
 
 test("sujet/corps generiques, mais le mot facture est dans le contenu du PDF -> reconnue (pas ambigue)", () => {

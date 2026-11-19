@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { extraireFichiersDepuisZip, mimeTypeDepuisNom, FichierExtrait } from "../importers/zipBulk";
 import { extractPdfText } from "../importers/bankStatementPdf";
-import { extraireMontantHTFacture, extraireMontantTTCFacture } from "./gmailClassify";
+import { extraireMontantHTFacture, extraireMontantTTCFacture, completerMontantHTSansTva } from "./gmailClassify";
 import { extraireChampsFacturePdf, extraireChampsFactureImage } from "./archiveComptableIA";
 import { logEvenement } from "./journalService";
 
@@ -118,6 +118,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
         if (montantHT == null && champsIA.montantHT != null) montantHT = champsIA.montantHT;
         if (montantTTC == null && champsIA.montantTTC != null) montantTTC = champsIA.montantTTC;
       }
+      montantHT = completerMontantHTSansTva(texte, montantHT, montantTTC);
     }
   } else {
     const champsIA = await extraireChampsFactureImage(fichier.donnees, mimeType);
