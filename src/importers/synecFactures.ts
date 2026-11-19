@@ -8,6 +8,13 @@ export interface RowImportResult {
   erreurs: ImportRowError[];
 }
 
+export interface EncaissementParse {
+  date: Date | null;
+  montant: number;
+  mode: string;
+  note: string;
+}
+
 export interface ReglementParse {
   montantRegle: number;
   modes: string[];
@@ -18,6 +25,14 @@ export interface ReglementParse {
   // l'utilisateur (afficher client + numero de facture a cote de chaque
   // paiement Stripe). Voir rapprochementFactures.ts.
   referencesStripe: string[];
+  // Detail ligne a ligne, un par reglement individuel (voir Encaissement) :
+  // necessaire pour retrouver le montant encaisse PAR mode sur une facture
+  // reglee en plusieurs fois avec des modes differents (ex. une partie en
+  // carte, une partie en cheque) - modes/montantRegle ci-dessus ne gardent
+  // que l'agrege, demande explicite de l'utilisateur (ne pas se contenter
+  // de savoir QUE la facture a ete reglee en partie par cheque, mais
+  // combien exactement).
+  entries: EncaissementParse[];
 }
 
 /**
@@ -28,17 +43,21 @@ export interface ReglementParse {
  * "2025-03-31 15:39:44|500,00 €|Carte| // 2025-03-31 15:39:57|437,43 €|Chèque|"
  */
 export function parseReglements(raw: string | undefined): ReglementParse {
-  const result: ReglementParse = { montantRegle: 0, modes: [], oney: false, referencesStripe: [] };
+  const result: ReglementParse = { montantRegle: 0, modes: [], oney: false, referencesStripe: [], entries: [] };
   if (!raw || raw.trim() === "") return result;
 
-  const entries = raw.split("//").map((e) => e.trim()).filter(Boolean);
-  for (const entry of entries) {
+  const rawEntries = raw.split("//").map((e) => e.trim()).filter(Boolean);
+  for (const entry of rawEntries) {
     const parts = entry.split("|");
+    const date = parseFlexibleDate(parts[0]);
     const montant = parseAmount(parts[1]);
     const mode = (parts[2] || "").trim();
     const note = (parts[3] || "").trim();
 
-    if (montant !== null) result.montantRegle += montant;
+    if (montant !== null) {
+      result.montantRegle += montant;
+      result.entries.push({ date, montant, mode, note });
+    }
     if (mode && !result.modes.includes(mode)) result.modes.push(mode);
     if (/oney/i.test(mode) || /oney/i.test(note)) result.oney = true;
 
@@ -113,7 +132,7 @@ export async function importSynecFactures(
 
       const montantHT = resolvedColumns.montantHT ? parseAmount(row[resolvedColumns.montantHT]) : null;
 
-      const { montantRegle, modes, oney, referencesStripe } = parseReglements(
+      const { montantRegle, modes, oney, referencesStripe, entries } = parseReglements(
         resolvedColumns.payments ? row[resolvedColumns.payments] : undefined
       );
       const statut = deriveStatut(montantTTC, montantRegle);
@@ -143,12 +162,29 @@ export async function importSynecFactures(
         sourceImportId: importBatchId,
       };
 
+      let factureId: string;
       if (existing) {
         await prisma.facture.update({ where: { reference }, data });
+        factureId = existing.id;
         nbDoublons++;
       } else {
-        await prisma.facture.create({ data: { reference, ...data } });
+        const cree = await prisma.facture.create({ data: { reference, ...data } });
+        factureId = cree.id;
         nbNouveaux++;
+      }
+
+      // Reconstruit entierement le detail des encaissements de cette
+      // facture a chaque import plutot que de le fusionner (voir
+      // Encaissement dans le schema) : le CSV Synec est reimporte tel
+      // quel a chaque depot (pas de delta), donc la liste des entries
+      // qu'on vient de parser EST l'etat complet et a jour pour cette
+      // facture - supprimer puis recreer evite tout doublon si un
+      // reglement a ete modifie/annule depuis le dernier import.
+      await prisma.encaissement.deleteMany({ where: { factureId } });
+      if (entries.length > 0) {
+        await prisma.encaissement.createMany({
+          data: entries.map((e) => ({ factureId, date: e.date, montant: e.montant, mode: e.mode || "Inconnu", note: e.note || null })),
+        });
       }
     } catch (err) {
       erreurs.push({ ligne, message: (err as Error).message });

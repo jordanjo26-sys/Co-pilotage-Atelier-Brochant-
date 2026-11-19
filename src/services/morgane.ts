@@ -122,13 +122,27 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "lister_factures_par_mode_paiement",
     description:
-      "Liste les factures (nom client, numero, date, montant TTC, mode(s) de reglement) dont le mode de paiement contient le texte demande (ex. \"cheque\", \"carte\") - utile pour retrouver les factures reglees au moins en partie par un moyen donne. Lit la copie deja importee en base (dernier export CSV Synec, voir Facture.modePaiement) : PAS un acces direct/live a Synec, qui n'existe pas. Le champ modePaiement reflete deja les reglements mixtes d'une meme facture (ex. \"Carte, Cheque\"), donc une recherche sur \"cheque\" remonte aussi ces factures mixtes - inutile de les filtrer ou de les verifier une par une. Si le dernier import CSV est ancien, previens que la liste peut ne pas couvrir les factures les plus recentes pas encore importees.",
+      "Liste les factures (nom client, numero, date, montant TTC, mode(s) de reglement) dont le mode de paiement contient le texte demande (ex. \"cheque\", \"carte\") - utile pour un simple apercu de QUELLES factures ont ete reglees au moins en partie par un moyen donne. ATTENTION : le montant retourne est le montant TTC TOTAL de la facture, PAS le montant encaisse par ce mode precis - sur une facture reglee avec plusieurs modes differents (ex. une partie en carte, une partie en cheque), ce montant est donc plus grand que ce qui a reellement ete encaisse en cheque. Des qu'un montant par mode est demande (combien encaisse en cheque, etc.), utiliser lister_encaissements a la place. Lit la copie deja importee en base (dernier export CSV Synec) : PAS un acces direct/live a Synec, qui n'existe pas. Si le dernier import CSV est ancien, previens que la liste peut ne pas couvrir les factures les plus recentes pas encore importees.",
     input_schema: {
       type: "object",
       properties: {
         mode: { type: "string", description: "Texte a rechercher dans le mode de paiement (insensible a la casse), ex. \"cheque\"." },
         dateDebut: { type: "string", description: "Date d'emission minimale (AAAA-MM-JJ), incluse. Omis = depuis le debut." },
         dateFin: { type: "string", description: "Date d'emission maximale (AAAA-MM-JJ), incluse. Omis = jusqu'a aujourd'hui." },
+      },
+      required: ["mode"],
+    },
+  },
+  {
+    name: "lister_encaissements",
+    description:
+      "Liste le detail ligne a ligne de chaque encaissement (un reglement individuel) dont le mode contient le texte demande (ex. \"cheque\"), avec le MONTANT EXACT de cet encaissement precis - a la difference de lister_factures_par_mode_paiement, qui ne donne que le montant total de la facture (faux des qu'une facture a ete reglee avec plusieurs modes differents, ex. une partie en carte, une partie en cheque). A utiliser pour tout calcul ou tableau d'encaissements (combien encaisse en cheque sur une periode, etc.). Chaque ligne retournee correspond a un encaissement reel : client, numero de facture, date d'encaissement, montant de CET encaissement, mode. Lit la copie deja importee en base (dernier export CSV Synec) : PAS un acces direct/live a Synec. Si le dernier import CSV est ancien, previens que la liste peut ne pas couvrir les encaissements les plus recents pas encore importes.",
+    input_schema: {
+      type: "object",
+      properties: {
+        mode: { type: "string", description: "Texte a rechercher dans le mode de l'encaissement (insensible a la casse), ex. \"cheque\"." },
+        dateDebut: { type: "string", description: "Date d'encaissement minimale (AAAA-MM-JJ), incluse. Omis = depuis le debut." },
+        dateFin: { type: "string", description: "Date d'encaissement maximale (AAAA-MM-JJ), incluse. Omis = jusqu'a aujourd'hui." },
       },
       required: ["mode"],
     },
@@ -848,6 +862,34 @@ async function executerOutil(
         dateEmission: f.dateEmission,
         montantTTC: f.montantTTC,
         modePaiement: f.modePaiement,
+      }));
+    }
+
+    case "lister_encaissements": {
+      const modeRecherche = params.mode;
+      if (typeof modeRecherche !== "string" || !modeRecherche.trim()) return { erreur: "mode est requis (ex. \"cheque\")." };
+
+      const dateDebutBrute = params.dateDebut;
+      const dateFinBrute = params.dateFin;
+      const dateDebut = typeof dateDebutBrute === "string" && dateDebutBrute ? new Date(dateDebutBrute) : null;
+      const dateFin = typeof dateFinBrute === "string" && dateFinBrute ? new Date(dateFinBrute) : null;
+      if (dateDebut && Number.isNaN(dateDebut.getTime())) return { erreur: "dateDebut illisible (attendu AAAA-MM-JJ)." };
+      if (dateFin && Number.isNaN(dateFin.getTime())) return { erreur: "dateFin illisible (attendu AAAA-MM-JJ)." };
+
+      const encaissements = await prisma.encaissement.findMany({
+        where: {
+          mode: { contains: modeRecherche.trim(), mode: "insensitive" },
+          ...(dateDebut || dateFin ? { date: { ...(dateDebut ? { gte: dateDebut } : {}), ...(dateFin ? { lte: dateFin } : {}) } } : {}),
+        },
+        include: { facture: { select: { reference: true, clientNom: true } } },
+        orderBy: { date: "asc" },
+      });
+      return encaissements.map((e) => ({
+        client: e.facture.clientNom,
+        reference: e.facture.reference,
+        date: e.date,
+        montant: e.montant,
+        mode: e.mode,
       }));
     }
 

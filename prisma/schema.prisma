@@ -74,8 +74,31 @@ model Facture {
   sourceImport       ImportBatch? @relation(fields: [sourceImportId], references: [id])
   paiements          Paiement[]
   relances           Relance[]
+  encaissements      Encaissement[]
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+}
+
+// Detail ligne a ligne de la colonne "payments" de l'export Synec (voir
+// parseReglements) : une Facture peut etre reglee en plusieurs fois, parfois
+// avec des modes differents (ex. 500€ en carte puis 437,43€ en cheque sur
+// la meme facture) - Facture.modePaiement/montantRegle ne gardent que
+// l'agrege (liste des modes, somme totale), insuffisant pour retrouver le
+// montant encaisse PAR cheque sur une facture reglee en plusieurs fois.
+// Reconstruit entierement a chaque import (voir importSynecFactures) :
+// supprime puis recree pour la facture concernee plutot que fusionne, pour
+// ne jamais dupliquer un encaissement deja importe.
+model Encaissement {
+  id        String   @id @default(cuid())
+  factureId String
+  facture   Facture  @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  date      DateTime?
+  montant   Float
+  mode      String
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([factureId])
 }
 
 // Trace des relances envoyees pour une facture impayee (section 4.3 : le

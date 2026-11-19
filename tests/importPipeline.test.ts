@@ -58,7 +58,7 @@ test("pipeline complet : Synec, Stripe paiements/payouts/solde, banque", async (
   );
   assert.equal(synec.typeDetecte, "synec_factures");
   assert.equal(synec.statut, "ok");
-  assert.equal(synec.nbNouveaux, 7);
+  assert.equal(synec.nbNouveaux, 8);
   assert.equal(synec.nbErreurs, 0);
 
   // Zero double saisie : les factures doivent se rattacher aux clients
@@ -100,6 +100,27 @@ test("pipeline complet : Synec, Stripe paiements/payouts/solde, banque", async (
   const f3005 = await prisma.facture.findUnique({ where: { reference: "FACTURE-3005" } });
   assert.equal(f3005?.statut, "payee");
   assert.ok((f3005?.montantTTC ?? 0) < 0);
+
+  // Detail ligne a ligne des encaissements (voir Encaissement/parseReglements) :
+  // necessaire pour retrouver le montant encaisse PAR mode, pas seulement
+  // la liste des modes utilises sur la facture.
+  const encaissements3003 = await prisma.encaissement.findMany({ where: { factureId: f3003!.id } });
+  assert.equal(encaissements3003.length, 1);
+  assert.equal(encaissements3003[0].mode, "Cheque");
+  assert.equal(encaissements3003[0].montant, 500);
+
+  // Facture reglee en deux fois avec des modes differents (une partie en
+  // carte, une partie en cheque) : modePaiement agrege les deux, mais
+  // Encaissement doit garder le montant exact de CHAQUE mode separement.
+  const f3006 = await prisma.facture.findUnique({ where: { reference: "FACTURE-3006" } });
+  assert.equal(f3006?.modePaiement, "Carte, Cheque");
+  assert.equal(f3006?.statut, "payee");
+  const encaissements3006 = await prisma.encaissement.findMany({ where: { factureId: f3006!.id }, orderBy: { date: "asc" } });
+  assert.equal(encaissements3006.length, 2);
+  assert.equal(encaissements3006[0].mode, "Carte");
+  assert.equal(encaissements3006[0].montant, 500);
+  assert.equal(encaissements3006[1].mode, "Cheque");
+  assert.equal(encaissements3006[1].montant, 437.43);
 
   const paiements = await receiveCsv(
     prisma,

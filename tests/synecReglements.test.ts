@@ -7,6 +7,7 @@ test("parseReglements : cellule vide -> aucun reglement", () => {
   assert.equal(r.montantRegle, 0);
   assert.deepEqual(r.modes, []);
   assert.equal(r.oney, false);
+  assert.deepEqual(r.entries, []);
 
   const r2 = parseReglements(undefined);
   assert.equal(r2.montantRegle, 0);
@@ -17,14 +18,23 @@ test("parseReglements : un seul reglement", () => {
   assert.equal(r.montantRegle, 650);
   assert.deepEqual(r.modes, ["Chèque"]);
   assert.equal(r.oney, false);
+  assert.equal(r.entries.length, 1);
+  assert.equal(r.entries[0].montant, 650);
+  assert.equal(r.entries[0].mode, "Chèque");
+  assert.equal(r.entries[0].date?.toISOString(), new Date("2025-01-06T17:34:00").toISOString());
 });
 
-test("parseReglements : plusieurs reglements separes par ' // '", () => {
+test("parseReglements : plusieurs reglements separes par ' // ' - garde le detail ligne a ligne (facture reglee en partie carte, en partie cheque)", () => {
   const r = parseReglements(
     "2025-03-31 15:39:44|500,00 €|Carte| // 2025-03-31 15:39:57|437,43 €|Chèque|"
   );
   assert.ok(Math.abs(r.montantRegle - 937.43) < 0.001);
   assert.deepEqual(r.modes, ["Carte", "Chèque"]);
+  assert.equal(r.entries.length, 2);
+  assert.equal(r.entries[0].mode, "Carte");
+  assert.equal(r.entries[0].montant, 500);
+  assert.equal(r.entries[1].mode, "Chèque");
+  assert.equal(r.entries[1].montant, 437.43);
 });
 
 test("parseReglements : detecte un financement Oney dans le mode ou la note", () => {
