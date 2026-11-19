@@ -242,11 +242,16 @@ export function choisirAdresseDext(nbFacturesDansLEmail: number): string {
  * de doublon supplementaire.
  */
 export function extraireNumeroFacture(texte: string): string | null {
-  // \b...\b autour de chaque motif declencheur : sans lui, "no" (abreviation
-  // de "numero") matchait n'importe quel mot CONTENANT ces deux lettres
+  // \b...\b autour de chaque motif declencheur (sauf "n°", le "°" n'etant
+  // deja pas un caractere de mot) : sans lui, "no" (abreviation de
+  // "numero") matchait n'importe quel mot CONTENANT ces deux lettres
   // ("NOuveau" -> capture "uveau", "reNOUVELABLE" -> capture "UVELABLE"),
   // bug reel constate en production (novembre 2026).
-  const m = texte.match(/\b(?:facture|invoice|n°|no|num(?:ero)?)\b[\s:.#-]*([A-Z0-9][A-Z0-9\-\/]{2,20})/i);
+  // "(?:\s*document\s*)?" : vu sur une vraie facture Leroy Merlin ("N°
+  // Document : CFR00102926012045") - le mot "Document" entre le
+  // declencheur et le separateur empechait sinon toute capture (le "D" de
+  // "Document" etant lui-meme capture puis rejete faute de chiffre).
+  const m = texte.match(/\b(?:(?:facture|invoice|no|num(?:ero)?)\b|n°)(?:\s*document\s*)?[\s:.#-]*([A-Z0-9][A-Z0-9\-\/]{2,20})/i);
   if (!m) return null;
   const candidat = m[1];
   // Un vrai numero de facture contient quasiment toujours un chiffre ; sans
@@ -301,8 +306,15 @@ const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
 // "net à payer" (deja gere comme motif TTC ci-dessus, un sens totalement
 // different : le reste a regler, pas le hors-taxes) et exige une limite de
 // mot pour ne jamais matcher a l'interieur d'un autre mot (ex. "Internet").
+// "(?:net\s*)?" entre "total" et "ht" : vu sur une vraie facture Leroy
+// Merlin (format de facturation electronique officiel, "MONTANT TOTAL Net
+// HT") - sans cet ajout, ce libelle pourtant explicite ne matchait aucun
+// motif prioritaire et retombait sur le filet \bnet\b ci-dessous, qui lui
+// peut capturer n'importe quelle autre occurrence du mot "net" plus loin
+// dans le document (ex. un montant par ligne d'article) - bug reel
+// constate en production (novembre 2026, HT errone sur cette facture).
 const MOTIFS_MONTANT_HT_PAR_PRIORITE = [
-  /montant\s*total\s*ht/i,
+  /montant\s*total\s*(?:net\s*)?ht/i,
   /total\s*€?\s*ht/i,
   /montant\s*ht/i,
   /montant\s*hors\s*tva/i,
@@ -369,9 +381,15 @@ function trouverMontantPourMotif(texte: string, motif: RegExp): number | null {
     if (!correspondance || correspondance.index == null) continue;
     const colonne = correspondance.index;
 
+    // 200, pas 100 (ex-limite) : une vraie facture electronique officielle
+    // (format Leroy Merlin "MONTANT TOTAL TTC" / Chorus Pro) aligne le
+    // libelle tout a gauche et le montant tout a droite, separes par du
+    // seul espacement de mise en page (-layout) - jusqu'a 129 caracteres
+    // vus en production, bien au-dela de l'ancienne limite, laissant le
+    // montant totalement perdu (ni meme une valeur erronee : null).
     const suite = lignes[i].slice(correspondance.index + correspondance[0].length);
     const surLaMemeLigne = suite.match(new RegExp(MOTIF_NOMBRE));
-    if (surLaMemeLigne && surLaMemeLigne.index != null && surLaMemeLigne.index < 100) {
+    if (surLaMemeLigne && surLaMemeLigne.index != null && surLaMemeLigne.index < 200) {
       dernierTrouve = normaliserMontant(surLaMemeLigne[0]);
       continue;
     }
@@ -387,7 +405,7 @@ function trouverMontantPourMotif(texte: string, motif: RegExp): number | null {
         const position = correspondanceNombre.index ?? 0;
         if (position < colonne) continue;
         const distance = position - colonne;
-        if (distance <= 80 && (!meilleur || distance < meilleur.distance)) {
+        if (distance <= 160 && (!meilleur || distance < meilleur.distance)) {
           meilleur = { valeur: correspondanceNombre[0], distance };
         }
       }

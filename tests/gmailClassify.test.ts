@@ -209,6 +209,32 @@ test("extraireNumeroFacture n'est jamais trompe par 'no' a l'interieur d'un autr
   assert.equal(extraireNumeroFacture("Contrat renouvelable chaque annee"), null);
 });
 
+// Extrait reel (pdftotext -layout) d'une vraie facture Leroy Merlin -
+// format de facturation electronique officiel (e-reporting/Chorus Pro) :
+// libelle "MONTANT TOTAL Net HT" (pas juste "Total HT"), montant separe
+// du libelle par ~130 caracteres d'espacement de mise en page, et "N°
+// Document : <ref>" plutot que "N° <ref>" - trois libelles reels qui ne
+// matchaient aucun des motifs avant correctif (signale par l'utilisateur,
+// novembre 2026 : "il y a des factures ... on voit clairement marque les
+// montants ... et [l'app] ne le lit pas").
+const EXTRAIT_FACTURE_LEROY_MERLIN_REEL =
+  "  N° Document : CFR00102926012045\n" +
+  "  MONTANT TOTAL Net HT                                                                                                                              48,07 €\n" +
+  "  MONTANT TOTAL TVA                                                                                                                                  9,62 €\n" +
+  "  MONTANT TOTAL TTC                                                                                                                                 57,69 €";
+
+test("extraireMontantHTFacture : 'MONTANT TOTAL Net HT' (vraie facture Leroy Merlin, facturation electronique)", () => {
+  assert.equal(extraireMontantHTFacture(EXTRAIT_FACTURE_LEROY_MERLIN_REEL), 48.07);
+});
+
+test("extraireMontantTTCFacture : montant separe du libelle par plus de 100 caracteres d'espacement (vraie facture Leroy Merlin)", () => {
+  assert.equal(extraireMontantTTCFacture(EXTRAIT_FACTURE_LEROY_MERLIN_REEL), 57.69);
+});
+
+test("extraireNumeroFacture : 'N° Document : <ref>' (vraie facture Leroy Merlin)", () => {
+  assert.equal(extraireNumeroFacture(EXTRAIT_FACTURE_LEROY_MERLIN_REEL), "CFR00102926012045");
+});
+
 // Bug reel constate en production : "...en reglement de votre facture..."
 // (texte d'un avis de virement, pas d'une vraie facture) capturait
 // litteralement le mot "facture" lui-meme comme numero, faute d'exiger un
