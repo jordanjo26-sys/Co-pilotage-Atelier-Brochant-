@@ -412,19 +412,18 @@
       <section class="carte accent-violet">
         <h2>Importer l'archive de factures</h2>
         <p class="aide">Module indépendant du circuit "Factures fournisseurs" (Dext) — pensé comme archive de secours en cas de contrôle fiscal. Chaque fichier est analysé automatiquement en arrière-plan (fournisseur, date, montants HT/TTC), sans jamais rien inventer — un fichier dont un champ n'est pas lisible reste simplement "à vérifier" pour une complétion manuelle.</p>
-        <form id="form-archive-comptable" class="form-grille">
-          <label>ZIP contenant vos factures PDF/JPEG (export fait avant la suppression chez l'ancien comptable)
-            <input type="file" id="archive-comptable-fichier" accept=".zip" />
-          </label>
-          <button type="submit">Importer le ZIP</button>
-        </form>
-        <p class="aide">Sur Windows, double-cliquer un ZIP dans la boîte de dépôt l'ouvre parfois comme un dossier plutôt que de le sélectionner comme fichier. Si ça arrive, déposez directement vos fichiers PDF/JPEG ci-dessous (plusieurs à la fois, ex. Ctrl+A dans le dossier déjà extrait) :</p>
-        <form id="form-archive-comptable-fichiers" class="form-grille">
-          <label>Fichiers PDF/JPEG individuels (plusieurs à la fois)
-            <input type="file" id="archive-comptable-fichiers" accept=".pdf,.jpg,.jpeg,.png" multiple />
-          </label>
-          <button type="submit">Importer ces fichiers</button>
-        </form>
+        <div id="zone-depot-archive-comptable" class="zone-depot" tabindex="0" role="button" aria-label="Déposer ou choisir des fichiers à importer">
+          <input type="file" id="archive-comptable-entree" accept=".zip,.pdf,.jpg,.jpeg,.png" multiple hidden />
+          <p class="zone-depot-texte">
+            <strong>Glissez vos fichiers ici</strong><br />
+            PDF, JPEG, PNG — ou un ZIP contenant un export complet — ou cliquez pour parcourir.
+          </p>
+        </div>
+        <ul id="zone-depot-archive-comptable-liste" class="zone-depot-liste"></ul>
+        <div class="ligne-boutons" style="margin-top: 10px;">
+          <button type="button" id="btn-lancer-import-archive-comptable" disabled>Importer</button>
+          <button type="button" class="ghost" id="btn-vider-import-archive-comptable" disabled>Vider la sélection</button>
+        </div>
         <div id="resultat-import-archive-comptable"></div>
       </section>
 
@@ -455,7 +454,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=55"></script>
+  <script src="/app.js?v=56"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

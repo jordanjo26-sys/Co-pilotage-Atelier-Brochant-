@@ -738,6 +738,34 @@ tbody tr:hover { background: var(--surface-2); }
 .form-grille textarea { min-height: 90px; resize: vertical; font-family: inherit; }
 .form-grille.pleine-largeur, .champ-pleine-largeur { grid-column: 1 / -1; }
 
+/* Zone de depot (glisser-deposer) pour l'import de fichiers - remplace les
+   champs <input type="file"> nus, demande explicite de l'utilisateur
+   ("une importation plus ergonomique"). */
+.zone-depot {
+  border: 2px dashed var(--line-strong);
+  border-radius: 12px;
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--surface-2);
+  transition: border-color 0.15s, background 0.15s;
+}
+.zone-depot:hover, .zone-depot:focus-visible { border-color: var(--brand-blue); outline: none; }
+.zone-depot.zone-depot-survol { border-color: var(--brand-blue); background: color-mix(in srgb, var(--brand-blue) 10%, var(--surface-2)); }
+.zone-depot-texte { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.zone-depot-texte strong { color: var(--ink); }
+.zone-depot-liste {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+.zone-depot-liste li { padding: 3px 0; border-bottom: 1px solid var(--line); }
+.zone-depot-liste li:last-child { border-bottom: none; }
+
 /* ---------- Autocomplétion d'adresse (API Adresse gouv.fr) ---------- */
 .champ-autocomplete { position: relative; }
 .liste-suggestions {

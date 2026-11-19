@@ -3354,65 +3354,110 @@ async function supprimerArchiveComptable(id, bouton) {
 }
 window.supprimerArchiveComptable = supprimerArchiveComptable;
 
-const formArchiveComptable = document.getElementById("form-archive-comptable");
-if (formArchiveComptable) {
-  formArchiveComptable.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const resultatDiv = document.getElementById("resultat-import-archive-comptable");
-    const champFichier = document.getElementById("archive-comptable-fichier");
-    if (!champFichier.files.length) {
-      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Choisissez un fichier ZIP.`;
-      return;
-    }
+// Zone de depot unique (glisser-deposer + clic) pour l'import de l'archive
+// Comptabilite - demande explicite de l'utilisateur ("une importation plus
+// ergonomique"). Remplace les deux anciens formulaires separes (ZIP / fichiers
+// individuels) : un seul ZIP depose -> /import (deballage cote serveur),
+// n'importe quelle autre combinaison de PDF/JPEG/PNG -> /import-fichiers.
+// Resout aussi de lui-meme le piege Windows signale en video (double-cliquer
+// un ZIP dans la boite de depot NATIVE l'ouvre parfois comme un dossier) :
+// un glisser-deposer ne passe jamais par cette boite de dialogue.
+let fichiersArchiveComptableSelectionnes = [];
 
-    const donnees = new FormData();
-    donnees.append("archive", champFichier.files[0]);
-
-    resultatDiv.textContent = "Envoi de l'archive en cours… (peut prendre un moment pour plusieurs centaines de fichiers)";
-    const depuis = new Date();
-    try {
-      const res = await fetch("/api/archives-comptables/import", { method: "POST", body: donnees });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.erreur || "Échec de l'import.");
-      resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan…`;
-      formArchiveComptable.reset();
-      attendreResultatTraitementArchiveComptable(resultatDiv, "archive_comptable_import_termine", "archive_comptable_import_erreur", depuis);
-    } catch (err) {
-      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
-    }
-  });
+function rendreSelectionArchiveComptable() {
+  const liste = document.getElementById("zone-depot-archive-comptable-liste");
+  const boutonImporter = document.getElementById("btn-lancer-import-archive-comptable");
+  const boutonVider = document.getElementById("btn-vider-import-archive-comptable");
+  if (!liste) return;
+  liste.innerHTML = fichiersArchiveComptableSelectionnes.map((f) => `<li>${echapper(f.name)}</li>`).join("");
+  const vide = fichiersArchiveComptableSelectionnes.length === 0;
+  boutonImporter.disabled = vide;
+  boutonVider.disabled = vide;
+  boutonImporter.textContent = vide ? "Importer" : `Importer (${fichiersArchiveComptableSelectionnes.length} fichier${fichiersArchiveComptableSelectionnes.length > 1 ? "s" : ""})`;
 }
 
-// Depot direct de plusieurs fichiers PDF/JPEG individuels, sans passer par
-// un ZIP - demande explicite de l'utilisateur apres un essai reel en video
-// (sur Windows, double-cliquer un ZIP dans la boite de depot du navigateur
-// l'ouvre parfois comme un dossier plutot que de le selectionner comme
-// fichier, sans moyen de corriger ca depuis le site).
-const formArchiveComptableFichiers = document.getElementById("form-archive-comptable-fichiers");
-if (formArchiveComptableFichiers) {
-  formArchiveComptableFichiers.addEventListener("submit", async (e) => {
-    e.preventDefault();
+function ajouterFichiersArchiveComptable(fileList) {
+  const resultatDiv = document.getElementById("resultat-import-archive-comptable");
+  const EXTENSIONS_AUTORISEES = [".zip", ".pdf", ".jpg", ".jpeg", ".png"];
+  const retenus = [...fileList].filter((f) => EXTENSIONS_AUTORISEES.some((ext) => f.name.toLowerCase().endsWith(ext)));
+  if (retenus.length < fileList.length && resultatDiv) {
+    resultatDiv.innerHTML = `<p class="aide-inline">${fileList.length - retenus.length} fichier(s) ignoré(s) (format non reconnu, seuls PDF/JPEG/PNG/ZIP sont acceptés).</p>`;
+  }
+  fichiersArchiveComptableSelectionnes = fichiersArchiveComptableSelectionnes.concat(retenus);
+  rendreSelectionArchiveComptable();
+}
+
+const zoneDepotArchiveComptable = document.getElementById("zone-depot-archive-comptable");
+if (zoneDepotArchiveComptable) {
+  const entreeFichiers = document.getElementById("archive-comptable-entree");
+  zoneDepotArchiveComptable.addEventListener("click", () => entreeFichiers.click());
+  zoneDepotArchiveComptable.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      entreeFichiers.click();
+    }
+  });
+  entreeFichiers.addEventListener("change", () => {
+    ajouterFichiersArchiveComptable(entreeFichiers.files);
+    entreeFichiers.value = "";
+  });
+  ["dragenter", "dragover"].forEach((evt) =>
+    zoneDepotArchiveComptable.addEventListener(evt, (e) => {
+      e.preventDefault();
+      zoneDepotArchiveComptable.classList.add("zone-depot-survol");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    zoneDepotArchiveComptable.addEventListener(evt, (e) => {
+      e.preventDefault();
+      zoneDepotArchiveComptable.classList.remove("zone-depot-survol");
+    })
+  );
+  zoneDepotArchiveComptable.addEventListener("drop", (e) => {
+    if (e.dataTransfer?.files?.length) ajouterFichiersArchiveComptable(e.dataTransfer.files);
+  });
+
+  document.getElementById("btn-vider-import-archive-comptable").addEventListener("click", () => {
+    fichiersArchiveComptableSelectionnes = [];
+    rendreSelectionArchiveComptable();
+  });
+
+  document.getElementById("btn-lancer-import-archive-comptable").addEventListener("click", async () => {
     const resultatDiv = document.getElementById("resultat-import-archive-comptable");
-    const champFichiers = document.getElementById("archive-comptable-fichiers");
-    if (!champFichiers.files.length) {
-      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Choisissez au moins un fichier PDF/JPEG.`;
-      return;
+    const boutonImporter = document.getElementById("btn-lancer-import-archive-comptable");
+    const fichiers = fichiersArchiveComptableSelectionnes;
+    if (fichiers.length === 0) return;
+
+    // Un unique .zip -> deballage cote serveur ; toute autre combinaison
+    // (un ou plusieurs PDF/JPEG/PNG, meme un seul) -> depot direct.
+    const estUnZipSeul = fichiers.length === 1 && fichiers[0].name.toLowerCase().endsWith(".zip");
+    const donnees = new FormData();
+    if (estUnZipSeul) {
+      donnees.append("archive", fichiers[0]);
+    } else {
+      for (const f of fichiers) {
+        if (f.name.toLowerCase().endsWith(".zip")) continue; // melange zip + fichiers : le zip seul n'est pas deballe ici, ignore plutot que mal interprete.
+        donnees.append("fichiers", f);
+      }
     }
 
-    const donnees = new FormData();
-    for (const fichier of champFichiers.files) donnees.append("fichiers", fichier);
-
-    resultatDiv.textContent = "Envoi des fichiers en cours… (peut prendre un moment pour plusieurs centaines de fichiers)";
+    boutonImporter.disabled = true;
+    resultatDiv.textContent = "Envoi en cours… (peut prendre un moment pour plusieurs centaines de fichiers)";
     const depuis = new Date();
     try {
-      const res = await fetch("/api/archives-comptables/import-fichiers", { method: "POST", body: donnees });
+      const res = await fetch(estUnZipSeul ? "/api/archives-comptables/import" : "/api/archives-comptables/import-fichiers", {
+        method: "POST",
+        body: donnees,
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.erreur || "Échec de l'import.");
       resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan…`;
-      formArchiveComptableFichiers.reset();
+      fichiersArchiveComptableSelectionnes = [];
+      rendreSelectionArchiveComptable();
       attendreResultatTraitementArchiveComptable(resultatDiv, "archive_comptable_import_termine", "archive_comptable_import_erreur", depuis);
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+      boutonImporter.disabled = fichiersArchiveComptableSelectionnes.length === 0;
     }
   });
 }
