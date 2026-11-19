@@ -120,6 +120,20 @@ const OUTILS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "lister_factures_par_mode_paiement",
+    description:
+      "Liste les factures (nom client, numero, date, montant TTC, mode(s) de reglement) dont le mode de paiement contient le texte demande (ex. \"cheque\", \"carte\") - utile pour retrouver les factures reglees au moins en partie par un moyen donne. Lit la copie deja importee en base (dernier export CSV Synec, voir Facture.modePaiement) : PAS un acces direct/live a Synec, qui n'existe pas. Le champ modePaiement reflete deja les reglements mixtes d'une meme facture (ex. \"Carte, Cheque\"), donc une recherche sur \"cheque\" remonte aussi ces factures mixtes - inutile de les filtrer ou de les verifier une par une. Si le dernier import CSV est ancien, previens que la liste peut ne pas couvrir les factures les plus recentes pas encore importees.",
+    input_schema: {
+      type: "object",
+      properties: {
+        mode: { type: "string", description: "Texte a rechercher dans le mode de paiement (insensible a la casse), ex. \"cheque\"." },
+        dateDebut: { type: "string", description: "Date d'emission minimale (AAAA-MM-JJ), incluse. Omis = depuis le debut." },
+        dateFin: { type: "string", description: "Date d'emission maximale (AAAA-MM-JJ), incluse. Omis = jusqu'a aujourd'hui." },
+      },
+      required: ["mode"],
+    },
+  },
+  {
     name: "ignorer_anomalie",
     description:
       "Marque une anomalie precise comme ignoree (conserve une trace, ne supprime rien). N'utiliser que si l'utilisateur a clairement demande d'ignorer CETTE anomalie (par son id, obtenu via lister_anomalies).",
@@ -805,6 +819,35 @@ async function executerOutil(
         client: f.clientNom,
         echeance: f.dateEcheance,
         resteAPercevoir: f.montantTTC - f.montantRegle,
+      }));
+    }
+
+    case "lister_factures_par_mode_paiement": {
+      const mode = params.mode;
+      if (typeof mode !== "string" || !mode.trim()) return { erreur: "mode est requis (ex. \"cheque\")." };
+
+      const dateDebutBrute = params.dateDebut;
+      const dateFinBrute = params.dateFin;
+      const dateDebut = typeof dateDebutBrute === "string" && dateDebutBrute ? new Date(dateDebutBrute) : null;
+      const dateFin = typeof dateFinBrute === "string" && dateFinBrute ? new Date(dateFinBrute) : null;
+      if (dateDebut && Number.isNaN(dateDebut.getTime())) return { erreur: "dateDebut illisible (attendu AAAA-MM-JJ)." };
+      if (dateFin && Number.isNaN(dateFin.getTime())) return { erreur: "dateFin illisible (attendu AAAA-MM-JJ)." };
+
+      const factures = await prisma.facture.findMany({
+        where: {
+          modePaiement: { contains: mode.trim(), mode: "insensitive" },
+          ...(dateDebut || dateFin
+            ? { dateEmission: { ...(dateDebut ? { gte: dateDebut } : {}), ...(dateFin ? { lte: dateFin } : {}) } }
+            : {}),
+        },
+        orderBy: { dateEmission: "asc" },
+      });
+      return factures.map((f) => ({
+        reference: f.reference,
+        client: f.clientNom,
+        dateEmission: f.dateEmission,
+        montantTTC: f.montantTTC,
+        modePaiement: f.modePaiement,
       }));
     }
 
