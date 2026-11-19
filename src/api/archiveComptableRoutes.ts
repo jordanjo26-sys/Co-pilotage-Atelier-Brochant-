@@ -50,7 +50,12 @@ export function buildArchiveComptableRouter(prisma: PrismaClient): Router {
   // moyen de corriger ca depuis le site. Selectionner directement les
   // PDF/JPEG (ex. Ctrl+A dans le dossier deja extrait) evite ce piege.
   router.post("/import-fichiers", (req, res) => {
-    upload.array("fichiers", 500)(req, res, async (err) => {
+    // 5000, pas 500 (ex-limite) : des que le nombre de fichiers deposes
+    // depassait cette limite, multer rejetait TOUT le depot avec une
+    // erreur "Unexpected field" (son comportement standard au-dela du
+    // maxCount d'un champ "array") - constate en production sur un vrai
+    // depot de 1532 fichiers.
+    upload.array("fichiers", 5000)(req, res, async (err) => {
       if (err) return res.status(400).json({ erreur: (err as Error).message });
       const fichiers = (req.files as Express.Multer.File[] | undefined) || [];
       if (fichiers.length === 0) return res.status(400).json({ erreur: "Aucun fichier reçu (champ 'fichiers' attendu)." });

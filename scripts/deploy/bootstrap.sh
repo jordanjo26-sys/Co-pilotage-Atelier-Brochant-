@@ -383,16 +383,18 @@ server {
     listen [::]:80 default_server;
     server_name ${DOMAIN} ${WWW_DOMAIN} _;
 
-    # 400M, pas 25M (ex-limite, bien trop basse) : le module Comptabilite
-    # permet de deposer plusieurs centaines de factures PDF/JPEG en une
+    # 2G, pas 25M (ex-limite, bien trop basse) : le module Comptabilite
+    # permet de deposer plusieurs MILLIERS de factures PDF/JPEG en une
     # seule requete (import ZIP ou depot direct de fichiers, voir
     # archiveComptableRoutes.ts, deja autorise cote multer jusqu'a 300 Mo
-    # par fichier) - nginx rejetait ces depots avec une erreur 413 des que
-    # leur taille cumulee depassait 25 Mo, renvoyant sa page HTML
-    # d'erreur par defaut la ou l'appli attend du JSON ("Unexpected token
-    # '<' ... is not valid JSON" cote navigateur) - bug reel constate en
-    # production (novembre 2026, depot de 358 fichiers).
-    client_max_body_size 400M;
+    # par fichier et jusqu'a 5000 fichiers par depot direct) - nginx
+    # rejetait ces depots avec une erreur 413 des que leur taille cumulee
+    # depassait 25 Mo, renvoyant sa page HTML d'erreur par defaut la ou
+    # l'appli attend du JSON ("Unexpected token '<' ... is not valid JSON"
+    # cote navigateur) - bug reel constate en production (novembre 2026,
+    # d'abord sur un depot de 358 fichiers, remonte a 400M, puis sur un
+    # depot de 1532 fichiers qui depassait encore cette limite).
+    client_max_body_size 2G;
 
     location /.well-known/acme-challenge/ {
         root ${CERTBOT_WEBROOT};
@@ -488,16 +490,18 @@ server {
     ssl_certificate ${CERT_DIR}/fullchain.pem;
     ssl_certificate_key ${CERT_DIR}/privkey.pem;
 
-    # 400M, pas 25M (ex-limite, bien trop basse) : le module Comptabilite
-    # permet de deposer plusieurs centaines de factures PDF/JPEG en une
+    # 2G, pas 25M (ex-limite, bien trop basse) : le module Comptabilite
+    # permet de deposer plusieurs MILLIERS de factures PDF/JPEG en une
     # seule requete (import ZIP ou depot direct de fichiers, voir
     # archiveComptableRoutes.ts, deja autorise cote multer jusqu'a 300 Mo
-    # par fichier) - nginx rejetait ces depots avec une erreur 413 des que
-    # leur taille cumulee depassait 25 Mo, renvoyant sa page HTML
-    # d'erreur par defaut la ou l'appli attend du JSON ("Unexpected token
-    # '<' ... is not valid JSON" cote navigateur) - bug reel constate en
-    # production (novembre 2026, depot de 358 fichiers).
-    client_max_body_size 400M;
+    # par fichier et jusqu'a 5000 fichiers par depot direct) - nginx
+    # rejetait ces depots avec une erreur 413 des que leur taille cumulee
+    # depassait 25 Mo, renvoyant sa page HTML d'erreur par defaut la ou
+    # l'appli attend du JSON ("Unexpected token '<' ... is not valid JSON"
+    # cote navigateur) - bug reel constate en production (novembre 2026,
+    # d'abord sur un depot de 358 fichiers, remonte a 400M, puis sur un
+    # depot de 1532 fichiers qui depassait encore cette limite).
+    client_max_body_size 2G;
 
     # En-tetes de securite de base (l'appli elle-meme ne les fixe pas).
     # X-Frame-Options en SAMEORIGIN (pas DENY) : protege toujours contre le
