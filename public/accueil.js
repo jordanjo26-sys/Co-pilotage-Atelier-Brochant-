@@ -91,6 +91,22 @@ async function chargerResultat() {
   }
 }
 
+async function chargerComptabilite() {
+  try {
+    const res = await fetch("/api/archives-comptables");
+    if (!res.ok) return;
+    const archives = await res.json();
+    if (archives.length === 0) {
+      definirMeta("meta-comptabilite", "Aucune archive importée");
+      return;
+    }
+    const aVerifier = archives.filter((a) => a.statut === "a_verifier").length;
+    definirMeta("meta-comptabilite", aVerifier > 0 ? `${archives.length} archive(s) · ${aVerifier} à vérifier` : `${archives.length} archive(s)`);
+  } catch {
+    // carte conservee sans statistique
+  }
+}
+
 chargerGestion();
 chargerProspection();
 chargerDemandes();
@@ -98,3 +114,4 @@ chargerAds();
 chargerReseauxSociaux();
 chargerResultat();
 chargerRealisations();
+chargerComptabilite();
