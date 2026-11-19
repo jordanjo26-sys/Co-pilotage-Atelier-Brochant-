@@ -2307,32 +2307,28 @@ document.getElementById("depenses-granularite")?.addEventListener("change", char
 // necessaire pour tout document recu AVANT l'introduction de cette
 // extraction (la quasi-totalite des factures existantes au moment de ce
 // module, signale par l'utilisateur : un mur de "0,00 €" sur chaque
-// fournisseur). Peut prendre plusieurs dizaines de secondes (un appel
-// Gmail par facture, avec la meme pause anti-quota que la synchronisation
-// normale) : le bouton reste desactive et affiche une progression le
-// temps de la requete plutot que de laisser croire a un blocage.
+// fournisseur). Ne bloque plus en attendant la fin (voir gmailSync.ts) :
+// avec plusieurs centaines de documents et le filet IA (vision...) ajoute
+// depuis, l'extraction peut desormais prendre plusieurs minutes, bien au
+// dela de ce qu'une requete HTTP peut attendre de maniere fiable - le
+// resultat exact (mise a jour/toujours sans montant/erreurs) n'arrive
+// qu'a la fin, visible dans le Journal, pas dans cette reponse.
 async function backfillMontantsFournisseurs(bouton) {
   const resultatConteneur = document.getElementById("depenses-backfill-resultat");
   bouton.disabled = true;
   const texteInitial = bouton.textContent;
-  bouton.textContent = "Récupération en cours… (peut prendre une à deux minutes)";
+  bouton.textContent = "Lancement…";
   if (resultatConteneur) resultatConteneur.innerHTML = "";
   try {
     const res = await fetch("/api/depenses-fournisseurs/backfill-montants", { method: "POST" });
     const data = await res.json();
     if (!res.ok) throw new Error(data.erreur || "Récupération impossible.");
     if (resultatConteneur) {
-      const details = [
-        `${data.miseAJour} facture(s) mise(s) à jour`,
-        data.toujoursSansMontant > 0 ? `${data.toujoursSansMontant} toujours sans montant lisible` : null,
-        data.ignorees > 0 ? `${data.ignorees} ignorée(s) (document trop ancien, sans pièce jointe retrouvable)` : null,
-        data.erreurs.length > 0 ? `${data.erreurs.length} erreur(s)` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      resultatConteneur.innerHTML = `<p class="aide-inline">${echapper(details)}.</p>`;
+      resultatConteneur.innerHTML =
+        data.traitees > 0
+          ? `<p class="aide-inline">${data.traitees} facture(s) en cours de traitement en arrière-plan${data.ignorees > 0 ? ` (${data.ignorees} ignorée(s), document trop ancien ou sans pièce jointe retrouvable)` : ""} — peut prendre plusieurs minutes pour un gros volume, voir le Journal pour le résultat final.</p>`
+          : `<p class="aide-inline">Aucune facture à retraiter${data.ignorees > 0 ? ` (${data.ignorees} ignorée(s), document trop ancien ou sans pièce jointe retrouvable)` : ""}.</p>`;
     }
-    await chargerDepensesFournisseurs();
   } catch (err) {
     if (resultatConteneur) resultatConteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
   } finally {
@@ -3142,6 +3138,38 @@ if (formArchiveComptable) {
       if (!res.ok) throw new Error(data.erreur || "Échec de l'import.");
       resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan — actualisez cette page dans quelques minutes pour voir les résultats classés par mois ci-dessous.`;
       formArchiveComptable.reset();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
+// Depot direct de plusieurs fichiers PDF/JPEG individuels, sans passer par
+// un ZIP - demande explicite de l'utilisateur apres un essai reel en video
+// (sur Windows, double-cliquer un ZIP dans la boite de depot du navigateur
+// l'ouvre parfois comme un dossier plutot que de le selectionner comme
+// fichier, sans moyen de corriger ca depuis le site).
+const formArchiveComptableFichiers = document.getElementById("form-archive-comptable-fichiers");
+if (formArchiveComptableFichiers) {
+  formArchiveComptableFichiers.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const resultatDiv = document.getElementById("resultat-import-archive-comptable");
+    const champFichiers = document.getElementById("archive-comptable-fichiers");
+    if (!champFichiers.files.length) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Choisissez au moins un fichier PDF/JPEG.`;
+      return;
+    }
+
+    const donnees = new FormData();
+    for (const fichier of champFichiers.files) donnees.append("fichiers", fichier);
+
+    resultatDiv.textContent = "Envoi des fichiers en cours… (peut prendre un moment pour plusieurs centaines de fichiers)";
+    try {
+      const res = await fetch("/api/archives-comptables/import-fichiers", { method: "POST", body: donnees });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.erreur || "Échec de l'import.");
+      resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan — actualisez cette page dans quelques minutes pour voir les résultats classés par mois ci-dessous.`;
+      formArchiveComptableFichiers.reset();
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }

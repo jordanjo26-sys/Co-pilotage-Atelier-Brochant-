@@ -86,6 +86,7 @@ test("Module Comptabilité — archive de factures", async (t) => {
   const { PrismaClient } = await import("@prisma/client");
   const {
     demarrerImportArchiveZip,
+    demarrerImportFichiers,
     listerArchivesComptables,
     obtenirArchiveComptable,
     modifierArchiveComptable,
@@ -102,6 +103,26 @@ test("Module Comptabilité — archive de factures", async (t) => {
   await t.test("demarrerImportArchiveZip : rejette une archive sans aucun fichier reconnu", async () => {
     const zip = construireZipDeTest({ "notice.txt": "rien a importer" });
     await assert.rejects(() => demarrerImportArchiveZip(prisma, zip), /Aucun fichier/);
+  });
+
+  // Depot direct de fichiers individuels (sans ZIP) - demande explicite de
+  // l'utilisateur apres un essai reel en video : sur Windows, selectionner
+  // un .zip dans la boite de depot du navigateur l'ouvre parfois comme un
+  // dossier navigable plutot que de le choisir comme fichier.
+  await t.test("demarrerImportFichiers : rejette une liste vide", async () => {
+    await assert.rejects(() => demarrerImportFichiers(prisma, []), /Aucun fichier/);
+  });
+
+  await t.test("demarrerImportFichiers : importe un PDF deja deballe, sans passer par un ZIP", async () => {
+    const { total } = await demarrerImportFichiers(prisma, [{ nom: "facture-directe.pdf", donnees: Buffer.from(PDF_MINIMAL) }]);
+    assert.equal(total, 1);
+    await attendreJusqua(async () => (await prisma.archiveComptable.findFirst({ where: { fichierNom: "facture-directe.pdf" } })) !== null);
+    const archive = await prisma.archiveComptable.findFirst({ where: { fichierNom: "facture-directe.pdf" } });
+    assert.equal(archive?.montantHT, 100);
+    assert.equal(archive?.montantTTC, 120);
+    // Nettoyage : les sous-tests suivants (ex. le decompte exact d'archives
+    // apres un import ZIP) supposent une table vide avant eux.
+    await prisma.archiveComptable.delete({ where: { id: archive!.id } });
   });
 
   await t.test("demarrerImportArchiveZip : importe un PDF lisible, extrait HT/TTC par regex meme sans cle IA, puis liste/filtre/corrige/supprime", async () => {

@@ -41,6 +41,28 @@ export async function demarrerImportArchiveZip(prisma: PrismaClient, buffer: Buf
   if (fichiers.length === 0) {
     throw new Error("Aucun fichier PDF/JPEG/PNG trouve dans cette archive.");
   }
+  return demarrerImportFichiers(prisma, fichiers);
+}
+
+/**
+ * Meme import que demarrerImportArchiveZip, mais a partir de fichiers
+ * deja deposes individuellement (plusieurs a la fois, voir
+ * archiveComptableRoutes.ts) plutot que d'un ZIP - demande explicite de
+ * l'utilisateur apres un essai reel en video : sur Windows, selectionner
+ * un .zip dans la boite de depot d'un navigateur ouvre parfois l'archive
+ * comme un DOSSIER navigable (double-clic sur un "dossier compresse")
+ * plutot que de le choisir comme fichier, ce que l'explorateur de fichiers
+ * lui-meme ne permet pas de corriger depuis le site. Selectionner
+ * directement les PDF/JPEG (ex. Ctrl+A dans le dossier extrait) evite
+ * entierement ce piege, au prix d'une seule difference : le navigateur,
+ * pas unzip, se charge de lire chaque fichier, donc aucune verification
+ * de type n'est a refaire ici (voir archiveComptableRoutes.ts, qui filtre
+ * deja par extension a la reception).
+ */
+export async function demarrerImportFichiers(prisma: PrismaClient, fichiers: FichierExtrait[]): Promise<ResultatImportArchive> {
+  if (fichiers.length === 0) {
+    throw new Error("Aucun fichier PDF/JPEG/PNG recu.");
+  }
 
   await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
   await logEvenement(prisma, {

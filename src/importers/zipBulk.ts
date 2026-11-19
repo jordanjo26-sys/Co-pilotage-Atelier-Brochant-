@@ -9,7 +9,10 @@ export interface FichierExtrait {
   donnees: Buffer;
 }
 
-const EXTENSIONS_AUTORISEES = [".pdf", ".jpg", ".jpeg", ".png"];
+// Exportee : reutilisee telle quelle par archiveComptableRoutes.ts pour
+// filtrer les fichiers deposes individuellement (sans passer par un ZIP),
+// afin que les deux voies d'import acceptent exactement les memes types.
+export const EXTENSIONS_AUTORISEES = [".pdf", ".jpg", ".jpeg", ".png"];
 
 /**
  * Extrait TOUS les fichiers PDF/JPEG/PNG d'une archive ZIP (contrairement

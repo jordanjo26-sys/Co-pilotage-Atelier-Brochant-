@@ -576,7 +576,11 @@ export function buildRouter(prisma: PrismaClient): Router {
     try {
       const resultat = await backfillMontantsFacturesSansMontant(prisma);
       reinitialiserLimiteGmail();
-      res.json(resultat);
+      // 202 (traitement lance en arriere-plan, voir backfillMontantsFacturesSansMontant)
+      // quand il y avait reellement quelque chose a traiter - les comptes
+      // definitifs (mise a jour/toujours sans montant/erreurs) n'arrivent
+      // alors que plus tard, dans le Journal. 200 quand rien n'etait a faire.
+      res.status(resultat.traitees > 0 ? 202 : 200).json(resultat);
     } catch (err) {
       const messageErreur = (err as Error).message;
       if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);

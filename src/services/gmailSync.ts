@@ -888,10 +888,36 @@ export async function backfillMontantsFacturesSansMontant(prisma: PrismaClient):
 
   const connexionGmail = await getGmailClient(prisma);
   if (!connexionGmail) throw new Error("Aucune boite Gmail connectee. Se connecter via /auth/google d'abord.");
-  const { gmail } = connexionGmail;
+
+  // Ne bloque plus la reponse HTTP jusqu'a la fin (voir traiterBackfillMontants
+  // ci-dessous) : avec resoudreMontantsFacture (filet IA, vision sur PDF
+  // sans texte...) ajoute depuis, quelques centaines de documents peuvent
+  // largement depasser les delais d'attente HTTP (nginx, le serveur Node
+  // lui-meme) - constate en production (reponse jamais recue cote client,
+  // alors que le traitement continuait bel et bien cote serveur). Le
+  // compte exact (mise a jour/toujours sans montant/erreurs) n'est donc
+  // connu qu'a la fin, visible dans le Journal plutot que dans la reponse.
+  resultat.traitees = aTraiter.length;
+  traiterBackfillMontants(prisma, connexionGmail.gmail, aTraiter).catch(() => {
+    // traiterBackfillMontants journalise deja chaque erreur individuelle
+    // et son propre evenement de fin - rien de plus a faire ici, cette
+    // securite n'existe que pour ne jamais laisser une promesse detachee
+    // non geree faire planter le processus.
+  });
+
+  return resultat;
+}
+
+async function traiterBackfillMontants(
+  prisma: PrismaClient,
+  gmail: gmail_v1.Gmail,
+  aTraiter: Awaited<ReturnType<typeof prisma.documentFournisseur.findMany>>
+): Promise<void> {
+  let miseAJour = 0;
+  let toujoursSansMontant = 0;
+  const erreurs: string[] = [];
 
   for (const document of aTraiter) {
-    resultat.traitees++;
     // Meme pause volontaire qu'en synchronisation normale (voir
     // appelAvecRetryQuota/synchroniserGmail) : un lot de plusieurs
     // centaines de documents en rafale a deja provoque un depassement de
@@ -925,20 +951,18 @@ export async function backfillMontantsFacturesSansMontant(prisma: PrismaClient):
       const montantHT = document.montantHT ?? resolu.montantHT;
       if (montantHT != null || montantTTC != null) {
         await prisma.documentFournisseur.update({ where: { id: document.id }, data: { montantHT, montantTTC } });
-        resultat.miseAJour++;
+        miseAJour++;
       } else {
-        resultat.toujoursSansMontant++;
+        toujoursSansMontant++;
       }
     } catch (err) {
-      resultat.erreurs.push(`${document.fichierNom || document.id} : ${(err as Error).message}`);
+      erreurs.push(`${document.fichierNom || document.id} : ${(err as Error).message}`);
     }
   }
 
   await logEvenement(prisma, {
     evenement: "gmail_backfill_montants",
     action: "Re-extraction des montants HT/TTC des factures fournisseurs deja en base",
-    resultat: `${resultat.miseAJour} mise(s) a jour, ${resultat.toujoursSansMontant} toujours sans montant exploitable, ${resultat.ignorees} ignoree(s) (piece jointe non disponible), ${resultat.erreurs.length} erreur(s) sur ${resultat.traitees} traitee(s).`,
+    resultat: `${miseAJour} mise(s) a jour, ${toujoursSansMontant} toujours sans montant exploitable, ${erreurs.length} erreur(s) sur ${aTraiter.length} traitee(s).`,
   });
-
-  return resultat;
 }

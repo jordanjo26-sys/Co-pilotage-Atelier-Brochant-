@@ -1,14 +1,17 @@
 import { Router } from "express";
 import multer from "multer";
 import fs from "node:fs";
+import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import {
   demarrerImportArchiveZip,
+  demarrerImportFichiers,
   listerArchivesComptables,
   obtenirArchiveComptable,
   modifierArchiveComptable,
   supprimerArchiveComptable,
 } from "../services/archiveComptable";
+import { EXTENSIONS_AUTORISEES } from "../importers/zipBulk";
 
 /**
  * Routes du module Comptabilite (archive de factures independante de
@@ -30,6 +33,36 @@ export function buildArchiveComptableRouter(prisma: PrismaClient): Router {
       if (!req.file) return res.status(400).json({ erreur: "Aucune archive reçue (champ 'archive' attendu, fichier .zip)." });
       try {
         const resultat = await demarrerImportArchiveZip(prisma, req.file.buffer);
+        res.status(202).json(resultat);
+      } catch (err2) {
+        res.status(400).json({ erreur: (err2 as Error).message });
+      }
+    });
+  });
+
+  // Depot direct de plusieurs fichiers PDF/JPEG individuels (pas un ZIP) -
+  // demande explicite de l'utilisateur apres un essai reel en video : sur
+  // Windows, selectionner un .zip dans la boite de depot du navigateur
+  // ouvre parfois l'archive comme un dossier navigable (double-clic sur
+  // un "dossier compresse") plutot que de le choisir comme fichier, sans
+  // moyen de corriger ca depuis le site. Selectionner directement les
+  // PDF/JPEG (ex. Ctrl+A dans le dossier deja extrait) evite ce piege.
+  router.post("/import-fichiers", (req, res) => {
+    upload.array("fichiers", 500)(req, res, async (err) => {
+      if (err) return res.status(400).json({ erreur: (err as Error).message });
+      const fichiers = (req.files as Express.Multer.File[] | undefined) || [];
+      if (fichiers.length === 0) return res.status(400).json({ erreur: "Aucun fichier reçu (champ 'fichiers' attendu)." });
+      // Filtre silencieux par extension (meme liste que l'import ZIP) :
+      // un fichier sans rapport glisse dans la meme selection (ex. un
+      // .DS_Store ou un recapitulatif) est simplement ignore plutot que
+      // de faire echouer tout l'import.
+      const retenus = fichiers.filter((f) => EXTENSIONS_AUTORISEES.some((ext) => f.originalname.toLowerCase().endsWith(ext)));
+      if (retenus.length === 0) return res.status(400).json({ erreur: "Aucun fichier PDF/JPEG/PNG reconnu parmi les fichiers déposés." });
+      try {
+        const resultat = await demarrerImportFichiers(
+          prisma,
+          retenus.map((f) => ({ nom: path.basename(f.originalname), donnees: f.buffer }))
+        );
         res.status(202).json(resultat);
       } catch (err2) {
         res.status(400).json({ erreur: (err2 as Error).message });
