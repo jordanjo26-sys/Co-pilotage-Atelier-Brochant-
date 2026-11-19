@@ -245,8 +245,10 @@
           </select>
           <input type="search" id="depenses-recherche" placeholder="Rechercher un fournisseur…" />
           <button type="button" class="ghost" onclick="backfillMontantsFournisseurs(this)">Récupérer les montants manquants</button>
+          <button type="button" class="ghost" onclick="backfillFournisseurManquant(this)">Rattacher les factures sans fournisseur identifié</button>
         </div>
         <div id="depenses-backfill-resultat"></div>
+        <div id="depenses-backfill-fournisseur-resultat"></div>
         <div id="depenses-fournisseurs-resume"></div>
         <div id="depenses-fournisseurs-detail"></div>
       </section>
@@ -453,7 +455,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=54"></script>
+  <script src="/app.js?v=55"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

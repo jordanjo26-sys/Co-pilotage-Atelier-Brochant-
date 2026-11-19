@@ -2338,6 +2338,38 @@ async function backfillMontantsFournisseurs(bouton) {
 }
 window.backfillMontantsFournisseurs = backfillMontantsFournisseurs;
 
+// Rattache retroactivement le fournisseur des factures/avoirs qui n'en ont
+// jamais eu (voir backfillFournisseurDocumentsSansFournisseur dans
+// gmailSync.ts) - cas reel : un document reclasse en facture depuis le
+// centre de validation des anomalies restait "fournisseur non identifie"
+// meme quand l'expediteur permettait de le reconnaitre. Synchrone (aucun
+// appel Gmail necessaire) : le resultat exact arrive directement dans la
+// reponse, pas besoin de consulter le Journal.
+async function backfillFournisseurManquant(bouton) {
+  const resultatConteneur = document.getElementById("depenses-backfill-fournisseur-resultat");
+  bouton.disabled = true;
+  const texteInitial = bouton.textContent;
+  bouton.textContent = "Lancement…";
+  if (resultatConteneur) resultatConteneur.innerHTML = "";
+  try {
+    const res = await fetch("/api/documents-fournisseurs/backfill-fournisseur", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.erreur || "Rattachement impossible.");
+    if (resultatConteneur) {
+      resultatConteneur.innerHTML =
+        data.total > 0
+          ? `<p class="aide-inline">${data.resolues} document(s) sur ${data.total} désormais rattaché(s) à un fournisseur.</p>`
+          : `<p class="aide-inline">Aucun document sans fournisseur à rattacher.</p>`;
+    }
+  } catch (err) {
+    if (resultatConteneur) resultatConteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = texteInitial;
+  }
+}
+window.backfillFournisseurManquant = backfillFournisseurManquant;
+
 // --- Fournisseurs ---------------------------------------------------------
 
 // Le nom seul ne permet pas de deviner si un expediteur est un vrai

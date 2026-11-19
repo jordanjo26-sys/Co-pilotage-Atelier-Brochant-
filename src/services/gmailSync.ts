@@ -892,7 +892,16 @@ export async function classerAnomalieCommeFacture(prisma: PrismaClient, anomalie
   });
   if (!document) throw new AnomalieClassificationError("Document associe introuvable.");
 
-  await prisma.documentFournisseur.update({ where: { id: document.id }, data: { type: "facture", statutDext: "a_valider" } });
+  // Un document "ambigu" (type d'origine) n'a jamais de fournisseur resolu
+  // (voir auMoinsUnDocumentReconnu dans synchroniserGmail, qui l'exclut
+  // explicitement) : le reclasser en facture ici doit donc aussi tenter la
+  // resolution, sinon il reste "fournisseur non identifie" indefiniment
+  // meme quand l'expediteur permet de le reconnaitre - bug reel constate en
+  // production (novembre 2026, plusieurs tickets Leroy Merlin reclasses en
+  // facture mais jamais rattaches au fournisseur).
+  const fournisseurId = document.fournisseurId ?? (document.gmailExpediteur ? await resoudreFournisseur(prisma, document.gmailExpediteur) : null);
+
+  await prisma.documentFournisseur.update({ where: { id: document.id }, data: { type: "facture", statutDext: "a_valider", fournisseurId } });
   await prisma.anomalie.update({ where: { id: anomalieId }, data: { statut: "validee" } });
   await logEvenement(prisma, {
     evenement: "gmail_document",
@@ -928,6 +937,54 @@ export interface ResultatBackfillMontants {
  * sans texte extractible) est compte a part (ignorees) plutot que de
  * provoquer une erreur bloquante pour les autres.
  */
+export interface ResultatBackfillFournisseur {
+  total: number;
+  resolues: number;
+}
+
+/**
+ * Resout retroactivement le fournisseur des factures/avoirs qui n'en ont
+ * jamais eu (fournisseurId null) alors que leur expediteur Gmail le
+ * permettrait. Cas reel : un document "ambigu" reclasse en facture depuis
+ * le centre de validation des anomalies ne beneficiait jamais de cette
+ * resolution (voir classerAnomalieCommeFacture, corrige pour les nouveaux
+ * cas ci-dessus) - plusieurs tickets Leroy Merlin reclasses en facture sont
+ * ainsi restes "fournisseur non identifie" malgre un expediteur parfaitement
+ * reconnaissable (constate en production, novembre 2026). Aucun appel Gmail
+ * necessaire (contrairement a backfillMontantsFacturesSansMontant ci-dessous) :
+ * la resolution ne depend que de gmailExpediteur, deja en base - reste donc
+ * synchrone, un lot de quelques centaines de documents se traite en
+ * quelques secondes.
+ */
+export async function backfillFournisseurDocumentsSansFournisseur(prisma: PrismaClient): Promise<ResultatBackfillFournisseur> {
+  const documents = await prisma.documentFournisseur.findMany({
+    where: { type: { in: ["facture", "avoir"] }, fournisseurId: null, gmailExpediteur: { not: null } },
+  });
+  if (documents.length === 0) return { total: 0, resolues: 0 };
+
+  const cache = new Map<string, string>();
+  let resolues = 0;
+  for (const document of documents) {
+    try {
+      const fournisseurId = await resoudreFournisseur(prisma, document.gmailExpediteur!, cache);
+      await prisma.documentFournisseur.update({ where: { id: document.id }, data: { fournisseurId } });
+      resolues++;
+    } catch {
+      // Un document isole en echec (ex. collision de nom rare deja geree
+      // dans resoudreFournisseur, ou erreur base passagere) ne doit jamais
+      // bloquer le reste du lot.
+    }
+  }
+
+  await logEvenement(prisma, {
+    evenement: "gmail_document",
+    action: "Resolution retroactive du fournisseur des documents sans fiche",
+    resultat: `${resolues} document(s) desormais rattaches a un fournisseur, sur ${documents.length} au total.`,
+  });
+
+  return { total: documents.length, resolues };
+}
+
 export async function backfillMontantsFacturesSansMontant(prisma: PrismaClient): Promise<ResultatBackfillMontants> {
   const resultat: ResultatBackfillMontants = { traitees: 0, miseAJour: 0, toujoursSansMontant: 0, ignorees: 0, erreurs: [] };
 

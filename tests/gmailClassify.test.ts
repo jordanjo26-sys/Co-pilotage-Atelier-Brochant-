@@ -97,6 +97,22 @@ test("une vraie facture Cedeo (auto-titree 'Facture <ref> du <date>') n'est jama
   assert.equal(type, "facture");
 });
 
+// Regression reelle en production (novembre 2026) : un avis de virement
+// (Groupe Gendry informant Atelier Brochant d'un paiement RECU, pas une
+// facture fournisseur) etait classe "facture" a tort des que son contenu
+// mentionnait incidemment "la facture n°X" qu'il reglait, puis envoye a
+// Dext avec un numero de facture invente ("facture" lui-meme, voir les
+// tests extraireNumeroFacture ci-dessous).
+test("un avis de virement n'est jamais classe comme facture, meme s'il mentionne 'facture' dans son contenu", () => {
+  const e = email({ sujet: "AVIS DE VIREMENT REGLEMENT ATELIER BROCHANT" });
+  const type = classifierPieceJointe(
+    e,
+    { nomFichier: "2026-11-19_NTR_VIRSEPA-CICE_ATELIER-BROCHANT.pdf", mimeType: "application/pdf" },
+    "En reglement de votre facture n°2026-014, nous avons emis un virement de 1234,56 EUR."
+  );
+  assert.equal(type, "autre");
+});
+
 test("classifie un avoir (mot en tete de sujet)", () => {
   const e = email({ sujet: "Avoir suite a votre reclamation" });
   const type = classifierPieceJointe(e, { nomFichier: "avoir.pdf", mimeType: "application/pdf" });
@@ -182,6 +198,27 @@ test("extraireNumeroFacture trouve un numero apres le mot facture", () => {
 
 test("extraireNumeroFacture retourne null si rien de reconnaissable", () => {
   assert.equal(extraireNumeroFacture("Merci pour votre commande"), null);
+});
+
+// Bug reel constate en production (novembre 2026, avis de virement Groupe
+// Gendry) : "no" (abreviation de "numero") matchait sans limite de mot
+// n'importe quel mot contenant ces deux lettres, capturant la suite du mot
+// comme "numero".
+test("extraireNumeroFacture n'est jamais trompe par 'no' a l'interieur d'un autre mot ('Nouveau', 'renouvelable'...)", () => {
+  assert.equal(extraireNumeroFacture("Ceci est un nouveau document, non lie a une facture"), null);
+  assert.equal(extraireNumeroFacture("Contrat renouvelable chaque annee"), null);
+});
+
+// Bug reel constate en production : "...en reglement de votre facture..."
+// (texte d'un avis de virement, pas d'une vraie facture) capturait
+// litteralement le mot "facture" lui-meme comme numero, faute d'exiger un
+// chiffre dans la valeur capturee.
+test("extraireNumeroFacture n'extrait jamais le mot declencheur lui-meme comme numero", () => {
+  assert.equal(extraireNumeroFacture("En reglement de votre facture facture reçue le mois dernier"), null);
+});
+
+test("extraireNumeroFacture fonctionne toujours avec 'N°' colle a un numero contenant des lettres", () => {
+  assert.equal(extraireNumeroFacture("Référence facture n°CFR00102926012045"), "CFR00102926012045");
 });
 
 test("extraireMontantTTCFacture trouve le net a payer en priorite", () => {

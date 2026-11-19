@@ -167,6 +167,92 @@ test("envoi manuel vers Dext : gardes-fous", async (t) => {
   await prisma.$disconnect();
 });
 
+// classerAnomalieCommeFacture et backfillFournisseurDocumentsSansFournisseur
+// ne necessitent jamais l'API Gmail (resoudreFournisseur ne depend que de
+// gmailExpediteur, deja en base) - testables directement, sans mock.
+test("classerAnomalieCommeFacture : resout aussi le fournisseur si le document reclasse n'en avait pas (bug reel corrige)", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { classerAnomalieCommeFacture, backfillFournisseurDocumentsSansFournisseur, AnomalieClassificationError } = await import(
+    "../src/services/gmailSync"
+  );
+  const prisma = new PrismaClient();
+
+  await t.test("reclasse un document ambigu sans fournisseur : le fournisseur est resolu depuis l'expediteur", async () => {
+    const document = await prisma.documentFournisseur.create({
+      data: {
+        type: "ambigu",
+        fichierNom: "ticket.pdf",
+        gmailMessageId: "msg-1",
+        gmailAttachmentId: "att-1",
+        gmailExpediteur: "Leroy Merlin <no_reply@leroymerlin.fr>",
+      },
+    });
+    const anomalie = await prisma.anomalie.create({
+      data: {
+        type: "document_gmail_ambigu",
+        preuves: JSON.stringify({ messageId: "msg-1", attachmentId: "att-1" }),
+      },
+    });
+
+    await classerAnomalieCommeFacture(prisma, anomalie.id);
+
+    const miseAJour = await prisma.documentFournisseur.findUnique({ where: { id: document.id }, include: { fournisseur: true } });
+    assert.equal(miseAJour?.type, "facture");
+    assert.equal(miseAJour?.statutDext, "a_valider");
+    assert.equal(miseAJour?.fournisseur?.nom, "Leroy Merlin");
+  });
+
+  await t.test("anomalie deja traitee -> erreur", async () => {
+    const anomalie = await prisma.anomalie.create({ data: { type: "document_gmail_ambigu", statut: "validee" } });
+    await assert.rejects(classerAnomalieCommeFacture(prisma, anomalie.id), AnomalieClassificationError);
+  });
+
+  await t.test("backfillFournisseurDocumentsSansFournisseur : rattache les factures historiques sans fournisseur", async () => {
+    await prisma.documentFournisseur.create({
+      data: {
+        type: "facture",
+        fichierNom: "vieux-ticket.pdf",
+        gmailExpediteur: "Leroy Merlin <no_reply@leroymerlin.fr>",
+        statutDext: "envoye",
+      },
+    });
+    // Document deja rattache : ne doit jamais etre retouche.
+    const fournisseurExistant = await prisma.fournisseur.create({ data: { nom: "Autre Fournisseur" } });
+    const dejaRattache = await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: "deja-ok.pdf", gmailExpediteur: "x@autre.fr", fournisseurId: fournisseurExistant.id },
+    });
+
+    const resultat = await backfillFournisseurDocumentsSansFournisseur(prisma);
+    assert.equal(resultat.total, 1);
+    assert.equal(resultat.resolues, 1);
+
+    const vieuxTicket = await prisma.documentFournisseur.findFirst({
+      where: { fichierNom: "vieux-ticket.pdf" },
+      include: { fournisseur: true },
+    });
+    assert.equal(vieuxTicket?.fournisseur?.nom, "Leroy Merlin");
+
+    const inchange = await prisma.documentFournisseur.findUnique({ where: { id: dejaRattache.id } });
+    assert.equal(inchange?.fournisseurId, fournisseurExistant.id);
+  });
+
+  await prisma.$disconnect();
+});
+
 // Meme principe que ci-dessus (aucun mock de l'API Gmail) : ne teste que le
 // cas ou backfillMontantsFacturesSansMontant n'a litteralement rien a
 // retraiter (aucun document eligible), donc jamais besoin d'appeler

@@ -86,6 +86,22 @@ function mentionneDonneurOrdreConnu(contexte: string): boolean {
   return MOTIF_DONNEUR_ORDRE_CONNU.test(contexte);
 }
 
+// Avis de virement (un client/tiers informe d'un paiement RECU par
+// l'utilisateur, ex. "AVIS DE VIREMENT REGLEMENT ATELIER BROCHANT") : jamais
+// une facture fournisseur, meme si le document mentionne incidemment "la
+// facture n°X" qu'il vient regler - exactement le meme risque que MOTIF_AVOIR
+// (mot du contexte comptable courant hors de son usage de nom de document).
+// Verifie uniquement sur le contexte sur (sujet/corps/nom de fichier), jamais
+// sur le contenu integral du PDF : un avis de virement l'affiche presque
+// toujours dans son propre objet/titre (signale par l'utilisateur en
+// production, novembre 2026 : un avis de virement Groupe Gendry envoye a
+// tort a Dext, classe "facture" par la seule mention du mot dans le PDF).
+const MOTIF_AVIS_VIREMENT = /avis[\s.-]*de[\s.-]*virement|virement[\s.-]*sepa|\bvirsepa\b/i;
+
+function estAvisDeVirement(contexte: string): boolean {
+  return MOTIF_AVIS_VIREMENT.test(contexte);
+}
+
 // "application/octet-stream" est le type MIME generique utilise par de
 // nombreux systemes de facturation/ERP quand ils ne renseignent pas (ou
 // mal) le type reel de la piece jointe - constate en production : une
@@ -168,6 +184,7 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   // n'est jamais une facture fournisseur quel que soit le format de la piece
   // jointe.
   if (mentionneDonneurOrdreConnu(contexte)) return "autre";
+  if (estAvisDeVirement(contexte)) return "autre";
   if (!estPieceDocument(piece)) return "ambigu";
 
   if (MOTIF_BON_ENLEVEMENT.test(contexte)) return "bon_enlevement";
@@ -225,8 +242,20 @@ export function choisirAdresseDext(nbFacturesDansLEmail: number): string {
  * de doublon supplementaire.
  */
 export function extraireNumeroFacture(texte: string): string | null {
-  const m = texte.match(/(?:facture|invoice|n°|no|num(?:ero)?)[\s:.#-]*([A-Z0-9][A-Z0-9\-\/]{2,20})/i);
-  return m ? m[1] : null;
+  // \b...\b autour de chaque motif declencheur : sans lui, "no" (abreviation
+  // de "numero") matchait n'importe quel mot CONTENANT ces deux lettres
+  // ("NOuveau" -> capture "uveau", "reNOUVELABLE" -> capture "UVELABLE"),
+  // bug reel constate en production (novembre 2026).
+  const m = texte.match(/\b(?:facture|invoice|n°|no|num(?:ero)?)\b[\s:.#-]*([A-Z0-9][A-Z0-9\-\/]{2,20})/i);
+  if (!m) return null;
+  const candidat = m[1];
+  // Un vrai numero de facture contient quasiment toujours un chiffre ; sans
+  // cette exigence, une occurrence voisine du mot declencheur lui-meme etait
+  // parfois capturee a tort (ex. "...reglement de la facture facture..."
+  // capturait litteralement "facture" comme numero) - bug reel constate en
+  // production (novembre 2026, avis de virement Groupe Gendry).
+  if (!/\d/.test(candidat)) return null;
+  return candidat;
 }
 
 // Ordre de priorite pour le TTC. "net a payer"/"a payer" delibrement EN

@@ -13,6 +13,7 @@ import {
   extrairePiecesJointes,
   extraireEntete,
   backfillMontantsFacturesSansMontant,
+  backfillFournisseurDocumentsSansFournisseur,
 } from "../services/gmailSync";
 import { envoyerRecapQuotidien, construireRecapQuotidien } from "../services/dailyRecap";
 import { envoyerBilanSante, construireBilanSante } from "../services/bilanSante";
@@ -586,6 +587,20 @@ export function buildRouter(prisma: PrismaClient): Router {
       const messageErreur = (err as Error).message;
       if (/User-rate limit exceeded|Quota exceeded/i.test(messageErreur)) signalerLimiteGmail(messageErreur);
       res.status(400).json({ erreur: messageErreur });
+    }
+  });
+
+  // Resolution retroactive du fournisseur des factures/avoirs qui n'en ont
+  // jamais eu (voir backfillFournisseurDocumentsSansFournisseur) - bouton
+  // manuel depuis "Factures fournisseurs", re-declenchable sans risque
+  // (ne retouche jamais un document deja rattache). Synchrone (aucun appel
+  // Gmail necessaire), contrairement au backfill des montants ci-dessus.
+  router.post("/documents-fournisseurs/backfill-fournisseur", async (req, res) => {
+    try {
+      const resultat = await backfillFournisseurDocumentsSansFournisseur(prisma);
+      res.json(resultat);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
     }
   });
 
