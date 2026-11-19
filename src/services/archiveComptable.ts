@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { extraireFichiersDepuisZip, mimeTypeDepuisNom, FichierExtrait } from "../importers/zipBulk";
 import { extractPdfText } from "../importers/bankStatementPdf";
+import { rendrePremierePageEnImage } from "../importers/pdfRenderImage";
 import { extraireMontantHTFacture, extraireMontantTTCFacture, completerMontantHTSansTva } from "./gmailClassify";
 import { extraireChampsFacturePdf, extraireChampsFactureImage } from "./archiveComptableIA";
 import { logEvenement } from "./journalService";
@@ -103,8 +104,8 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
     try {
       texte = extractPdfText(fichier.donnees);
     } catch {
-      // pdftotext manquant ou PDF illisible : le fichier reste importe,
-      // juste sans aucun champ renseigne (statut "a_verifier").
+      // pdftotext manquant ou PDF illisible : repli ci-dessous sur le
+      // rendu en image (texte reste vide).
     }
     if (texte) {
       montantHT = extraireMontantHTFacture(texte);
@@ -119,6 +120,24 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
         if (montantTTC == null && champsIA.montantTTC != null) montantTTC = champsIA.montantTTC;
       }
       montantHT = completerMontantHTSansTva(texte, montantHT, montantTTC);
+    } else {
+      // PDF sans AUCUN texte extractible (scan/photo integree sans couche
+      // texte, cas reel d'un export Dext fait a partir de factures papier
+      // numerisees) : seule la vision IA sur la page rendue en image peut
+      // encore y lire quelque chose - demande explicite de l'utilisateur
+      // ("coder correctement pour qu'il puisse lire tous les montants").
+      const image = rendrePremierePageEnImage(fichier.donnees);
+      if (image) {
+        const champsIA = await extraireChampsFactureImage(image, "image/png");
+        if (champsIA) {
+          classifiePar = "ia";
+          fournisseurNom = champsIA.fournisseurNom ?? null;
+          numero = champsIA.numero ?? null;
+          if (champsIA.dateFacture) dateFacture = new Date(champsIA.dateFacture);
+          montantHT = champsIA.montantHT ?? null;
+          montantTTC = champsIA.montantTTC ?? null;
+        }
+      }
     }
   } else {
     const champsIA = await extraireChampsFactureImage(fichier.donnees, mimeType);

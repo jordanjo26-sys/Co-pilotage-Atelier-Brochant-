@@ -16,13 +16,69 @@ import {
   TypeDocument,
 } from "./gmailClassify";
 import { classifierParIA, classifierImageParIA } from "./gmailClassifyIA";
+import { extraireChampsFacturePdf, extraireChampsFactureImage } from "./archiveComptableIA";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
 import { controlerReleveFournisseur } from "./controleReleves";
 import { extractPdfText } from "../importers/bankStatementPdf";
 import { extraireTexteDepuisZip } from "../importers/zipAttachment";
+import { rendrePremierePageEnImage } from "../importers/pdfRenderImage";
 import fs from "node:fs/promises";
+
+// Format d'image gere par la vision IA (extraireChampsFactureImage) - PAS
+// "application/pdf", qui lui n'est jamais envoye tel quel a la vision :
+// un PDF sans texte extractible est d'abord rendu en PNG (voir
+// rendrePremierePageEnImage) avant d'y recourir.
+const MIME_IMAGES_FACTURE = new Set(["image/jpeg", "image/png"]);
+
+/**
+ * Resout les montants HT/TTC d'une facture fournisseur en empilant,
+ * dans l'ordre, les trois niveaux de lecture disponibles - demande
+ * explicite de l'utilisateur ("je veux que tu codes correctement pour
+ * qu'il puisse lire tous les montants, car c'est pas possible
+ * actuellement") :
+ *  1. Extraction deterministe par libelle connu (extraireMontantHTFacture/
+ *     TTCFacture) - gratuite, instantanee, prioritaire quand elle suffit.
+ *  2. Vision/texte IA (extraireChampsFacturePdf sur le texte du PDF,
+ *     extraireChampsFactureImage sur une image ou un PDF sans texte
+ *     rendu en PNG) - seulement si (1) n'a pas tout trouve, pour ne pas
+ *     multiplier les appels IA sur les factures qui s'extraient deja
+ *     parfaitement par regle.
+ *  3. completerMontantHTSansTva (TVA = 0 explicite quand le document ne
+ *     mentionne jamais la TVA/VAT) en tout dernier recours.
+ * Chaque niveau ne retente que ce que le precedent n'a pas trouve -
+ * jamais n'ecrase un montant deja obtenu, jamais n'invente de chiffre
+ * (section 14, "jamais deviner") : un montant toujours introuvable apres
+ * les trois niveaux reste explicitement "non renseigne".
+ */
+async function resoudreMontantsFacture(
+  mimeType: string,
+  donnees: Buffer,
+  contenuExtrait: string | undefined
+): Promise<{ montantHT: number | null; montantTTC: number | null }> {
+  let montantTTC = contenuExtrait ? extraireMontantTTCFacture(contenuExtrait) : null;
+  let montantHT = contenuExtrait ? extraireMontantHTFacture(contenuExtrait) : null;
+
+  if (montantHT == null || montantTTC == null) {
+    let champsIA = null;
+    if (contenuExtrait) {
+      champsIA = await extraireChampsFacturePdf(contenuExtrait);
+    } else {
+      const mime = mimeType.toLowerCase();
+      const imageBuffer = MIME_IMAGES_FACTURE.has(mime) ? donnees : mime === "application/pdf" ? rendrePremierePageEnImage(donnees) : undefined;
+      const imageMime = MIME_IMAGES_FACTURE.has(mime) ? mime : "image/png";
+      if (imageBuffer) champsIA = await extraireChampsFactureImage(imageBuffer, imageMime);
+    }
+    if (champsIA) {
+      if (montantHT == null && champsIA.montantHT != null) montantHT = champsIA.montantHT;
+      if (montantTTC == null && champsIA.montantTTC != null) montantTTC = champsIA.montantTTC;
+    }
+  }
+
+  if (contenuExtrait) montantHT = completerMontantHTSansTva(contenuExtrait, montantHT, montantTTC);
+  return { montantHT, montantTTC };
+}
 
 export interface ResultatSyncGmail {
   messagesExamines: number;
@@ -457,13 +513,16 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
 
           const numero = extraireNumeroFacture(`${sujet} ${piece.nomFichier} ${contenuExtrait || ""}`);
           // Montants HT et TTC (demande explicite de l'utilisateur : suivre
-          // les depenses par fournisseur, en HT comme en TTC) - cherche
-          // uniquement dans le contenu extrait du PDF (contenuExtrait),
-          // jamais dans le sujet/corps : un sujet/corps peut mentionner un
-          // montant sans rapport (devis precedent, relance...) a la
-          // difference du document lui-meme.
-          const montantTTC = contenuExtrait ? extraireMontantTTCFacture(contenuExtrait) : null;
-          const montantHT = contenuExtrait ? completerMontantHTSansTva(contenuExtrait, extraireMontantHTFacture(contenuExtrait), montantTTC) : null;
+          // les depenses par fournisseur, en HT comme en TTC - et plus
+          // recemment, "coder correctement pour qu'il puisse lire tous les
+          // montants") : uniquement pour le type "facture", le seul ou ces
+          // champs sont effectivement utilises (voir depensesFournisseurs.ts,
+          // renduMontantFacture) - inutile de solliciter l'IA (resoudreMontantsFacture)
+          // sur un devis/bon d'enlevement/releve. Jamais dans le sujet/corps :
+          // un sujet/corps peut mentionner un montant sans rapport (devis
+          // precedent, relance...) a la difference du document lui-meme.
+          const { montantHT, montantTTC } =
+            type === "facture" ? await resoudreMontantsFacture(piece.mimeType, donnees, contenuExtrait) : { montantHT: null, montantTTC: null };
           piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, montantHT, montantTTC, classifiePar });
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
@@ -844,15 +903,26 @@ export async function backfillMontantsFacturesSansMontant(prisma: PrismaClient):
       );
       const donnees = Buffer.from(attachment.data.data || "", "base64url");
       const mimeType = (document.mimeType || "").toLowerCase();
-      const contenuExtrait = estPieceJointeZip(mimeType, document.fichierNom || "")
-        ? extraireTexteDepuisZip(donnees)
-        : extractPdfText(donnees);
-      if (!contenuExtrait) {
-        resultat.toujoursSansMontant++;
-        continue;
+      // pdftotext n'a de sens que sur un vrai PDF (ou un PDF enveloppe dans
+      // un ZIP) - l'appeler sur une image (scan/photo) echouait
+      // silencieusement en erreur auparavant, cette facture ne recevant
+      // alors jamais aucune tentative d'extraction. Une image, ou un PDF
+      // sans texte extractible, passe desormais par resoudreMontantsFacture
+      // (vision IA), ci-dessous, plutot que d'etre ecartee ici.
+      let contenuExtrait: string | undefined;
+      if (estPieceJointeZip(mimeType, document.fichierNom || "")) {
+        contenuExtrait = extraireTexteDepuisZip(donnees);
+      } else if (mimeType === "application/pdf") {
+        try {
+          contenuExtrait = extractPdfText(donnees);
+        } catch {
+          // PDF illisible par pdftotext : repli sur la vision IA ci-dessous
+          // (rendrePremierePageEnImage), contenuExtrait reste undefined.
+        }
       }
-      const montantTTC = document.montantTTC ?? extraireMontantTTCFacture(contenuExtrait);
-      const montantHT = document.montantHT ?? completerMontantHTSansTva(contenuExtrait, extraireMontantHTFacture(contenuExtrait), montantTTC);
+      const resolu = await resoudreMontantsFacture(mimeType, donnees, contenuExtrait);
+      const montantTTC = document.montantTTC ?? resolu.montantTTC;
+      const montantHT = document.montantHT ?? resolu.montantHT;
       if (montantHT != null || montantTTC != null) {
         await prisma.documentFournisseur.update({ where: { id: document.id }, data: { montantHT, montantTTC } });
         resultat.miseAJour++;
