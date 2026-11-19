@@ -2937,6 +2937,37 @@ const ID_FILTRES_ARCHIVE_COMPTABLE = [
   "filtre-archive-montant-max",
 ];
 
+/**
+ * Detecte les doublons probables parmi TOUTES les archives (pas seulement
+ * celles deja filtrees par date/montant/fournisseur) - demande explicite de
+ * l'utilisateur. Deux signaux, jamais devines : meme fournisseur + meme
+ * numero de facture (quasi certain), ou meme fournisseur + meme date + meme
+ * montant TTC (tres probable). Retourne l'ensemble des id d'archives
+ * appartenant a un groupe de 2 archives ou plus partageant l'une de ces cles.
+ */
+function detecterIdsDoublonsArchives(archives) {
+  const groupes = new Map();
+  const ajouter = (cle, id) => {
+    if (!groupes.has(cle)) groupes.set(cle, []);
+    groupes.get(cle).push(id);
+  };
+  for (const a of archives) {
+    const fournisseur = (a.fournisseurNom || "").trim().toLowerCase();
+    if (!fournisseur) continue;
+    if (a.numero && a.numero.trim()) {
+      ajouter(`numero:${fournisseur}:${a.numero.trim().toLowerCase()}`, a.id);
+    }
+    if (a.dateFacture && a.montantTTC != null) {
+      ajouter(`montant:${fournisseur}:${a.dateFacture.slice(0, 10)}:${a.montantTTC}`, a.id);
+    }
+  }
+  const idsDoublons = new Set();
+  for (const liste of groupes.values()) {
+    if (liste.length > 1) liste.forEach((id) => idsDoublons.add(id));
+  }
+  return idsDoublons;
+}
+
 function afficherArchivesComptablesFiltrees() {
   const conteneur = document.getElementById("liste-archives-comptables");
   if (!conteneur) return;
@@ -2948,6 +2979,8 @@ function afficherArchivesComptablesFiltrees() {
   const montantMaxBrut = document.getElementById("filtre-archive-montant-max").value;
   const montantMin = montantMinBrut === "" ? null : Number(montantMinBrut);
   const montantMax = montantMaxBrut === "" ? null : Number(montantMaxBrut);
+  const doublonsUniquement = document.getElementById("filtre-archive-doublons-uniquement").checked;
+  const idsDoublons = detecterIdsDoublonsArchives(archivesComptablesBrutes);
 
   const archives = archivesComptablesBrutes.filter((a) => {
     const date = a.dateFacture ? a.dateFacture.slice(0, 10) : null;
@@ -2959,6 +2992,7 @@ function afficherArchivesComptablesFiltrees() {
     // serveur de listerArchivesComptables.
     if (montantMin !== null && !(a.montantHT >= montantMin || a.montantTTC >= montantMin)) return false;
     if (montantMax !== null && !(a.montantHT <= montantMax || a.montantTTC <= montantMax)) return false;
+    if (doublonsUniquement && !idsDoublons.has(a.id)) return false;
     return true;
   });
 
@@ -3004,6 +3038,7 @@ function afficherArchivesComptablesFiltrees() {
           ${a.dateFacture ? ` · ${fmtDate(a.dateFacture)}` : ""}
           ${a.numero ? ` · n° ${echapper(a.numero)}` : ""}
           ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
+          ${idsDoublons.has(a.id) ? ` · <span class="badge badge-palier-ambre">doublon possible</span>` : ""}
         </div>
         <div class="fournisseur-actions fournisseur-actions-ligne">
           ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
@@ -3041,10 +3076,12 @@ async function chargerArchivesComptables() {
     ID_FILTRES_ARCHIVE_COMPTABLE.forEach((id) => {
       document.getElementById(id).addEventListener("input", afficherArchivesComptablesFiltrees);
     });
+    document.getElementById("filtre-archive-doublons-uniquement").addEventListener("input", afficherArchivesComptablesFiltrees);
     document.getElementById("btn-reinitialiser-filtres-archive").addEventListener("click", () => {
       ID_FILTRES_ARCHIVE_COMPTABLE.forEach((id) => {
         document.getElementById(id).value = "";
       });
+      document.getElementById("filtre-archive-doublons-uniquement").checked = false;
       afficherArchivesComptablesFiltrees();
     });
     document.getElementById("filtre-archive-date-debut").dataset.initialise = "1";
