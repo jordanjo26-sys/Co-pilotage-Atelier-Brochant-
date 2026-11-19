@@ -17,6 +17,7 @@ import {
 } from "./gmailClassify";
 import { classifierParIA, classifierImageParIA } from "./gmailClassifyIA";
 import { extraireChampsFacturePdf, extraireChampsFactureImage } from "./archiveComptableIA";
+import { archiverFactureEnvoyeeDext } from "./archiveComptable";
 import { sha256Hex } from "./hash";
 import { logEvenement } from "./journalService";
 import { resoudreFournisseur, extraireIdentiteExpediteur } from "./fournisseurs";
@@ -616,6 +617,26 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
           // meme si la logique environnante change un jour.
           if (type === "facture" && transfertAutomatiqueActif() && classifiePar !== "ia") {
             await envoyerVersDext(gmail, { destinataire: adresseDext, nomFichier: piece.nomFichier, mimeType: piece.mimeType, donnees, sujetOrigine: sujet });
+            // Copie dans l'archive Comptabilite - demande explicite de
+            // l'utilisateur (chaque facture envoyee a Dext doit aussi y
+            // rester archivee). N'empeche jamais l'envoi reel, deja fait
+            // juste au-dessus, de compter comme reussi en cas d'echec ici.
+            await archiverFactureEnvoyeeDext(prisma, {
+              fichierNom: piece.nomFichier,
+              mimeType: piece.mimeType,
+              donnees,
+              fournisseurNom: extraireIdentiteExpediteur(expediteur).nom,
+              numero,
+              dateFacture: dateReception,
+              montantHT,
+              montantTTC,
+            }).catch(async (err) => {
+              await logEvenement(prisma, {
+                evenement: "archive_comptable_copie_dext_erreur",
+                action: `Archivage Comptabilite de la facture envoyee a Dext : ${piece.nomFichier}`,
+                resultat: (err as Error).message,
+              }).catch(() => {});
+            });
             await prisma.documentFournisseur.create({
               data: {
                 type: "facture",
@@ -808,6 +829,30 @@ export async function envoyerDocumentFournisseurVersDext(prisma: PrismaClient, d
     mimeType: document.mimeType || "application/octet-stream",
     donnees,
     sujetOrigine: document.gmailObjet || document.fichierNom || "Facture fournisseur",
+  });
+
+  // Copie dans l'archive Comptabilite - meme principe que l'envoi
+  // automatique ci-dessus (demande explicite de l'utilisateur). N'empeche
+  // jamais l'envoi reel, deja fait juste au-dessus, de compter comme
+  // reussi en cas d'echec ici.
+  const fournisseurNom = document.fournisseurId
+    ? (await prisma.fournisseur.findUnique({ where: { id: document.fournisseurId } }))?.nom ?? null
+    : null;
+  await archiverFactureEnvoyeeDext(prisma, {
+    fichierNom: document.fichierNom || "facture",
+    mimeType: document.mimeType || "application/octet-stream",
+    donnees,
+    fournisseurNom,
+    numero: document.numero,
+    dateFacture: document.date ?? document.dateReceptionMail ?? null,
+    montantHT: document.montantHT,
+    montantTTC: document.montantTTC,
+  }).catch(async (err) => {
+    await logEvenement(prisma, {
+      evenement: "archive_comptable_copie_dext_erreur",
+      action: `Archivage Comptabilite de la facture envoyee a Dext : ${document.fichierNom}`,
+      resultat: (err as Error).message,
+    }).catch(() => {});
   });
 
   await prisma.documentFournisseur.update({ where: { id: documentId }, data: { statutDext: "envoye" } });

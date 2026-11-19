@@ -92,6 +92,7 @@ test("Module Comptabilité — archive de factures", async (t) => {
     obtenirArchiveComptable,
     modifierArchiveComptable,
     supprimerArchiveComptable,
+    archiverFactureEnvoyeeDext,
   } = await import("../src/services/archiveComptable");
   const prisma = new PrismaClient();
   const DOSSIER_ARCHIVES = path.join(__dirname, "..", "uploads", "archives-comptables");
@@ -292,5 +293,56 @@ test("Module Comptabilité — archive de factures", async (t) => {
     await supprimerArchiveComptable(prisma, archive.id);
     assert.equal(await prisma.archiveComptable.count(), 0);
     await assert.rejects(() => obtenirArchiveComptable(prisma, archive.id), /introuvable/);
+  });
+
+  // archiverFactureEnvoyeeDext : copie automatique dans l'archive
+  // Comptabilite au moment ou une facture part reellement vers Dext (envoi
+  // automatique ou manuel, voir gmailSync.ts) - demande explicite de
+  // l'utilisateur, pour ne plus jamais dependre uniquement de Dext.
+  await t.test("archiverFactureEnvoyeeDext : archive avec les champs deja connus, sans relancer d'extraction", async () => {
+    await archiverFactureEnvoyeeDext(prisma, {
+      fichierNom: "facture-edf-envoyee.pdf",
+      mimeType: "application/pdf",
+      donnees: Buffer.from(PDF_MINIMAL),
+      fournisseurNom: "EDF",
+      numero: "FA-2026-999",
+      dateFacture: new Date("2026-06-01"),
+      montantHT: 100,
+      montantTTC: 120,
+    });
+
+    const archive = await prisma.archiveComptable.findFirst({ where: { fichierNom: "facture-edf-envoyee.pdf" } });
+    assert.ok(archive);
+    assert.equal(archive?.fournisseurNom, "EDF");
+    assert.equal(archive?.numero, "FA-2026-999");
+    assert.equal(archive?.montantHT, 100);
+    assert.equal(archive?.montantTTC, 120);
+    assert.equal(archive?.statut, "complete");
+    // Jamais de categorie/classifiePar devines ici : aucune extraction IA
+    // n'est relancee, seuls les champs deja connus sont enregistres.
+    assert.equal(archive?.categorie, null);
+    assert.equal(archive?.classifiePar, null);
+    await fs.access(archive!.cheminFichier);
+
+    await prisma.archiveComptable.delete({ where: { id: archive!.id } });
+  });
+
+  await t.test("archiverFactureEnvoyeeDext : fournisseur ou montant manquant -> statut 'a_verifier'", async () => {
+    await archiverFactureEnvoyeeDext(prisma, {
+      fichierNom: "facture-sans-fournisseur.pdf",
+      mimeType: "application/pdf",
+      donnees: Buffer.from(PDF_MINIMAL),
+      fournisseurNom: null,
+      numero: null,
+      dateFacture: null,
+      montantHT: 50,
+      montantTTC: 60,
+    });
+
+    const archive = await prisma.archiveComptable.findFirst({ where: { fichierNom: "facture-sans-fournisseur.pdf" } });
+    assert.ok(archive);
+    assert.equal(archive?.statut, "a_verifier");
+
+    await prisma.archiveComptable.delete({ where: { id: archive!.id } });
   });
 });

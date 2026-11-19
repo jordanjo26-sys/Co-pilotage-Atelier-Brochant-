@@ -10,21 +10,70 @@ import { extraireChampsFacturePdf, extraireChampsFactureImage, CATEGORIES_FACTUR
 import { logEvenement } from "./journalService";
 
 /**
- * Module Comptabilite : archive de secours des factures, independante du
- * circuit "Factures fournisseurs" (DocumentFournisseur, alimente par
- * Gmail/Dext). Demande explicite de l'utilisateur (novembre 2026) : apres
+ * Module Comptabilite : archive de secours des factures. Nee independante
+ * du circuit "Factures fournisseurs" (DocumentFournisseur, alimente par
+ * Gmail/Dext) - demande initiale de l'utilisateur (novembre 2026) : apres
  * un changement de comptable, l'ancien a supprime toutes les factures sur
- * Dext avant le transfert - il ne restait qu'un export manuel (PDF/JPEG,
- * plusieurs centaines de fichiers) fait avant la suppression. Objectif :
- * pouvoir justifier ses factures en cas de controle fiscal, avec une
- * recherche par fournisseur/date/montant - jamais reliee a Dext ni a un
- * fournisseur Prisma existant.
+ * Dext avant le transfert, il ne restait qu'un export manuel (PDF/JPEG,
+ * plusieurs centaines de fichiers) fait avant la suppression. Depuis,
+ * demande explicite complementaire : desormais, CHAQUE facture envoyee a
+ * Dext (automatiquement ou manuellement, voir archiverFactureEnvoyeeDext
+ * ci-dessous et gmailSync.ts) y est aussi copiee automatiquement - pour ne
+ * plus jamais dependre uniquement de Dext, exactement la raison d'etre de
+ * ce module. Le depot manuel (ZIP/fichiers) reste independant du
+ * fournisseur Prisma existant (voir plus bas), mais l'archive elle-meme
+ * n'est plus etanche au circuit Gmail/Dext.
  */
 
 const DOSSIER_ARCHIVES = path.join(process.cwd(), "uploads", "archives-comptables");
 
 export interface ResultatImportArchive {
   total: number;
+}
+
+export interface FactureEnvoyeeDext {
+  fichierNom: string;
+  mimeType: string;
+  donnees: Buffer;
+  fournisseurNom: string | null;
+  numero: string | null;
+  dateFacture: Date | null;
+  montantHT: number | null;
+  montantTTC: number | null;
+}
+
+/**
+ * Archive une copie d'une facture au moment ou elle part reellement vers
+ * Dext (envoi automatique ou manuel - voir gmailSync.ts, les deux seuls
+ * points d'appel reels de envoyerVersDext). Les champs sont deja connus,
+ * resolus par le circuit Gmail/fournisseurs - aucune extraction IA/regex
+ * n'est relancee ici, jamais une nouvelle estimation. N'est jamais
+ * bloquante pour l'envoi lui-meme : l'appelant doit l'entourer d'un
+ * try/catch (voir gmailSync.ts) pour qu'un echec d'archivage ne fasse
+ * jamais echouer l'envoi reel a Dext, bien plus critique.
+ */
+export async function archiverFactureEnvoyeeDext(prisma: PrismaClient, facture: FactureEnvoyeeDext): Promise<void> {
+  await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+  const extension = path.extname(facture.fichierNom) || (facture.mimeType === "application/pdf" ? ".pdf" : ".jpg");
+  const cheminFichier = path.join(DOSSIER_ARCHIVES, `${crypto.randomUUID()}${extension}`);
+  await fs.writeFile(cheminFichier, facture.donnees);
+
+  const complet = facture.montantHT != null && facture.montantTTC != null && !!facture.fournisseurNom;
+  await prisma.archiveComptable.create({
+    data: {
+      fichierNom: facture.fichierNom,
+      cheminFichier,
+      mimeType: facture.mimeType,
+      fournisseurNom: facture.fournisseurNom,
+      numero: facture.numero,
+      dateFacture: facture.dateFacture,
+      montantHT: facture.montantHT,
+      montantTTC: facture.montantTTC,
+      statut: complet ? "complete" : "a_verifier",
+      classifiePar: null,
+      categorie: null,
+    },
+  });
 }
 
 /**
