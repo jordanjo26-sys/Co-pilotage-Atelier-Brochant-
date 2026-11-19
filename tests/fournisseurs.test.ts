@@ -266,5 +266,31 @@ test("saisie manuelle du montant d'une facture fournisseur", async (t) => {
     await assert.rejects(saisirMontantDocumentFournisseur(prisma, "inexistant", { montantTTC: 50 }), MontantDocumentFournisseurError);
   });
 
+  const { assignerFournisseurDocument, FournisseurDocumentError } = await import("../src/services/fournisseurs");
+
+  await t.test("assignerFournisseurDocument : cree le fournisseur s'il n'existe pas encore", async () => {
+    const doc = await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: "ticket-leclerc.pdf", gmailExpediteur: "atelier.brochant@gmail.com" },
+    });
+    await assignerFournisseurDocument(prisma, doc.id, "Leclerc");
+    const miseAJour = await prisma.documentFournisseur.findUnique({ where: { id: doc.id }, include: { fournisseur: true } });
+    assert.equal(miseAJour?.fournisseur?.nom, "Leclerc");
+  });
+
+  await t.test("assignerFournisseurDocument : reutilise un fournisseur existant du meme nom (pas de doublon)", async () => {
+    const existant = await prisma.fournisseur.create({ data: { nom: "Kiloutou" } });
+    const doc = await prisma.documentFournisseur.create({ data: { type: "facture", fichierNom: "f.pdf" } });
+    await assignerFournisseurDocument(prisma, doc.id, "Kiloutou");
+    const miseAJour = await prisma.documentFournisseur.findUnique({ where: { id: doc.id } });
+    assert.equal(miseAJour?.fournisseurId, existant.id);
+    assert.equal(await prisma.fournisseur.count({ where: { nom: "Kiloutou" } }), 1);
+  });
+
+  await t.test("assignerFournisseurDocument : nom vide ou document inexistant -> erreur", async () => {
+    const doc = await prisma.documentFournisseur.create({ data: { type: "facture", fichierNom: "f.pdf" } });
+    await assert.rejects(assignerFournisseurDocument(prisma, doc.id, "   "), FournisseurDocumentError);
+    await assert.rejects(assignerFournisseurDocument(prisma, "inexistant", "Leclerc"), FournisseurDocumentError);
+  });
+
   await prisma.$disconnect();
 });

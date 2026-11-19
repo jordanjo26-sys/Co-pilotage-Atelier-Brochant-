@@ -30,6 +30,8 @@ import {
   supprimerDocumentFournisseur,
   saisirMontantDocumentFournisseur,
   MontantDocumentFournisseurError,
+  assignerFournisseurDocument,
+  FournisseurDocumentError,
 } from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
@@ -832,6 +834,21 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.status(204).end();
     } catch (err) {
       if (err instanceof MontantDocumentFournisseurError) return res.status(400).json({ erreur: err.message });
+      res.status(404).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Correction manuelle du fournisseur (demande explicite de l'utilisateur :
+  // un document reclasse manuellement en facture, ex. une photo envoyee a
+  // soi-meme pour archivage, ne passe jamais par resoudreFournisseur et
+  // reste sans fournisseur assigne - voir assignerFournisseurDocument).
+  router.patch("/documents-fournisseurs/:id/fournisseur", async (req, res) => {
+    const nom = typeof req.body?.nom === "string" ? req.body.nom : "";
+    try {
+      await assignerFournisseurDocument(prisma, req.params.id, nom);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof FournisseurDocumentError) return res.status(400).json({ erreur: err.message });
       res.status(404).json({ erreur: (err as Error).message });
     }
   });

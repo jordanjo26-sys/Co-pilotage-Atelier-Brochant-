@@ -2077,7 +2077,8 @@ function afficherFacturesDextEnvoyeesFiltrees() {
             (d) => `
         <div class="fournisseur-document-ligne" id="document-ligne-${d.id}">
           <span><span class="fournisseur-nom-icone">📄</span>${echapper(d.fichierNom || "Document")}</span>
-          <span class="anomalie-meta">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")} · ${new Date(d.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+          <span class="anomalie-meta"><span class="fournisseur-nom-resolu-${d.id}">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}</span> · ${new Date(d.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+          ${!d.fournisseur ? `<button type="button" class="ghost bouton-lien" onclick="corrigerFournisseurDocument('${d.id}', this)">Corriger le fournisseur</button>` : ""}
           ${renduMontantFacture(d)}
           <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
           <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this, true)">Supprimer</button>
@@ -2140,7 +2141,8 @@ async function chargerFacturesFournisseurs() {
       <div class="fournisseur-carte">
         <div class="fournisseur-nom"><span class="fournisseur-nom-icone">📄</span>${echapper(d.fichierNom || "Document")}</div>
         <div class="anomalie-meta">
-          ${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}
+          <span class="fournisseur-nom-resolu-${d.id}">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}</span>
+          ${!d.fournisseur ? `<button type="button" class="ghost bouton-lien" onclick="corrigerFournisseurDocument('${d.id}', this)">Corriger le fournisseur</button>` : ""}
           ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
           ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
           ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
@@ -2465,6 +2467,40 @@ async function supprimerDocumentFournisseur(id, bouton, dejaEnvoye) {
   }
 }
 window.supprimerDocumentFournisseur = supprimerDocumentFournisseur;
+
+// Correction manuelle du fournisseur (demande explicite de l'utilisateur :
+// un document reclasse manuellement en facture - ex. une photo envoyee a
+// soi-meme pour archivage - ne passe jamais par la resolution automatique
+// par e-mail et reste "Expéditeur inconnu" indefiniment sans cette action).
+async function corrigerFournisseurDocument(id, bouton) {
+  const nom = prompt("Nom du fournisseur tel qu'il apparaît sur le document (créé s'il n'existe pas encore) :");
+  if (nom === null || !nom.trim()) return;
+  bouton.disabled = true;
+  try {
+    const res = await fetch(`/api/documents-fournisseurs/${id}/fournisseur`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nom: nom.trim() }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Enregistrement impossible.");
+    }
+    // Remplace le nom affiche et retire le bouton directement, sans
+    // recharger toute la liste (meme raisonnement que supprimerDocumentFournisseur
+    // ci-dessus) - un nouveau fournisseur peut avoir ete cree, donc
+    // rafraichit aussi l'onglet Fournisseurs pour qu'il y apparaisse.
+    document.querySelectorAll(`.fournisseur-nom-resolu-${id}`).forEach((el) => {
+      el.textContent = nom.trim();
+    });
+    bouton.remove();
+    await chargerFournisseurs();
+  } catch (err) {
+    bouton.disabled = false;
+    alert(err.message);
+  }
+}
+window.corrigerFournisseurDocument = corrigerFournisseurDocument;
 
 // Affichage des montants HT et TTC d'une facture fournisseur (demande
 // explicite de l'utilisateur : suivre les depenses par fournisseur, en HT

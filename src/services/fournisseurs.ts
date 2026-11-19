@@ -340,3 +340,32 @@ export async function saisirMontantDocumentFournisseur(prisma: PrismaClient, doc
     },
   });
 }
+
+export class FournisseurDocumentError extends Error {}
+
+/**
+ * Corrige a la main le fournisseur d'un document, quand la resolution
+ * automatique (resoudreFournisseur, a partir de l'expediteur de l'e-mail)
+ * n'a rien trouve d'exploitable - demande explicite de l'utilisateur,
+ * apres une facture scannee/reclassee manuellement ("centre de validation
+ * des anomalies") qui ne passe jamais par resoudreFournisseur et reste
+ * donc sans fournisseur assigne (ex. un ticket de carte bancaire station
+ * E.Leclerc envoye en piece jointe a soi-meme pour archivage). Retrouve un
+ * fournisseur existant par son nom exact (meme table que les fournisseurs
+ * resolus automatiquement par e-mail - ni doublon, ni distinction cachee
+ * entre les deux origines) ou en cree un nouveau si aucun ne correspond.
+ */
+export async function assignerFournisseurDocument(prisma: PrismaClient, documentId: string, nomFournisseurBrut: string): Promise<void> {
+  const nom = nomFournisseurBrut.trim();
+  if (!nom) throw new FournisseurDocumentError("Le nom du fournisseur est requis.");
+
+  const document = await prisma.documentFournisseur.findUnique({ where: { id: documentId } });
+  if (!document) throw new FournisseurDocumentError("Document introuvable.");
+
+  const fournisseur = await prisma.fournisseur.upsert({
+    where: { nom },
+    update: {},
+    create: { nom },
+  });
+  await prisma.documentFournisseur.update({ where: { id: documentId }, data: { fournisseurId: fournisseur.id } });
+}
