@@ -41,9 +41,22 @@ jobs:
           # sudo, car sudo casserait le flux binaire de rsync) puisse y
           # ecrire. bootstrap.sh est ensuite execute avec sudo, car il
           # installe des paquets systeme et cree un utilisateur applicatif.
+          #
+          # uploads/ et public/media-publics/ sont exclus de ce chown (via
+          # find -prune) : rsync les exclut deja lui-meme ci-dessous (ce
+          # sont des donnees generees par l'appli, jamais commises dans le
+          # depot), donc l'utilisateur SSH n'a besoin d'aucun droit dessus.
+          # Les y inclure cassait a tort les ecritures en cours de l'appli
+          # (qui tourne en continu sous l'utilisateur applicatif copilote,
+          # voir bootstrap.sh) pendant la fenetre entre ce chown et celui
+          # qui rend la propriete a copilote plus loin dans bootstrap.sh -
+          # bug reel constate en production (novembre 2026) : un import de
+          # plusieurs centaines de factures en cours au moment d'un
+          # deploiement a vu 762 fichiers echouer avec "EACCES: permission
+          # denied" exactement a cette fenetre.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "touch ~/.hushlogin && sudo mkdir -p /opt/copilote-brochant && sudo chown -R \$(whoami):\$(whoami) /opt/copilote-brochant"
+            "touch ~/.hushlogin && sudo mkdir -p /opt/copilote-brochant && sudo find /opt/copilote-brochant \( -path /opt/copilote-brochant/uploads -o -path /opt/copilote-brochant/public/media-publics \) -prune -o -exec chown \$(whoami):\$(whoami) {} +"
 
       - name: Synchroniser le code vers le serveur
         run: |
