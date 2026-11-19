@@ -342,6 +342,16 @@ test("extraireMontantTTCFacture : 'Montant dû' ne prime jamais sur un vrai Tota
   assert.equal(extraireMontantTTCFacture(texte), 120);
 });
 
+test("extraireMontantHTFacture : 'Montant Hors TVA' (vraie facture EDF)", () => {
+  const texte =
+    "Montant Hors TVA                                        27,82 €\n" +
+    "Montant TVA (payée sur les débits)                       5,56 €\n" +
+    "Facture TTC                                             33,38 €\n" +
+    "Montant total à payer (TTC)                             33,38 €";
+  assert.equal(extraireMontantHTFacture(texte), 27.82);
+  assert.equal(extraireMontantTTCFacture(texte), 33.38);
+});
+
 // completerMontantHTSansTva : repli explicite demande par l'utilisateur
 // (video, novembre 2026) - HT = TTC (TVA = 0) uniquement quand le document
 // ne mentionne JAMAIS la TVA/VAT nulle part, jamais pour un vrai HT non

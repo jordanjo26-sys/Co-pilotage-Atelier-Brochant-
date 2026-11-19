@@ -3049,6 +3049,42 @@ async function chargerArchivesComptables() {
     });
     document.getElementById("filtre-archive-date-debut").dataset.initialise = "1";
   }
+
+  const boutonReextraire = document.getElementById("btn-reextraire-archives");
+  if (boutonReextraire && !boutonReextraire.dataset.initialise) {
+    boutonReextraire.addEventListener("click", () => reextraireArchivesComptables(boutonReextraire));
+    boutonReextraire.dataset.initialise = "1";
+  }
+}
+
+// Relance l'extraction sur les archives restees "a verifier" (voir
+// demarrerReextractionArchivesIncompletes dans archiveComptable.ts) - utile
+// apres un correctif de l'extraction pour que les archives deja importees
+// en beneficient sans tout re-deposer. Ne bloque pas en attendant la fin
+// (meme principe que backfillMontantsFournisseurs) : le resultat exact
+// arrive plus tard, visible dans le Journal.
+async function reextraireArchivesComptables(bouton) {
+  const resultatConteneur = document.getElementById("resultat-reextraction-archives");
+  bouton.disabled = true;
+  const texteInitial = bouton.textContent;
+  bouton.textContent = "Lancement…";
+  if (resultatConteneur) resultatConteneur.innerHTML = "";
+  try {
+    const res = await fetch("/api/archives-comptables/reextraire", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.erreur || "Relance impossible.");
+    if (resultatConteneur) {
+      resultatConteneur.innerHTML =
+        data.total > 0
+          ? `<p class="aide-inline">${data.total} archive(s) en cours de re-traitement en arrière-plan — actualisez cette page dans quelques minutes pour voir les résultats.</p>`
+          : `<p class="aide-inline">Aucune archive "à vérifier" pour le moment.</p>`;
+    }
+  } catch (err) {
+    if (resultatConteneur) resultatConteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = texteInitial;
+  }
 }
 
 async function corrigerArchiveComptable(id) {

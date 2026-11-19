@@ -107,13 +107,27 @@ async function traiterFichiersArchive(prisma: PrismaClient, fichiers: FichierExt
   });
 }
 
-/** Retourne true si le fichier a ete enregistre avec tous les champs principaux deja renseignes. */
-async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): Promise<boolean> {
-  const mimeType = mimeTypeDepuisNom(fichier.nom);
-  const extension = path.extname(fichier.nom) || (mimeType === "application/pdf" ? ".pdf" : ".jpg");
-  const cheminFichier = path.join(DOSSIER_ARCHIVES, `${crypto.randomUUID()}${extension}`);
-  await fs.writeFile(cheminFichier, fichier.donnees);
+export interface ChampsExtraitsArchive {
+  montantHT: number | null;
+  montantTTC: number | null;
+  fournisseurNom: string | null;
+  numero: string | null;
+  dateFacture: Date | null;
+  classifiePar: string | null;
+}
 
+/**
+ * Coeur de l'extraction (regle + IA), partage entre l'import initial
+ * (traiterUnFichier) et la re-extraction d'une archive deja importee mais
+ * restee "a verifier" (reextraireArchivesComptablesIncompletes) - sans
+ * cette derniere, une archive importee AVANT un correctif (ex. le filet
+ * vision IA sur un scan sans texte, ou un nouveau libelle de montant
+ * reconnu) ne beneficiait jamais de ce correctif sans re-deposer tout le
+ * ZIP, constate en production (novembre 2026, facture EDF reelle restee
+ * "HT non renseigne" malgre "Montant Hors TVA" clairement lisible, ajoute
+ * comme libelle reconnu apres son import).
+ */
+async function extraireChampsDocument(prisma: PrismaClient, donnees: Buffer, mimeType: string): Promise<ChampsExtraitsArchive> {
   let montantHT: number | null = null;
   let montantTTC: number | null = null;
   let fournisseurNom: string | null = null;
@@ -132,7 +146,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
       // repli vision IA ci-dessous (bug reel trouve en production,
       // novembre 2026 : deux scans reels restaient indefiniment
       // "a verifier" sans la moindre erreur nulle part).
-      texte = texteSignificatif(extractPdfText(fichier.donnees));
+      texte = texteSignificatif(extractPdfText(donnees));
     } catch {
       // pdftotext manquant ou PDF illisible : repli ci-dessous sur le
       // rendu en image (texte reste undefined).
@@ -156,7 +170,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
       // numerisees) : seule la vision IA sur la page rendue en image peut
       // encore y lire quelque chose - demande explicite de l'utilisateur
       // ("coder correctement pour qu'il puisse lire tous les montants").
-      const image = rendrePremierePageEnImage(fichier.donnees);
+      const image = rendrePremierePageEnImage(donnees);
       if (image) {
         const champsIA = await extraireChampsFactureImage(image, "image/png", prisma);
         if (champsIA) {
@@ -170,7 +184,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
       }
     }
   } else {
-    const champsIA = await extraireChampsFactureImage(fichier.donnees, mimeType, prisma);
+    const champsIA = await extraireChampsFactureImage(donnees, mimeType, prisma);
     if (champsIA) {
       classifiePar = "ia";
       fournisseurNom = champsIA.fournisseurNom ?? null;
@@ -181,6 +195,21 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
     }
   }
 
+  return { montantHT, montantTTC, fournisseurNom, numero, dateFacture, classifiePar };
+}
+
+/** Retourne true si le fichier a ete enregistre avec tous les champs principaux deja renseignes. */
+async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): Promise<boolean> {
+  const mimeType = mimeTypeDepuisNom(fichier.nom);
+  const extension = path.extname(fichier.nom) || (mimeType === "application/pdf" ? ".pdf" : ".jpg");
+  const cheminFichier = path.join(DOSSIER_ARCHIVES, `${crypto.randomUUID()}${extension}`);
+  await fs.writeFile(cheminFichier, fichier.donnees);
+
+  const { montantHT, montantTTC, fournisseurNom, numero, dateFacture, classifiePar } = await extraireChampsDocument(
+    prisma,
+    fichier.donnees,
+    mimeType
+  );
   const complet = montantHT != null && montantTTC != null && !!fournisseurNom;
 
   await prisma.archiveComptable.create({
@@ -199,6 +228,70 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
   });
 
   return complet;
+}
+
+export interface ResultatReextractionArchives {
+  total: number;
+}
+
+/**
+ * Relance l'extraction (regle + IA) sur les archives deja importees mais
+ * restees "a verifier" - sans bloquer la reponse HTTP (voir
+ * demarrerImportFichiers, meme principe) : utile apres un correctif de
+ * l'extraction (nouveau libelle reconnu, filet vision...) pour que les
+ * archives deja presentes en beneficient sans avoir a tout re-deposer.
+ * Ne retouche jamais un champ deja renseigne (ex. corrige a la main via
+ * modifierArchiveComptable) - ne complete que ce qui manque encore.
+ */
+export async function demarrerReextractionArchivesIncompletes(prisma: PrismaClient): Promise<ResultatReextractionArchives> {
+  const aTraiter = await prisma.archiveComptable.findMany({ where: { statut: "a_verifier" } });
+  if (aTraiter.length === 0) return { total: 0 };
+
+  reextraireArchives(prisma, aTraiter).catch(async (err) => {
+    await logEvenement(prisma, {
+      evenement: "archive_comptable_reextraction_erreur",
+      action: "Re-extraction des archives comptables a verifier",
+      resultat: (err as Error).message,
+    });
+  });
+
+  return { total: aTraiter.length };
+}
+
+async function reextraireArchives(prisma: PrismaClient, archives: Awaited<ReturnType<typeof prisma.archiveComptable.findMany>>): Promise<void> {
+  let completees = 0;
+  let toujoursAVerifier = 0;
+  let erreurs = 0;
+
+  for (const archive of archives) {
+    try {
+      const donnees = await fs.readFile(archive.cheminFichier);
+      const extrait = await extraireChampsDocument(prisma, donnees, archive.mimeType);
+      const fournisseurNom = archive.fournisseurNom ?? extrait.fournisseurNom;
+      const numero = archive.numero ?? extrait.numero;
+      const dateFacture = archive.dateFacture ?? extrait.dateFacture;
+      const montantHT = archive.montantHT ?? extrait.montantHT;
+      const montantTTC = archive.montantTTC ?? extrait.montantTTC;
+      const classifiePar = archive.classifiePar ?? extrait.classifiePar;
+      const complet = montantHT != null && montantTTC != null && !!fournisseurNom;
+      await prisma.archiveComptable.update({
+        where: { id: archive.id },
+        data: { fournisseurNom, numero, dateFacture, montantHT, montantTTC, classifiePar, statut: complet ? "complete" : "a_verifier" },
+      });
+      if (complet) completees++;
+      else toujoursAVerifier++;
+    } catch {
+      // Fichier disparu du disque ou illisible : ne bloque jamais les
+      // autres archives du meme lot (meme discipline que l'import initial).
+      erreurs++;
+    }
+  }
+
+  await logEvenement(prisma, {
+    evenement: "archive_comptable_reextraction_terminee",
+    action: "Re-extraction des archives comptables a verifier",
+    resultat: `${completees} desormais complete(s), ${toujoursAVerifier} toujours a verifier, ${erreurs} erreur(s), sur ${archives.length} au total.`,
+  });
 }
 
 export interface FiltresArchiveComptable {

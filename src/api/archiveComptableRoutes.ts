@@ -6,6 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import {
   demarrerImportArchiveZip,
   demarrerImportFichiers,
+  demarrerReextractionArchivesIncompletes,
   listerArchivesComptables,
   obtenirArchiveComptable,
   modifierArchiveComptable,
@@ -68,6 +69,18 @@ export function buildArchiveComptableRouter(prisma: PrismaClient): Router {
         res.status(400).json({ erreur: (err2 as Error).message });
       }
     });
+  });
+
+  // Relance l'extraction sur les archives deja importees mais restees
+  // "a verifier" - utile apres un correctif de l'extraction (nouveau
+  // libelle reconnu, filet vision...) sans avoir a tout re-deposer.
+  router.post("/reextraire", async (req, res) => {
+    try {
+      const resultat = await demarrerReextractionArchivesIncompletes(prisma);
+      res.status(resultat.total > 0 ? 202 : 200).json(resultat);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   router.get("/", async (req, res) => {

@@ -262,6 +262,9 @@ const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
 // explicite de l'utilisateur : suivre aussi le HT, pas seulement le TTC).
 // "€?" entre "total"/"montant" et "ht" : vu sur une vraie facture Kiloutou
 // ("Total € HT"), le symbole monetaire s'intercale dans le libelle lui-meme.
+// "montant hors tva" : vu sur une vraie facture EDF ("Montant Hors TVA
+// 27,82 €") - au meme rang que "montant ht"/"total ht", libelle tout
+// aussi explicite et non ambigu (hors TVA = hors taxes = HT).
 // "net" seul, EN DERNIER (filet de securite, jamais prioritaire sur un
 // vrai libelle HT) : vu sur un vrai ticket de carte bancaire (station
 // E.Leclerc) qui n'ecrit jamais "HT", seulement "TOT TTC" / "TVA 20,00%" /
@@ -273,6 +276,8 @@ const MOTIFS_MONTANT_HT_PAR_PRIORITE = [
   /montant\s*total\s*ht/i,
   /total\s*€?\s*ht/i,
   /montant\s*ht/i,
+  /montant\s*hors\s*tva/i,
+  /hors\s*tva/i,
   /\bnet\b(?!\s*à\s*payer)/i,
 ];
 

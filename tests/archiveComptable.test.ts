@@ -87,6 +87,7 @@ test("Module Comptabilité — archive de factures", async (t) => {
   const {
     demarrerImportArchiveZip,
     demarrerImportFichiers,
+    demarrerReextractionArchivesIncompletes,
     listerArchivesComptables,
     obtenirArchiveComptable,
     modifierArchiveComptable,
@@ -123,6 +124,47 @@ test("Module Comptabilité — archive de factures", async (t) => {
     // Nettoyage : les sous-tests suivants (ex. le decompte exact d'archives
     // apres un import ZIP) supposent une table vide avant eux.
     await prisma.archiveComptable.delete({ where: { id: archive!.id } });
+  });
+
+  // demarrerReextractionArchivesIncompletes : une archive importee AVANT
+  // un correctif de l'extraction (ex. "Montant Hors TVA", ajoute apres
+  // coup) reste "a verifier" indefiniment sans ce mecanisme - demande
+  // explicite de l'utilisateur (video, novembre 2026, vraie facture EDF).
+  await t.test("demarrerReextractionArchivesIncompletes : complete une archive deja importee des qu'un champ redevient extractible, sans toucher aux champs deja renseignes", async () => {
+    const PDF_HORS_TVA = PDF_MINIMAL.replace("Total HT 100,00 EUR", "Montant Hors TVA 27,82 EUR").replace("Total TTC 120,00 EUR", "Total TTC 33,38 EUR");
+    const cheminFichier = path.join(DOSSIER_ARCHIVES, `${Date.now()}-test-edf.pdf`);
+    await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+    await fs.writeFile(cheminFichier, PDF_HORS_TVA);
+    // Simule une archive importee avant que "Montant Hors TVA" ne soit
+    // reconnu : HT jamais trouve a l'epoque, TTC et fournisseur deja
+    // renseignes (le fournisseur a ete corrige a la main entre-temps, par
+    // exemple) - ne doivent jamais etre ecrases par la re-extraction.
+    const creee = await prisma.archiveComptable.create({
+      data: {
+        fichierNom: "test-edf.pdf",
+        cheminFichier,
+        mimeType: "application/pdf",
+        fournisseurNom: "EDF",
+        montantTTC: 33.38,
+        statut: "a_verifier",
+      },
+    });
+
+    const { total } = await demarrerReextractionArchivesIncompletes(prisma);
+    assert.equal(total, 1);
+    await attendreJusqua(async () => (await prisma.archiveComptable.findUnique({ where: { id: creee.id } }))?.statut === "complete");
+    const miseAJour = await prisma.archiveComptable.findUnique({ where: { id: creee.id } });
+    assert.equal(miseAJour?.montantHT, 27.82);
+    assert.equal(miseAJour?.montantTTC, 33.38);
+    assert.equal(miseAJour?.fournisseurNom, "EDF");
+    assert.equal(miseAJour?.statut, "complete");
+
+    await prisma.archiveComptable.delete({ where: { id: creee.id } });
+  });
+
+  await t.test("demarrerReextractionArchivesIncompletes : rien a verifier -> total 0", async () => {
+    const { total } = await demarrerReextractionArchivesIncompletes(prisma);
+    assert.equal(total, 0);
   });
 
   await t.test("demarrerImportArchiveZip : importe un PDF lisible, extrait HT/TTC par regex meme sans cle IA, puis liste/filtre/corrige/supprime", async () => {
