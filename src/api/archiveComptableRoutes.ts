@@ -13,6 +13,7 @@ import {
   supprimerArchiveComptable,
 } from "../services/archiveComptable";
 import { EXTENSIONS_AUTORISEES } from "../importers/zipBulk";
+import { CATEGORIES_FACTURE } from "../services/archiveComptableIA";
 
 /**
  * Routes du module Comptabilite (archive de factures independante de
@@ -83,14 +84,22 @@ export function buildArchiveComptableRouter(prisma: PrismaClient): Router {
     }
   });
 
+  // Liste fixe des categories comptables (voir CATEGORIES_FACTURE) - exposee
+  // pour que le filtre cote client reste toujours synchronise avec la liste
+  // reellement utilisee par l'IA, sans la dupliquer en dur dans app.js.
+  router.get("/categories", (_req, res) => {
+    res.json(CATEGORIES_FACTURE);
+  });
+
   router.get("/", async (req, res) => {
-    const { dateDebut, dateFin, fournisseurNom, montantMin, montantMax } = req.query;
+    const { dateDebut, dateFin, fournisseurNom, montantMin, montantMax, categorie } = req.query;
     const archives = await listerArchivesComptables(prisma, {
       dateDebut: typeof dateDebut === "string" && dateDebut ? new Date(dateDebut) : undefined,
       dateFin: typeof dateFin === "string" && dateFin ? new Date(dateFin) : undefined,
       fournisseurNom: typeof fournisseurNom === "string" && fournisseurNom ? fournisseurNom : undefined,
       montantMin: typeof montantMin === "string" && montantMin !== "" ? Number(montantMin) : undefined,
       montantMax: typeof montantMax === "string" && montantMax !== "" ? Number(montantMax) : undefined,
+      categorie: typeof categorie === "string" && categorie ? categorie : undefined,
     });
     res.json(archives);
   });

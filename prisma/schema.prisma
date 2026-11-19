@@ -796,5 +796,6 @@ model ArchiveComptable {
   montantTTC     Float?
   statut         String   @default("a_verifier") // "a_verifier" | "complete" - purement indicatif (champ manquant), jamais bloquant
   classifiePar   String? // "ia" si au moins un champ a ete propose par l'IA (transparence, meme principe que DocumentFournisseur.classifiePar)
+  categorie      String? // categorie comptable (voir CATEGORIES_FACTURE dans archiveComptableIA.ts) - classement automatique, toujours corrigeable a la main
   createdAt      DateTime  @default(now())
 }

@@ -167,6 +167,94 @@ test("Module Comptabilité — archive de factures", async (t) => {
     assert.equal(total, 0);
   });
 
+  // Categorie comptable (CATEGORIES_FACTURE) : champ ajoute apres coup - demande
+  // explicite de l'utilisateur ("classement intelligent et actif"). Une archive
+  // deja "complete" (montants/fournisseur deja renseignes) mais sans categorie
+  // doit elle aussi etre reprise par la re-extraction, pas seulement celles
+  // "a_verifier".
+  await t.test(
+    "demarrerReextractionArchivesIncompletes : reprend aussi une archive deja 'complete' mais sans categorie (champ ajoute apres coup)",
+    async () => {
+      const cheminFichier = path.join(DOSSIER_ARCHIVES, `${Date.now()}-test-categorie.pdf`);
+      await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+      await fs.writeFile(cheminFichier, PDF_MINIMAL);
+      const creee = await prisma.archiveComptable.create({
+        data: {
+          fichierNom: "test-categorie.pdf",
+          cheminFichier,
+          mimeType: "application/pdf",
+          fournisseurNom: "Kiloutou",
+          montantHT: 100,
+          montantTTC: 120,
+          statut: "complete",
+          categorie: null,
+        },
+      });
+
+      const dernierJournalAvant = await prisma.journalEvenement.findFirst({
+        where: { evenement: "archive_comptable_reextraction_terminee" },
+        orderBy: { horodatage: "desc" },
+      });
+
+      const { total } = await demarrerReextractionArchivesIncompletes(prisma);
+      assert.equal(total, 1);
+
+      await attendreJusqua(async () => {
+        const dernier = await prisma.journalEvenement.findFirst({
+          where: { evenement: "archive_comptable_reextraction_terminee" },
+          orderBy: { horodatage: "desc" },
+        });
+        return dernier !== null && dernier.id !== dernierJournalAvant?.id;
+      });
+
+      // Sans cle Anthropic, rien de nouveau n'est extrait : l'archive reste
+      // "complete" et sans categorie - seule compte ici qu'elle ait bien ete
+      // incluse dans le lot traite (total === 1 ci-dessus).
+      const inchangee = await prisma.archiveComptable.findUnique({ where: { id: creee.id } });
+      assert.equal(inchangee?.statut, "complete");
+      assert.equal(inchangee?.categorie, null);
+
+      await prisma.archiveComptable.delete({ where: { id: creee.id } });
+    }
+  );
+
+  await t.test("modifierArchiveComptable : accepte une categorie valide, rejette une categorie inconnue", async () => {
+    const cheminFichier = path.join(DOSSIER_ARCHIVES, `${Date.now()}-test-cat-manuel.pdf`);
+    await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+    await fs.writeFile(cheminFichier, PDF_MINIMAL);
+    const creee = await prisma.archiveComptable.create({
+      data: { fichierNom: "test-cat-manuel.pdf", cheminFichier, mimeType: "application/pdf", montantHT: 100, montantTTC: 120, statut: "a_verifier" },
+    });
+
+    await assert.rejects(() => modifierArchiveComptable(prisma, creee.id, { categorie: "Categorie inventee" }), /Categorie invalide/);
+
+    const corrigee = await modifierArchiveComptable(prisma, creee.id, { categorie: "Carburant" });
+    assert.equal(corrigee.categorie, "Carburant");
+
+    await prisma.archiveComptable.delete({ where: { id: creee.id } });
+  });
+
+  await t.test("listerArchivesComptables : filtre par categorie", async () => {
+    const chemin1 = path.join(DOSSIER_ARCHIVES, `${Date.now()}-cat-a.pdf`);
+    const chemin2 = path.join(DOSSIER_ARCHIVES, `${Date.now()}-cat-b.pdf`);
+    await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+    await fs.writeFile(chemin1, PDF_MINIMAL);
+    await fs.writeFile(chemin2, PDF_MINIMAL);
+    const a = await prisma.archiveComptable.create({
+      data: { fichierNom: "cat-a.pdf", cheminFichier: chemin1, mimeType: "application/pdf", categorie: "Énergie", statut: "complete" },
+    });
+    const b = await prisma.archiveComptable.create({
+      data: { fichierNom: "cat-b.pdf", cheminFichier: chemin2, mimeType: "application/pdf", categorie: "Carburant", statut: "complete" },
+    });
+
+    const energie = await listerArchivesComptables(prisma, { categorie: "Énergie" });
+    assert.equal(energie.length, 1);
+    assert.equal(energie[0].id, a.id);
+
+    await prisma.archiveComptable.delete({ where: { id: a.id } });
+    await prisma.archiveComptable.delete({ where: { id: b.id } });
+  });
+
   await t.test("demarrerImportArchiveZip : importe un PDF lisible, extrait HT/TTC par regex meme sans cle IA, puis liste/filtre/corrige/supprime", async () => {
     const zip = construireZipDeTest({ "facture-test.pdf": PDF_MINIMAL });
     const { total } = await demarrerImportArchiveZip(prisma, zip);

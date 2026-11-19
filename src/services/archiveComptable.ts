@@ -6,7 +6,7 @@ import { extraireFichiersDepuisZip, mimeTypeDepuisNom, FichierExtrait } from "..
 import { extractPdfText, texteSignificatif } from "../importers/bankStatementPdf";
 import { rendrePremierePageEnImage } from "../importers/pdfRenderImage";
 import { extraireMontantHTFacture, extraireMontantTTCFacture, completerMontantHTSansTva } from "./gmailClassify";
-import { extraireChampsFacturePdf, extraireChampsFactureImage } from "./archiveComptableIA";
+import { extraireChampsFacturePdf, extraireChampsFactureImage, CATEGORIES_FACTURE } from "./archiveComptableIA";
 import { logEvenement } from "./journalService";
 
 /**
@@ -114,6 +114,7 @@ export interface ChampsExtraitsArchive {
   numero: string | null;
   dateFacture: Date | null;
   classifiePar: string | null;
+  categorie: string | null;
 }
 
 /**
@@ -134,6 +135,7 @@ async function extraireChampsDocument(prisma: PrismaClient, donnees: Buffer, mim
   let numero: string | null = null;
   let dateFacture: Date | null = null;
   let classifiePar: string | null = null;
+  let categorie: string | null = null;
 
   if (mimeType === "application/pdf") {
     let texte: string | undefined;
@@ -159,6 +161,7 @@ async function extraireChampsDocument(prisma: PrismaClient, donnees: Buffer, mim
         classifiePar = "ia";
         fournisseurNom = champsIA.fournisseurNom ?? null;
         numero = champsIA.numero ?? null;
+        categorie = champsIA.categorie ?? null;
         if (champsIA.dateFacture) dateFacture = new Date(champsIA.dateFacture);
         if (montantHT == null && champsIA.montantHT != null) montantHT = champsIA.montantHT;
         if (montantTTC == null && champsIA.montantTTC != null) montantTTC = champsIA.montantTTC;
@@ -177,6 +180,7 @@ async function extraireChampsDocument(prisma: PrismaClient, donnees: Buffer, mim
           classifiePar = "ia";
           fournisseurNom = champsIA.fournisseurNom ?? null;
           numero = champsIA.numero ?? null;
+          categorie = champsIA.categorie ?? null;
           if (champsIA.dateFacture) dateFacture = new Date(champsIA.dateFacture);
           montantHT = champsIA.montantHT ?? null;
           montantTTC = champsIA.montantTTC ?? null;
@@ -189,13 +193,14 @@ async function extraireChampsDocument(prisma: PrismaClient, donnees: Buffer, mim
       classifiePar = "ia";
       fournisseurNom = champsIA.fournisseurNom ?? null;
       numero = champsIA.numero ?? null;
+      categorie = champsIA.categorie ?? null;
       if (champsIA.dateFacture) dateFacture = new Date(champsIA.dateFacture);
       montantHT = champsIA.montantHT ?? null;
       montantTTC = champsIA.montantTTC ?? null;
     }
   }
 
-  return { montantHT, montantTTC, fournisseurNom, numero, dateFacture, classifiePar };
+  return { montantHT, montantTTC, fournisseurNom, numero, dateFacture, classifiePar, categorie };
 }
 
 /** Retourne true si le fichier a ete enregistre avec tous les champs principaux deja renseignes. */
@@ -205,7 +210,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
   const cheminFichier = path.join(DOSSIER_ARCHIVES, `${crypto.randomUUID()}${extension}`);
   await fs.writeFile(cheminFichier, fichier.donnees);
 
-  const { montantHT, montantTTC, fournisseurNom, numero, dateFacture, classifiePar } = await extraireChampsDocument(
+  const { montantHT, montantTTC, fournisseurNom, numero, dateFacture, classifiePar, categorie } = await extraireChampsDocument(
     prisma,
     fichier.donnees,
     mimeType
@@ -224,6 +229,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
       montantTTC,
       statut: complet ? "complete" : "a_verifier",
       classifiePar,
+      categorie,
     },
   });
 
@@ -236,15 +242,17 @@ export interface ResultatReextractionArchives {
 
 /**
  * Relance l'extraction (regle + IA) sur les archives deja importees mais
- * restees "a verifier" - sans bloquer la reponse HTTP (voir
- * demarrerImportFichiers, meme principe) : utile apres un correctif de
- * l'extraction (nouveau libelle reconnu, filet vision...) pour que les
- * archives deja presentes en beneficient sans avoir a tout re-deposer.
- * Ne retouche jamais un champ deja renseigne (ex. corrige a la main via
- * modifierArchiveComptable) - ne complete que ce qui manque encore.
+ * restees "a verifier", OU sans categorie (champ ajoute apres coup : toutes
+ * les archives importees avant son ajout n'en ont jamais recu, meme celles
+ * deja "complete") - sans bloquer la reponse HTTP (voir demarrerImportFichiers,
+ * meme principe) : utile apres un correctif de l'extraction (nouveau libelle
+ * reconnu, filet vision, nouvelle categorie...) pour que les archives deja
+ * presentes en beneficient sans avoir a tout re-deposer. Ne retouche jamais
+ * un champ deja renseigne (ex. corrige a la main via modifierArchiveComptable)
+ * - ne complete que ce qui manque encore.
  */
 export async function demarrerReextractionArchivesIncompletes(prisma: PrismaClient): Promise<ResultatReextractionArchives> {
-  const aTraiter = await prisma.archiveComptable.findMany({ where: { statut: "a_verifier" } });
+  const aTraiter = await prisma.archiveComptable.findMany({ where: { OR: [{ statut: "a_verifier" }, { categorie: null }] } });
   if (aTraiter.length === 0) return { total: 0 };
 
   reextraireArchives(prisma, aTraiter).catch(async (err) => {
@@ -273,10 +281,11 @@ async function reextraireArchives(prisma: PrismaClient, archives: Awaited<Return
       const montantHT = archive.montantHT ?? extrait.montantHT;
       const montantTTC = archive.montantTTC ?? extrait.montantTTC;
       const classifiePar = archive.classifiePar ?? extrait.classifiePar;
+      const categorie = archive.categorie ?? extrait.categorie;
       const complet = montantHT != null && montantTTC != null && !!fournisseurNom;
       await prisma.archiveComptable.update({
         where: { id: archive.id },
-        data: { fournisseurNom, numero, dateFacture, montantHT, montantTTC, classifiePar, statut: complet ? "complete" : "a_verifier" },
+        data: { fournisseurNom, numero, dateFacture, montantHT, montantTTC, classifiePar, categorie, statut: complet ? "complete" : "a_verifier" },
       });
       if (complet) completees++;
       else toujoursAVerifier++;
@@ -300,6 +309,7 @@ export interface FiltresArchiveComptable {
   fournisseurNom?: string;
   montantMin?: number;
   montantMax?: number;
+  categorie?: string;
 }
 
 export async function listerArchivesComptables(prisma: PrismaClient, filtres: FiltresArchiveComptable = {}) {
@@ -313,6 +323,9 @@ export async function listerArchivesComptables(prisma: PrismaClient, filtres: Fi
   }
   if (filtres.fournisseurNom) {
     where.fournisseurNom = { contains: filtres.fournisseurNom, mode: "insensitive" };
+  }
+  if (filtres.categorie) {
+    where.categorie = filtres.categorie;
   }
   if (filtres.montantMin != null || filtres.montantMax != null) {
     const conditionMontant = {
@@ -343,6 +356,7 @@ export interface ChampsModifiablesArchive {
   dateFacture?: string | null; // AAAA-MM-JJ
   montantHT?: number | null;
   montantTTC?: number | null;
+  categorie?: string | null;
 }
 
 /** Correction manuelle (toujours prioritaire sur l'extraction automatique). */
@@ -354,12 +368,16 @@ export async function modifierArchiveComptable(prisma: PrismaClient, id: string,
   const dateFacture = champs.dateFacture !== undefined ? (champs.dateFacture ? new Date(champs.dateFacture) : null) : actuelle.dateFacture;
   const montantHT = champs.montantHT !== undefined ? champs.montantHT : actuelle.montantHT;
   const montantTTC = champs.montantTTC !== undefined ? champs.montantTTC : actuelle.montantTTC;
+  if (champs.categorie !== undefined && champs.categorie !== null && !(CATEGORIES_FACTURE as readonly string[]).includes(champs.categorie)) {
+    throw new Error(`Categorie invalide, attendu l'une de : ${CATEGORIES_FACTURE.join(", ")}`);
+  }
+  const categorie = champs.categorie !== undefined ? champs.categorie : actuelle.categorie;
 
   const complet = montantHT != null && montantTTC != null && !!fournisseurNom;
 
   return prisma.archiveComptable.update({
     where: { id },
-    data: { fournisseurNom, numero, dateFacture, montantHT, montantTTC, statut: complet ? "complete" : "a_verifier" },
+    data: { fournisseurNom, numero, dateFacture, montantHT, montantTTC, categorie, statut: complet ? "complete" : "a_verifier" },
   });
 }
 

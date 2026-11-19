@@ -20,12 +20,38 @@ import { logEvenement } from "./journalService";
 
 const MODELE = "claude-sonnet-5-5";
 
+/**
+ * Categories comptables fixes - demande explicite de l'utilisateur ("classement
+ * intelligent et actif"). A la difference de fournisseurNom/numero/dateFacture/
+ * montants (des FAITS lus sur le document, jamais devines si absents), la
+ * categorie est un CLASSEMENT : un jugement a partir du fournisseur et de la
+ * nature de la facture, pas une donnee ecrite telle quelle sur le document.
+ * L'IA doit donc toujours en proposer une (dont "Autre" en dernier recours)
+ * plutot que de laisser le champ vide - toujours corrigeable a la main
+ * ensuite (modifierArchiveComptable), jamais figee.
+ */
+export const CATEGORIES_FACTURE = [
+  "Énergie",
+  "Carburant",
+  "Matériel et fournitures",
+  "Location de matériel",
+  "Sous-traitance",
+  "Véhicule",
+  "Assurance",
+  "Télécommunications",
+  "Banque et frais financiers",
+  "Autre",
+] as const;
+
+export type CategorieFacture = (typeof CATEGORIES_FACTURE)[number];
+
 export interface ChampsFacture {
   fournisseurNom?: string;
   numero?: string;
   dateFacture?: string; // AAAA-MM-JJ
   montantHT?: number;
   montantTTC?: number;
+  categorie?: CategorieFacture;
 }
 
 const OUTIL_EXTRACTION: Anthropic.Tool = {
@@ -39,6 +65,11 @@ const OUTIL_EXTRACTION: Anthropic.Tool = {
       dateFacture: { type: "string", description: "Date du document au format AAAA-MM-JJ. Omise si illisible." },
       montantHT: { type: "number", description: "Montant HT en euros, tel qu'ecrit. Omis si illisible ou absent." },
       montantTTC: { type: "number", description: "Montant TTC en euros, tel qu'ecrit. Omis si illisible ou absent." },
+      categorie: {
+        type: "string",
+        enum: [...CATEGORIES_FACTURE],
+        description: "Categorie comptable la plus pertinente parmi la liste, deduite du fournisseur et de la nature de la facture. Utilise 'Autre' si aucune ne convient vraiment - a fournir systematiquement, contrairement aux autres champs.",
+      },
     },
   },
 };
@@ -47,11 +78,19 @@ const PROMPT_SYSTEME = `Tu lis un document comptable (facture, avoir, bon...) d'
 pour en extraire les informations REELLEMENT visibles, en vue d'une archive consultee lors d'un \
 controle fiscal.
 
-Regle absolue : n'extrais QUE ce qui est effectivement lisible. Si une information est absente, \
-illisible ou ambigue, omets-la purement et simplement - ne devine JAMAIS une valeur pour completer \
-une reponse plus "utile". Une information omise n'a aucune consequence (l'utilisateur la completera \
-a la main), alors qu'une valeur inventee presentee comme certaine serait une fausse preuve en cas \
-de controle. Appelle systematiquement l'outil extraire_facture avec ce que tu as reellement lu.`;
+Regle absolue : n'extrais QUE ce qui est effectivement lisible pour fournisseurNom/numero/dateFacture/ \
+montantHT/montantTTC. Si une de ces informations est absente, illisible ou ambigue, omets-la purement \
+et simplement - ne devine JAMAIS une valeur pour completer une reponse plus "utile". Une information \
+omise n'a aucune consequence (l'utilisateur la completera a la main), alors qu'une valeur inventee \
+presentee comme certaine serait une fausse preuve en cas de controle.
+
+Pour le champ categorie en revanche, c'est different : ce n'est pas une donnee ecrite sur le document \
+mais un classement, donc fournis-le TOUJOURS meme si tu dois deduire la categorie la plus probable a \
+partir du nom du fournisseur et de la nature visible de l'achat (ex. EDF/Engie -> Energie, une station \
+essence -> Carburant, Kiloutou -> Location de materiel). N'utilise "Autre" qu'en dernier recours, si \
+vraiment aucune categorie ne correspond.
+
+Appelle systematiquement l'outil extraire_facture avec ce que tu as reellement lu.`;
 
 /**
  * prisma optionnel : uniquement pour journaliser une PANNE reelle (cle
@@ -81,6 +120,9 @@ async function appelerExtraction(client: Anthropic, contenu: Anthropic.MessagePa
     if (typeof entree.dateFacture === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entree.dateFacture)) resultat.dateFacture = entree.dateFacture;
     if (typeof entree.montantHT === "number" && entree.montantHT > 0) resultat.montantHT = entree.montantHT;
     if (typeof entree.montantTTC === "number" && entree.montantTTC > 0) resultat.montantTTC = entree.montantTTC;
+    if (typeof entree.categorie === "string" && (CATEGORIES_FACTURE as readonly string[]).includes(entree.categorie)) {
+      resultat.categorie = entree.categorie as CategorieFacture;
+    }
     return Object.keys(resultat).length > 0 ? resultat : null;
   } catch (err) {
     if (prisma) {

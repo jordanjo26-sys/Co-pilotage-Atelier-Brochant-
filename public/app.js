@@ -2928,6 +2928,15 @@ if (formRealisations) {
 // chargerFacturesImpayees ci-dessus) : pas de nouvel appel reseau a chaque
 // frappe dans les filtres.
 let archivesComptablesBrutes = [];
+// Derniere liste affichee (apres tous les filtres, y compris "Doublons
+// uniquement") - alimentee par afficherArchivesComptablesFiltrees, lue par
+// exporterArchivesComptablesCsv pour n'exporter que ce qui est visible.
+let archivesComptablesFiltreesCourantes = [];
+// Categories comptables fixes (voir CATEGORIES_FACTURE cote serveur,
+// archiveComptableIA.ts) - chargees une fois depuis le serveur pour que le
+// filtre et la correction manuelle restent toujours synchronises avec la
+// liste reellement utilisee par l'IA, sans la dupliquer en dur ici.
+let categoriesFactureDisponibles = [];
 
 const ID_FILTRES_ARCHIVE_COMPTABLE = [
   "filtre-archive-date-debut",
@@ -2935,6 +2944,7 @@ const ID_FILTRES_ARCHIVE_COMPTABLE = [
   "filtre-archive-fournisseur",
   "filtre-archive-montant-min",
   "filtre-archive-montant-max",
+  "filtre-archive-categorie",
 ];
 
 /**
@@ -2980,6 +2990,7 @@ function afficherArchivesComptablesFiltrees() {
   const montantMin = montantMinBrut === "" ? null : Number(montantMinBrut);
   const montantMax = montantMaxBrut === "" ? null : Number(montantMaxBrut);
   const doublonsUniquement = document.getElementById("filtre-archive-doublons-uniquement").checked;
+  const categorieChoisie = document.getElementById("filtre-archive-categorie").value;
   const idsDoublons = detecterIdsDoublonsArchives(archivesComptablesBrutes);
 
   const archives = archivesComptablesBrutes.filter((a) => {
@@ -2993,8 +3004,10 @@ function afficherArchivesComptablesFiltrees() {
     if (montantMin !== null && !(a.montantHT >= montantMin || a.montantTTC >= montantMin)) return false;
     if (montantMax !== null && !(a.montantHT <= montantMax || a.montantTTC <= montantMax)) return false;
     if (doublonsUniquement && !idsDoublons.has(a.id)) return false;
+    if (categorieChoisie && a.categorie !== categorieChoisie) return false;
     return true;
   });
+  archivesComptablesFiltreesCourantes = archives;
 
   document.getElementById("compte-archives-filtrees").textContent =
     archives.length === archivesComptablesBrutes.length
@@ -3039,6 +3052,7 @@ function afficherArchivesComptablesFiltrees() {
           ${a.numero ? ` · n° ${echapper(a.numero)}` : ""}
           ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
           ${idsDoublons.has(a.id) ? ` · <span class="badge badge-palier-ambre">doublon possible</span>` : ""}
+          ${a.categorie ? ` · <span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
         </div>
         <div class="fournisseur-actions fournisseur-actions-ligne">
           ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
@@ -3058,6 +3072,23 @@ function afficherArchivesComptablesFiltrees() {
 async function chargerArchivesComptables() {
   const conteneur = document.getElementById("liste-archives-comptables");
   if (!conteneur) return;
+
+  const selectCategorie = document.getElementById("filtre-archive-categorie");
+  if (selectCategorie && categoriesFactureDisponibles.length === 0) {
+    try {
+      const resCategories = await fetch("/api/archives-comptables/categories");
+      categoriesFactureDisponibles = await resCategories.json();
+      const valeurActuelle = selectCategorie.value;
+      selectCategorie.innerHTML =
+        `<option value="">Toutes catégories</option>` +
+        categoriesFactureDisponibles.map((c) => `<option value="${echapper(c)}">${echapper(c)}</option>`).join("");
+      selectCategorie.value = valeurActuelle;
+    } catch {
+      // Liste de categories indisponible : le filtre reste simplement vide,
+      // sans bloquer l'affichage des archives elles-memes.
+    }
+  }
+
   try {
     const res = await fetch("/api/archives-comptables");
     archivesComptablesBrutes = await res.json();
@@ -3092,20 +3123,108 @@ async function chargerArchivesComptables() {
     boutonReextraire.addEventListener("click", () => reextraireArchivesComptables(boutonReextraire));
     boutonReextraire.dataset.initialise = "1";
   }
+
+  const boutonExporterCsv = document.getElementById("btn-exporter-archives-csv");
+  if (boutonExporterCsv && !boutonExporterCsv.dataset.initialise) {
+    boutonExporterCsv.addEventListener("click", exporterArchivesComptablesCsv);
+    boutonExporterCsv.dataset.initialise = "1";
+  }
+}
+
+/**
+ * Exporte en CSV les archives actuellement affichees (apres tous les
+ * filtres en cours, y compris "Doublons uniquement"/categorie) - demande
+ * explicite de l'utilisateur. Genere entierement cote client : les donnees
+ * sont deja en memoire (archivesComptablesFiltreesCourantes), pas besoin
+ * d'un nouvel appel au serveur.
+ */
+function exporterArchivesComptablesCsv() {
+  if (archivesComptablesFiltreesCourantes.length === 0) {
+    alert("Aucune archive à exporter avec les filtres actuels.");
+    return;
+  }
+
+  const echapperCsv = (valeur) => `"${String(valeur ?? "").replace(/"/g, '""')}"`;
+  const lignes = [["Fournisseur", "Date", "Numéro", "Catégorie", "Montant HT", "Montant TTC", "Statut"].map(echapperCsv).join(";")];
+  for (const a of archivesComptablesFiltreesCourantes) {
+    lignes.push(
+      [
+        a.fournisseurNom || "",
+        a.dateFacture ? a.dateFacture.slice(0, 10) : "",
+        a.numero || "",
+        a.categorie || "",
+        a.montantHT != null ? String(a.montantHT).replace(".", ",") : "",
+        a.montantTTC != null ? String(a.montantTTC).replace(".", ",") : "",
+        a.statut === "a_verifier" ? "À vérifier" : "Complète",
+      ]
+        .map(echapperCsv)
+        .join(";")
+    );
+  }
+  // BOM UTF-8 en tete : sans lui, Excel (Windows) affiche les caracteres
+  // accentues de travers a l'ouverture du CSV.
+  const contenu = "﻿" + lignes.join("\r\n");
+  const lien = document.createElement("a");
+  lien.href = URL.createObjectURL(new Blob([contenu], { type: "text/csv;charset=utf-8;" }));
+  lien.download = `archives-comptables-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(lien);
+  lien.click();
+  lien.remove();
+  URL.revokeObjectURL(lien.href);
+}
+
+/**
+ * Attend la fin reelle d'un traitement Comptabilite en arriere-plan (import
+ * ou re-extraction) en interrogeant le Journal (deja utilise partout dans ce
+ * module), puis affiche le resultat exact - demande explicite de
+ * l'utilisateur : actuellement, apres un import, rien ne confirme jamais si
+ * les factures ont bien ete enregistrees ou non ("je sais pas si c'est bon
+ * ou pas"). Ne bloque jamais l'interface (boucle d'attente asynchrone, sans
+ * await de l'appelant) - juste une mise a jour differee du message affiche.
+ */
+async function attendreResultatTraitementArchiveComptable(resultatConteneur, evenementSucces, evenementErreur, depuis) {
+  const limite = Date.now() + 10 * 60 * 1000; // 10 minutes : largement au-dessus du temps reel observe, meme pour plusieurs centaines de fichiers.
+  while (Date.now() < limite) {
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    try {
+      const res = await fetch("/api/journal");
+      const journal = await res.json();
+      const evenement = journal.find(
+        (e) => (e.evenement === evenementSucces || e.evenement === evenementErreur) && new Date(e.horodatage) >= depuis
+      );
+      if (evenement) {
+        if (resultatConteneur) {
+          resultatConteneur.innerHTML =
+            evenement.evenement === evenementErreur
+              ? `<span class="badge badge-echec">Erreur</span> ${echapper(evenement.resultat || "Échec du traitement.")}`
+              : `<span class="badge badge-ok">Terminé</span> ${echapper(evenement.resultat || "")}`;
+        }
+        await chargerArchivesComptables();
+        return;
+      }
+    } catch {
+      // Panne reseau passagere lors d'un sondage : on reessaie au prochain
+      // tour plutot que d'abandonner l'attente pour si peu.
+    }
+  }
+  if (resultatConteneur) {
+    resultatConteneur.innerHTML += ` <span class="aide-inline">(toujours en cours après 10 minutes — actualisez la page plus tard pour voir le résultat.)</span>`;
+  }
 }
 
 // Relance l'extraction sur les archives restees "a verifier" (voir
 // demarrerReextractionArchivesIncompletes dans archiveComptable.ts) - utile
 // apres un correctif de l'extraction pour que les archives deja importees
 // en beneficient sans tout re-deposer. Ne bloque pas en attendant la fin
-// (meme principe que backfillMontantsFournisseurs) : le resultat exact
-// arrive plus tard, visible dans le Journal.
+// (meme principe que backfillMontantsFournisseurs), mais affiche bien le
+// resultat exact des qu'il est connu (voir attendreResultatTraitementArchiveComptable).
 async function reextraireArchivesComptables(bouton) {
   const resultatConteneur = document.getElementById("resultat-reextraction-archives");
   bouton.disabled = true;
   const texteInitial = bouton.textContent;
   bouton.textContent = "Lancement…";
   if (resultatConteneur) resultatConteneur.innerHTML = "";
+  const depuis = new Date();
   try {
     const res = await fetch("/api/archives-comptables/reextraire", { method: "POST" });
     const data = await res.json();
@@ -3113,8 +3232,11 @@ async function reextraireArchivesComptables(bouton) {
     if (resultatConteneur) {
       resultatConteneur.innerHTML =
         data.total > 0
-          ? `<p class="aide-inline">${data.total} archive(s) en cours de re-traitement en arrière-plan — actualisez cette page dans quelques minutes pour voir les résultats.</p>`
-          : `<p class="aide-inline">Aucune archive "à vérifier" pour le moment.</p>`;
+          ? `<p class="aide-inline">${data.total} archive(s) en cours de re-traitement en arrière-plan…</p>`
+          : `<p class="aide-inline">Aucune archive à re-traiter pour le moment.</p>`;
+    }
+    if (data.total > 0) {
+      attendreResultatTraitementArchiveComptable(resultatConteneur, "archive_comptable_reextraction_terminee", "archive_comptable_reextraction_erreur", depuis);
     }
   } catch (err) {
     if (resultatConteneur) resultatConteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
@@ -3148,6 +3270,15 @@ async function corrigerArchiveComptable(id) {
     alert("Montant invalide : indiquez un nombre positif (ex. 123,45).");
     return;
   }
+  const categorieSaisie = prompt(
+    `Catégorie (laissez vide si inconnue) :\n${categoriesFactureDisponibles.join(", ")}`,
+    archive.categorie || ""
+  );
+  if (categorieSaisie === null) return;
+  if (categorieSaisie.trim() && !categoriesFactureDisponibles.includes(categorieSaisie.trim())) {
+    alert(`Catégorie invalide : choisissez-en une parmi : ${categoriesFactureDisponibles.join(", ")}`);
+    return;
+  }
 
   try {
     const res = await fetch(`/api/archives-comptables/${id}`, {
@@ -3159,6 +3290,7 @@ async function corrigerArchiveComptable(id) {
         dateFacture: dateSaisie.trim() === "" ? null : dateSaisie.trim(),
         montantHT,
         montantTTC,
+        categorie: categorieSaisie.trim() === "" ? null : categorieSaisie.trim(),
       }),
     });
     const data = await res.json();
@@ -3205,12 +3337,14 @@ if (formArchiveComptable) {
     donnees.append("archive", champFichier.files[0]);
 
     resultatDiv.textContent = "Envoi de l'archive en cours… (peut prendre un moment pour plusieurs centaines de fichiers)";
+    const depuis = new Date();
     try {
       const res = await fetch("/api/archives-comptables/import", { method: "POST", body: donnees });
       const data = await res.json();
       if (!res.ok) throw new Error(data.erreur || "Échec de l'import.");
-      resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan — actualisez cette page dans quelques minutes pour voir les résultats classés par mois ci-dessous.`;
+      resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan…`;
       formArchiveComptable.reset();
+      attendreResultatTraitementArchiveComptable(resultatDiv, "archive_comptable_import_termine", "archive_comptable_import_erreur", depuis);
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }
@@ -3237,12 +3371,14 @@ if (formArchiveComptableFichiers) {
     for (const fichier of champFichiers.files) donnees.append("fichiers", fichier);
 
     resultatDiv.textContent = "Envoi des fichiers en cours… (peut prendre un moment pour plusieurs centaines de fichiers)";
+    const depuis = new Date();
     try {
       const res = await fetch("/api/archives-comptables/import-fichiers", { method: "POST", body: donnees });
       const data = await res.json();
       if (!res.ok) throw new Error(data.erreur || "Échec de l'import.");
-      resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan — actualisez cette page dans quelques minutes pour voir les résultats classés par mois ci-dessous.`;
+      resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan…`;
       formArchiveComptableFichiers.reset();
+      attendreResultatTraitementArchiveComptable(resultatDiv, "archive_comptable_import_termine", "archive_comptable_import_erreur", depuis);
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }

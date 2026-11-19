@@ -434,11 +434,15 @@
           <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
           <input type="number" id="filtre-archive-montant-min" step="0.01" min="0" placeholder="Montant min." />
           <input type="number" id="filtre-archive-montant-max" step="0.01" min="0" placeholder="Montant max." />
+          <select id="filtre-archive-categorie">
+            <option value="">Toutes catégories</option>
+          </select>
           <label class="aide-inline"><input type="checkbox" id="filtre-archive-doublons-uniquement" /> Doublons uniquement</label>
         </div>
         <div class="ligne-boutons" style="margin-bottom: 10px;">
           <button type="button" class="ghost" id="btn-reinitialiser-filtres-archive">Réinitialiser les filtres</button>
           <button type="button" class="ghost" id="btn-reextraire-archives">Relancer l'extraction sur les archives "à vérifier"</button>
+          <button type="button" class="ghost" id="btn-exporter-archives-csv">Exporter en CSV</button>
           <span class="aide-inline" id="compte-archives-filtrees" style="margin-left: auto;"></span>
         </div>
         <div id="resultat-reextraction-archives"></div>
@@ -449,7 +453,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=53"></script>
+  <script src="/app.js?v=54"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>
