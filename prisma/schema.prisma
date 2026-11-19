@@ -505,7 +505,7 @@ model EnvoiCampagne {
 model ImportBatch {
   id             String    @id @default(cuid())
   fichierNom     String
-  typeDetecte    String // synec_factures | synec_clients | stripe_paiements | stripe_payouts | stripe_solde | banque_releve | banque_releve_pdf | google_ads_campagnes | inconnu
+  typeDetecte    String // synec_factures | synec_clients | stripe_paiements | stripe_payouts | stripe_solde | banque_releve | banque_releve_pdf | banque_releve_pdf_amex | google_ads_campagnes | inconnu
   hashFichier    String    @unique
   dateImport     DateTime  @default(now())
   nbLignes       Int       @default(0)

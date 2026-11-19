@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=35" />
+  <link rel="stylesheet" href="/styles.css?v=36" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -269,13 +269,13 @@
       </section>
 
       <section class="carte accent-bleu">
-        <h2>Déposer un fichier CSV</h2>
+        <h2>Déposer un fichier</h2>
         <p class="aide">
-          Synec (factures), Stripe (paiements ou payouts), relevé bancaire.
-          Le type est détecté automatiquement à partir des en-têtes de colonnes.
+          Synec (factures), Stripe (paiements ou payouts), relevé bancaire (CSV, ou PDF — compte courant
+          Banque Populaire ou carte American Express). Le type est détecté automatiquement.
         </p>
         <form id="form-import">
-          <input type="file" id="input-fichier" accept=".csv" required />
+          <input type="file" id="input-fichier" accept=".csv,.pdf" required />
           <button type="submit">Importer</button>
         </form>
         <div id="resultat-import"></div>
@@ -287,6 +287,25 @@
           <table id="table-imports">
             <thead>
               <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="carte accent-teal">
+        <h2>Mouvements bancaires</h2>
+        <p class="aide">
+          Lignes issues des relevés déposés ci-dessus. Le rapprochement rattache automatiquement chaque
+          mouvement à un payout Stripe ou une facture fournisseur quand la correspondance (montant + date) est
+          certaine ; sinon il reste « à vérifier » ou « non rapproché » plutôt que de deviner.
+        </p>
+        <button type="button" id="btn-relancer-rapprochement">Relancer le rapprochement</button>
+        <div id="resultat-rapprochement"></div>
+        <div class="table-scroll">
+          <table id="table-mouvements-bancaires">
+            <thead>
+              <tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Rapprochement</th></tr>
             </thead>
             <tbody></tbody>
           </table>
@@ -454,7 +473,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=56"></script>
+  <script src="/app.js?v=57"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

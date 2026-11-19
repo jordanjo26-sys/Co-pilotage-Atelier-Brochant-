@@ -189,3 +189,59 @@ test("un fichier au format non reconnu est marque type_inconnu, sans lever d'err
 
   await prisma.$disconnect();
 });
+
+// Bug reel trouve en important un vrai releve Banque Populaire (novembre
+// 2026) : 4 prelevements URSSAF de rattrapage (mois differents) imprimes
+// le meme jour, pour le meme montant, avec le meme libelle generique
+// "PRLV SEPA URSSAF D'ILE D" - seule la reference bancaire de chaque ligne
+// (ex. "0AFFB7G" vs "0AFFA1Z") les distingue. Sans la cle de dedoublonnage
+// "cleHash" (voir bankStatement.ts / receivePdfBankStatement), 3 des 4
+// etaient a tort comptees "doublon" et jamais enregistrees.
+test("importBankStatement : deux operations identiques en date+libelle+montant mais a reference bancaire differente (cleHash) sont bien deux mouvements distincts", async () => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { importBankStatement } = await import("../src/importers/bankStatement");
+  const prisma = new PrismaClient();
+
+  const batch = await prisma.importBatch.create({
+    data: { fichierNom: "test-cleHash.pdf", typeDetecte: "banque_releve_pdf", hashFichier: `test-${Date.now()}-a` },
+  });
+
+  const rows = [
+    { date: "16/01/2026", libelle: "PRLV SEPA URSSAF D'ILE D", montant: "- 397,00", cleHash: "PRLV SEPA URSSAF D'ILE D|0AFFB7G" },
+    { date: "16/01/2026", libelle: "PRLV SEPA URSSAF D'ILE D", montant: "- 397,00", cleHash: "PRLV SEPA URSSAF D'ILE D|0AFFA1Z" },
+  ];
+  const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant", cleHash: "cleHash" };
+  const result = await importBankStatement(prisma, rows, resolvedColumns, batch.id);
+
+  assert.equal(result.nbNouveaux, 2);
+  assert.equal(result.erreurs.length, 0);
+
+  const mouvements = await prisma.mouvementBancaire.findMany({ where: { libelle: "PRLV SEPA URSSAF D'ILE D" } });
+  assert.equal(mouvements.length, 2);
+
+  await prisma.mouvementBancaire.deleteMany({ where: { libelle: "PRLV SEPA URSSAF D'ILE D" } });
+  await prisma.$disconnect();
+});
+
+test("importBankStatement : sans cleHash fournie (ex. CSV), le libelle seul reste la cle de dedoublonnage (comportement inchange)", async () => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { importBankStatement } = await import("../src/importers/bankStatement");
+  const prisma = new PrismaClient();
+
+  const batch = await prisma.importBatch.create({
+    data: { fichierNom: "test-cleHash.csv", typeDetecte: "banque_releve", hashFichier: `test-${Date.now()}-b` },
+  });
+
+  const rows = [
+    { date: "20/01/2026", libelle: "VIR INST Sans Reference", montant: "100,00" },
+    { date: "20/01/2026", libelle: "VIR INST Sans Reference", montant: "100,00" },
+  ];
+  const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant" };
+  const result = await importBankStatement(prisma, rows, resolvedColumns, batch.id);
+
+  assert.equal(result.nbNouveaux, 1);
+  assert.equal(result.nbDoublons, 1);
+
+  await prisma.mouvementBancaire.deleteMany({ where: { libelle: "VIR INST Sans Reference" } });
+  await prisma.$disconnect();
+});

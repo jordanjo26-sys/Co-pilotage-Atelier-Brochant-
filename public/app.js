@@ -392,6 +392,45 @@ async function chargerImports() {
     .join("");
 }
 
+async function chargerMouvementsBancaires() {
+  const res = await fetch("/api/mouvements-bancaires");
+  const mouvements = await res.json();
+  const tbody = document.querySelector("#table-mouvements-bancaires tbody");
+  tbody.innerHTML = mouvements
+    .map(
+      (m) => `
+    <tr>
+      <td>${fmtDate(m.date)}</td>
+      <td>${echapper(m.libelle)}</td>
+      <td>${m.debit > 0 ? fmtMontant(m.debit) : ""}</td>
+      <td>${m.credit > 0 ? fmtMontant(m.credit) : ""}</td>
+      <td><span class="badge badge-${m.rapprochementStatut}">${echapper(m.rapprochementStatut.replace(/_/g, " "))}</span></td>
+    </tr>`
+    )
+    .join("");
+}
+
+document.getElementById("btn-relancer-rapprochement").addEventListener("click", async (e) => {
+  const bouton = e.currentTarget;
+  const resultatDiv = document.getElementById("resultat-rapprochement");
+  bouton.disabled = true;
+  resultatDiv.textContent = "Rapprochement en cours…";
+  try {
+    const res = await fetch("/api/rapprochement-bancaire/executer", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.erreur || "Échec du rapprochement.");
+    resultatDiv.innerHTML = `
+      Payouts Stripe : ${data.nbRapproches} rapproché(s), ${data.nbAmbigus} ambigu(s), ${data.nbSansCorrespondance} sans correspondance.<br>
+      Factures fournisseurs : ${data.nbRapprochesFournisseurs} rapprochée(s), ${data.nbAmbigusFournisseurs} ambiguë(s), ${data.nbSansCorrespondanceFournisseurs} sans correspondance.
+    `;
+    await chargerMouvementsBancaires();
+  } catch (err) {
+    resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+  } finally {
+    bouton.disabled = false;
+  }
+});
+
 // Liste brute conservee en memoire : les filtres (date d'echeance, montant,
 // client, statut - voir afficherFacturesImpayeesFiltrees) s'appliquent cote
 // client sur les donnees deja chargees, sans redemander le serveur a chaque
@@ -3463,7 +3502,7 @@ if (zoneDepotArchiveComptable) {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

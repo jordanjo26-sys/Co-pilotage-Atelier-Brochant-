@@ -52,7 +52,13 @@ export async function importBankStatement(
         }
       }
 
-      const hashLigne = hashBankRow(dateRaw.trim(), libelle, montant);
+      // Cle de dedoublonnage distincte du libelle affiche, quand fournie
+      // (colonne "cleHash" optionnelle - voir receivePdfBankStatement) :
+      // deux operations peuvent partager exactement date+libelle+montant
+      // sur un vrai releve (ex. plusieurs prelevements de rattrapage le
+      // meme jour, meme montant) sans etre un doublon d'import.
+      const cleHash = resolvedColumns.cleHash ? row[resolvedColumns.cleHash] : libelle;
+      const hashLigne = hashBankRow(dateRaw.trim(), cleHash, montant);
       const existing = await prisma.mouvementBancaire.findUnique({ where: { hashLigne } });
 
       if (existing) {

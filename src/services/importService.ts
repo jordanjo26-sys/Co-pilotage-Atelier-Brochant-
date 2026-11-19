@@ -3,7 +3,12 @@ import { parseCsvBuffer } from "../importers/csvUtils";
 import { detectCsvType } from "../importers/detect";
 import { NORMALIZERS } from "../importers/index";
 import { importBankStatement } from "../importers/bankStatement";
-import { extractPdfText, extractReleveTransactions } from "../importers/bankStatementPdf";
+import {
+  extractPdfText,
+  extractReleveTransactions,
+  estReleveCarteAmex,
+  extractReleveCarteAmexTransactions,
+} from "../importers/bankStatementPdf";
 import { sha256Hex } from "./hash";
 import { ImportRowError, ImportSummary } from "../importers/types";
 import { logEvenement } from "./journalService";
@@ -13,7 +18,12 @@ import { rapprocherPaiementsFactures } from "./rapprochementFactures";
 // Un nouvel import de payouts ou de releve bancaire peut completer un
 // rapprochement en attente (section 5) - inutile pour les autres types
 // (factures, clients...) qui ne fournissent ni l'un ni l'autre cote.
-const TYPES_DECLENCHANT_RAPPROCHEMENT = new Set(["banque_releve", "banque_releve_pdf", "stripe_payouts"]);
+const TYPES_DECLENCHANT_RAPPROCHEMENT = new Set([
+  "banque_releve",
+  "banque_releve_pdf",
+  "banque_releve_pdf_amex",
+  "stripe_payouts",
+]);
 
 // Un nouvel import de factures (nouvelles references/bons de commande a
 // chercher dans les paiements deja recus) ou de paiements Stripe (nouveaux
@@ -84,10 +94,11 @@ async function finalizeImport(
 }
 
 /**
- * Reception d'un relevé de compte au format PDF (Banque Populaire). Le
- * texte est extrait puis les operations reconnues sont transmises au
- * normalisateur generique `importBankStatement`, comme si elles venaient
- * d'un CSV — voir bankStatementPdf.ts pour le detail de l'extraction.
+ * Reception d'un relevé au format PDF - compte courant Banque Populaire ou
+ * carte American Express (voir bankStatementPdf.ts pour le detail de
+ * chaque extraction). Le texte est extrait puis les operations reconnues
+ * sont transmises au normalisateur generique `importBankStatement`, comme
+ * si elles venaient d'un CSV.
  */
 async function receivePdfBankStatement(
   prisma: PrismaClient,
@@ -96,14 +107,22 @@ async function receivePdfBankStatement(
   hashFichier: string
 ): Promise<ImportSummary> {
   let transactions;
+  let typeDetecte: "banque_releve_pdf" | "banque_releve_pdf_amex" = "banque_releve_pdf";
+  let label = "Relevé bancaire (PDF)";
   try {
     const texte = extractPdfText(buffer);
-    transactions = extractReleveTransactions(texte);
+    if (estReleveCarteAmex(texte)) {
+      typeDetecte = "banque_releve_pdf_amex";
+      label = "Relevé de carte American Express (PDF)";
+      transactions = extractReleveCarteAmexTransactions(texte);
+    } else {
+      transactions = extractReleveTransactions(texte);
+    }
   } catch (err) {
     const batch = await prisma.importBatch.create({
       data: {
         fichierNom,
-        typeDetecte: "banque_releve_pdf",
+        typeDetecte,
         hashFichier,
         statut: "echec",
         nbLignes: 0,
@@ -117,7 +136,7 @@ async function receivePdfBankStatement(
     });
     return {
       fichierNom,
-      typeDetecte: "banque_releve_pdf",
+      typeDetecte,
       statut: "echec",
       nbLignes: 0,
       nbNouveaux: 0,
@@ -130,8 +149,8 @@ async function receivePdfBankStatement(
 
   if (transactions.length === 0) {
     // Mise en page non reconnue (PDF different d'un relevé Banque
-    // Populaire) : on trace pour verification manuelle, jamais on ne
-    // devine.
+    // Populaire ou American Express) : on trace pour verification
+    // manuelle, jamais on ne devine.
     const batch = await prisma.importBatch.create({
       data: { fichierNom, typeDetecte: "inconnu", hashFichier, statut: "type_inconnu", nbLignes: 0 },
     });
@@ -154,23 +173,23 @@ async function receivePdfBankStatement(
   }
 
   const batch = await prisma.importBatch.create({
-    data: { fichierNom, typeDetecte: "banque_releve_pdf", hashFichier, nbLignes: transactions.length, statut: "ok" },
+    data: { fichierNom, typeDetecte, hashFichier, nbLignes: transactions.length, statut: "ok" },
   });
 
-  const rows = transactions.map((t) => ({ date: t.date, libelle: t.libelle, montant: t.montant }));
-  const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant" };
+  // cleHash incorpore la reference bancaire de la ligne (quand le releve
+  // en imprime une) pour ne jamais confondre deux operations distinctes
+  // mais sinon identiques en date+libelle+montant (voir PdfTransaction.reference).
+  const rows = transactions.map((t) => ({
+    date: t.date,
+    libelle: t.libelle,
+    montant: t.montant,
+    cleHash: t.reference ? `${t.libelle}|${t.reference}` : t.libelle,
+  }));
+  const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant", cleHash: "cleHash" };
   const result = await importBankStatement(prisma, rows, resolvedColumns, batch.id);
 
-  const summary = await finalizeImport(
-    prisma,
-    fichierNom,
-    "banque_releve_pdf",
-    "Relevé bancaire (PDF)",
-    batch.id,
-    transactions.length,
-    result
-  );
-  await tenterRapprochementSiPertinent(prisma, "banque_releve_pdf");
+  const summary = await finalizeImport(prisma, fichierNom, typeDetecte, label, batch.id, transactions.length, result);
+  await tenterRapprochementSiPertinent(prisma, typeDetecte);
   return summary;
 }
 

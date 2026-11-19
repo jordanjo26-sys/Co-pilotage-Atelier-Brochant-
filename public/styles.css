@@ -264,6 +264,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .badge-echec, .badge-type_inconnu { background: var(--critical-soft); color: var(--critical); }
 .badge-doublon_fichier { background: var(--surface-2); color: var(--ink-muted); }
 .badge-categorie { background: var(--surface-2); color: var(--ink-muted); }
+.badge-rapproche { background: var(--good-soft); color: var(--good); }
+.badge-a_verifier { background: var(--warning-soft); color: var(--warning); }
+.badge-non_rapproche { background: var(--surface-2); color: var(--ink-muted); }
 
 /* Alerte "montant non renseigne" sur une facture fournisseur : texte seul,
    sans pastille de fond (a la difference de .badge-palier-ambre) - demande
