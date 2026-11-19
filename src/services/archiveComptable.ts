@@ -92,11 +92,25 @@ async function traiterFichiersArchive(prisma: PrismaClient, fichiers: FichierExt
       const complet = await traiterUnFichier(prisma, fichier);
       if (complet) complets++;
       else aVerifier++;
-    } catch {
+    } catch (err) {
       // Un fichier illisible (PDF corrompu, image trop lourde...) ne doit
       // jamais interrompre l'import des centaines d'autres fichiers du
-      // meme lot - compte comme erreur, le reste continue.
+      // meme lot - compte comme erreur, le reste continue. Le message reel
+      // est journalise (nom du fichier + erreur) : avant ce correctif, une
+      // erreur ici (ex. ecriture disque ou connexion base de donnees
+      // saturee lors de plusieurs gros imports lances en meme temps) restait
+      // totalement invisible - impossible de savoir, apres coup, pourquoi
+      // un depot de plusieurs centaines de fichiers en comptait certains en
+      // echec (constate en production, novembre 2026).
       erreurs++;
+      await logEvenement(prisma, {
+        evenement: "archive_comptable_import_fichier_erreur",
+        action: `Import du fichier "${fichier.nom}"`,
+        resultat: (err as Error).message,
+      }).catch(() => {
+        // Le journal lui-meme est indisponible : rien de plus a tenter,
+        // le compteur "erreurs" ci-dessus reste quand meme a jour.
+      });
     }
   }
 
@@ -289,10 +303,18 @@ async function reextraireArchives(prisma: PrismaClient, archives: Awaited<Return
       });
       if (complet) completees++;
       else toujoursAVerifier++;
-    } catch {
+    } catch (err) {
       // Fichier disparu du disque ou illisible : ne bloque jamais les
       // autres archives du meme lot (meme discipline que l'import initial).
+      // Message reel journalise, meme principe que traiterFichiersArchive.
       erreurs++;
+      await logEvenement(prisma, {
+        evenement: "archive_comptable_reextraction_archive_erreur",
+        action: `Re-extraction de l'archive "${archive.fichierNom}"`,
+        resultat: (err as Error).message,
+      }).catch(() => {
+        // Le journal lui-meme est indisponible : rien de plus a tenter.
+      });
     }
   }
 
