@@ -2861,8 +2861,233 @@ if (formRealisations) {
   });
 }
 
+// --- Comptabilité : archive de factures (independante de Dext) ------------
+//
+// Module distinct du circuit "Factures fournisseurs" (demande explicite de
+// l'utilisateur, novembre 2026 : archive de secours apres suppression des
+// factures sur Dext par l'ancien comptable). L'ensemble des archives est
+// recupere une seule fois puis filtre cote client (meme principe que
+// chargerFacturesImpayees ci-dessus) : pas de nouvel appel reseau a chaque
+// frappe dans les filtres.
+let archivesComptablesBrutes = [];
+
+const ID_FILTRES_ARCHIVE_COMPTABLE = [
+  "filtre-archive-date-debut",
+  "filtre-archive-date-fin",
+  "filtre-archive-fournisseur",
+  "filtre-archive-montant-min",
+  "filtre-archive-montant-max",
+];
+
+function afficherArchivesComptablesFiltrees() {
+  const conteneur = document.getElementById("liste-archives-comptables");
+  if (!conteneur) return;
+
+  const dateDebut = document.getElementById("filtre-archive-date-debut").value;
+  const dateFin = document.getElementById("filtre-archive-date-fin").value;
+  const fournisseurRecherche = document.getElementById("filtre-archive-fournisseur").value.trim().toLowerCase();
+  const montantMinBrut = document.getElementById("filtre-archive-montant-min").value;
+  const montantMaxBrut = document.getElementById("filtre-archive-montant-max").value;
+  const montantMin = montantMinBrut === "" ? null : Number(montantMinBrut);
+  const montantMax = montantMaxBrut === "" ? null : Number(montantMaxBrut);
+
+  const archives = archivesComptablesBrutes.filter((a) => {
+    const date = a.dateFacture ? a.dateFacture.slice(0, 10) : null;
+    if (dateDebut && (!date || date < dateDebut)) return false;
+    if (dateFin && (!date || date > dateFin)) return false;
+    if (fournisseurRecherche && !(a.fournisseurNom || "").toLowerCase().includes(fournisseurRecherche)) return false;
+    // Un montant filtre peut correspondre au HT ou au TTC (l'utilisateur ne
+    // sait pas forcement lequel il cherche) - meme principe que le filtre
+    // serveur de listerArchivesComptables.
+    if (montantMin !== null && !(a.montantHT >= montantMin || a.montantTTC >= montantMin)) return false;
+    if (montantMax !== null && !(a.montantHT <= montantMax || a.montantTTC <= montantMax)) return false;
+    return true;
+  });
+
+  document.getElementById("compte-archives-filtrees").textContent =
+    archives.length === archivesComptablesBrutes.length
+      ? `${archivesComptablesBrutes.length} archive(s)`
+      : `${archives.length} sur ${archivesComptablesBrutes.length} archive(s)`;
+
+  if (archives.length === 0) {
+    conteneur.innerHTML = `<p class="liste-vide">Aucune archive${archivesComptablesBrutes.length > 0 ? " ne correspond a ces filtres" : " pour le moment"}.</p>`;
+    return;
+  }
+
+  // Deja triees du plus recent au plus ancien par le serveur (voir
+  // listerArchivesComptables) : les groupes par mois apparaissent eux aussi
+  // du plus recent au plus ancien dans l'ordre ou Map les rencontre. Les
+  // archives sans date lisible (echec d'extraction) rejoignent un groupe a
+  // part, en dernier, plutot que de fausser le mois le plus recent.
+  const groupes = new Map();
+  for (const a of archives) {
+    const cle = a.dateFacture ? libelleMoisAnnee(a.dateFacture) : "Date inconnue";
+    if (!groupes.has(cle)) groupes.set(cle, []);
+    groupes.get(cle).push(a);
+  }
+  if (groupes.has("Date inconnue")) {
+    const sansDate = groupes.get("Date inconnue");
+    groupes.delete("Date inconnue");
+    groupes.set("Date inconnue", sansDate);
+  }
+
+  conteneur.innerHTML = [...groupes.entries()]
+    .map(
+      ([mois, docs]) => `
+    <div class="groupe-mois">
+      <h3 class="groupe-mois-titre">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></h3>
+      ${docs
+        .map(
+          (a) => `
+      <div class="fournisseur-carte" id="archive-comptable-${a.id}">
+        <div class="fournisseur-nom">${echapper(a.fournisseurNom || "Fournisseur non identifié")}</div>
+        <div class="anomalie-meta">
+          ${echapper(a.fichierNom)}
+          ${a.dateFacture ? ` · ${fmtDate(a.dateFacture)}` : ""}
+          ${a.numero ? ` · n° ${echapper(a.numero)}` : ""}
+          ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
+        </div>
+        <div class="fournisseur-actions fournisseur-actions-ligne">
+          ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="badge badge-palier-ambre">⚠️ HT non renseigné</span>`}
+          ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="badge badge-palier-ambre">⚠️ TTC non renseigné</span>`}
+          <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/archives-comptables/${a.id}/fichier')">Voir</button>
+          <button type="button" class="ghost bouton-lien" onclick="corrigerArchiveComptable('${a.id}')">Corriger</button>
+          <button type="button" class="ghost bouton-lien" onclick="supprimerArchiveComptable('${a.id}', this)">Supprimer</button>
+        </div>
+      </div>`
+        )
+        .join("")}
+    </div>`
+    )
+    .join("");
+}
+
+async function chargerArchivesComptables() {
+  const conteneur = document.getElementById("liste-archives-comptables");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/archives-comptables");
+    archivesComptablesBrutes = await res.json();
+    if (!res.ok) throw new Error(archivesComptablesBrutes.erreur || "Chargement impossible.");
+    afficherArchivesComptablesFiltrees();
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+    return;
+  }
+
+  // Ecouteurs attaches une seule fois (chargerArchivesComptables est rappelee
+  // toutes les 2 minutes par rafraichirTout) : re-filtre a la volee a chaque
+  // changement, sans bouton "Appliquer" a cliquer - meme principe que les
+  // filtres de factures impayees ci-dessus.
+  if (!document.getElementById("filtre-archive-date-debut").dataset.initialise) {
+    ID_FILTRES_ARCHIVE_COMPTABLE.forEach((id) => {
+      document.getElementById(id).addEventListener("input", afficherArchivesComptablesFiltrees);
+    });
+    document.getElementById("btn-reinitialiser-filtres-archive").addEventListener("click", () => {
+      ID_FILTRES_ARCHIVE_COMPTABLE.forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      afficherArchivesComptablesFiltrees();
+    });
+    document.getElementById("filtre-archive-date-debut").dataset.initialise = "1";
+  }
+}
+
+async function corrigerArchiveComptable(id) {
+  const archive = archivesComptablesBrutes.find((a) => a.id === id);
+  if (!archive) return;
+
+  const fournisseurNom = prompt("Nom du fournisseur :", archive.fournisseurNom || "");
+  if (fournisseurNom === null) return;
+  const numero = prompt("Numéro de facture (laissez vide si absent) :", archive.numero || "");
+  if (numero === null) return;
+  const dateSaisie = prompt("Date de la facture (AAAA-MM-JJ, laissez vide si inconnue) :", archive.dateFacture ? archive.dateFacture.slice(0, 10) : "");
+  if (dateSaisie === null) return;
+  if (dateSaisie.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(dateSaisie.trim())) {
+    alert("Date invalide : utilisez le format AAAA-MM-JJ (ex. 2026-03-15).");
+    return;
+  }
+  const htSaisi = prompt("Montant HT en euros (laissez vide si inconnu) :", archive.montantHT != null ? String(archive.montantHT).replace(".", ",") : "");
+  if (htSaisi === null) return;
+  const ttcSaisi = prompt("Montant TTC en euros (laissez vide si inconnu) :", archive.montantTTC != null ? String(archive.montantTTC).replace(".", ",") : "");
+  if (ttcSaisi === null) return;
+  const montantHT = htSaisi.trim() === "" ? null : Number(htSaisi.replace(",", "."));
+  const montantTTC = ttcSaisi.trim() === "" ? null : Number(ttcSaisi.replace(",", "."));
+  if ((montantHT != null && (!Number.isFinite(montantHT) || montantHT <= 0)) || (montantTTC != null && (!Number.isFinite(montantTTC) || montantTTC <= 0))) {
+    alert("Montant invalide : indiquez un nombre positif (ex. 123,45).");
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/archives-comptables/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fournisseurNom: fournisseurNom.trim() === "" ? null : fournisseurNom.trim(),
+        numero: numero.trim() === "" ? null : numero.trim(),
+        dateFacture: dateSaisie.trim() === "" ? null : dateSaisie.trim(),
+        montantHT,
+        montantTTC,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.erreur || "Enregistrement impossible.");
+    const index = archivesComptablesBrutes.findIndex((a) => a.id === id);
+    if (index !== -1) archivesComptablesBrutes[index] = data;
+    afficherArchivesComptablesFiltrees();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+window.corrigerArchiveComptable = corrigerArchiveComptable;
+
+async function supprimerArchiveComptable(id, bouton) {
+  if (!confirm("Supprimer définitivement cette archive ?")) return;
+  bouton.disabled = true;
+  try {
+    const res = await fetch(`/api/archives-comptables/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Suppression impossible.");
+    }
+    archivesComptablesBrutes = archivesComptablesBrutes.filter((a) => a.id !== id);
+    afficherArchivesComptablesFiltrees();
+  } catch (err) {
+    bouton.disabled = false;
+    alert(err.message);
+  }
+}
+window.supprimerArchiveComptable = supprimerArchiveComptable;
+
+const formArchiveComptable = document.getElementById("form-archive-comptable");
+if (formArchiveComptable) {
+  formArchiveComptable.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const resultatDiv = document.getElementById("resultat-import-archive-comptable");
+    const champFichier = document.getElementById("archive-comptable-fichier");
+    if (!champFichier.files.length) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> Choisissez un fichier ZIP.`;
+      return;
+    }
+
+    const donnees = new FormData();
+    donnees.append("archive", champFichier.files[0]);
+
+    resultatDiv.textContent = "Envoi de l'archive en cours… (peut prendre un moment pour plusieurs centaines de fichiers)";
+    try {
+      const res = await fetch("/api/archives-comptables/import", { method: "POST", body: donnees });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.erreur || "Échec de l'import.");
+      resultatDiv.innerHTML = `${data.total} fichier(s) reçu(s), analyse en cours en arrière-plan — actualisez cette page dans quelques minutes pour voir les résultats classés par mois ci-dessous.`;
+      formArchiveComptable.reset();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

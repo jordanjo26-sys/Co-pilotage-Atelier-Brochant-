@@ -52,6 +52,9 @@
     <button type="button" class="onglet" data-onglet="realisations" role="tab" aria-selected="false">
       <span class="onglet-libelle">Réalisations</span>
     </button>
+    <button type="button" class="onglet" data-onglet="comptabilite" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Comptabilité</span>
+    </button>
     <button type="button" class="onglet" data-onglet="systeme" role="tab" aria-selected="false">
       <span class="onglet-libelle">Système</span>
       <span class="onglet-badge" data-badge="systeme" hidden>0</span>
@@ -398,11 +401,40 @@
         <div id="liste-photos-realisations"></div>
       </section>
     </div>
+
+    <!-- ===== Comptabilité (archive de secours, independante de Factures fournisseurs/Dext) ===== -->
+    <div class="onglet-panneau" data-panneau="comptabilite" hidden>
+      <section class="carte accent-violet">
+        <h2>Importer l'archive de factures</h2>
+        <p class="aide">Module indépendant du circuit "Factures fournisseurs" (Dext) — pensé comme archive de secours en cas de contrôle fiscal. Déposez le ZIP contenant vos factures PDF/JPEG (export fait avant la suppression chez l'ancien comptable) : chaque fichier est analysé automatiquement en arrière-plan (fournisseur, date, montants HT/TTC), sans jamais rien inventer — un fichier dont un champ n'est pas lisible reste simplement "à vérifier" pour une complétion manuelle.</p>
+        <form id="form-archive-comptable" class="form-grille">
+          <input type="file" id="archive-comptable-fichier" accept=".zip" required />
+          <button type="submit">Importer le ZIP</button>
+        </form>
+        <div id="resultat-import-archive-comptable"></div>
+      </section>
+
+      <section class="carte accent-teal">
+        <h2>Archives de factures</h2>
+        <div class="barre-filtres">
+          <label class="aide-inline">Du <input type="date" id="filtre-archive-date-debut" /></label>
+          <label class="aide-inline">au <input type="date" id="filtre-archive-date-fin" /></label>
+          <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
+          <input type="number" id="filtre-archive-montant-min" step="0.01" min="0" placeholder="Montant min." />
+          <input type="number" id="filtre-archive-montant-max" step="0.01" min="0" placeholder="Montant max." />
+        </div>
+        <div class="ligne-boutons" style="margin-bottom: 10px;">
+          <button type="button" class="ghost" id="btn-reinitialiser-filtres-archive">Réinitialiser les filtres</button>
+          <span class="aide-inline" id="compte-archives-filtrees" style="margin-left: auto;"></span>
+        </div>
+        <div id="liste-archives-comptables"></div>
+      </section>
+    </div>
   </main>
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=48"></script>
+  <script src="/app.js?v=49"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

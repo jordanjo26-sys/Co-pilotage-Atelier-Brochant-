@@ -749,3 +749,29 @@ model PhotoRealisation {
   chantierNom String?
   createdAt   DateTime            @default(now())
 }
+
+// --- Module Comptabilite (archive de factures independante de Dext) -----
+// Demande explicite de l'utilisateur (novembre 2026) : apres un changement
+// de comptable, l'ancien a supprime toutes les factures sur Dext - il ne
+// restait qu'un export manuel (PDF/JPEG, plusieurs centaines de fichiers)
+// fait avant la suppression. Ce module est volontairement SEPARE du
+// circuit "Factures fournisseurs" (DocumentFournisseur, alimente par
+// Gmail) : c'est une archive de secours pour un controle fiscal, importee
+// en une fois depuis un ZIP, jamais envoyee a Dext ni reliee a un
+// fournisseur Prisma existant (le nom tape/extrait suffit pour filtrer).
+// Fichiers stockes hors du depot git, comme les autres uploads (voir
+// services/archiveComptable.ts, dossier uploads/archives-comptables/).
+model ArchiveComptable {
+  id             String    @id @default(cuid())
+  fichierNom     String // nom original du fichier dans le ZIP importe
+  cheminFichier  String // chemin disque reel (uploads/archives-comptables/...)
+  mimeType       String
+  fournisseurNom String? // jamais devine pour un PDF illisible : laisse vide, a completer a la main
+  numero         String?
+  dateFacture    DateTime?
+  montantHT      Float?
+  montantTTC     Float?
+  statut         String   @default("a_verifier") // "a_verifier" | "complete" - purement indicatif (champ manquant), jamais bloquant
+  classifiePar   String? // "ia" si au moins un champ a ete propose par l'IA (transparence, meme principe que DocumentFournisseur.classifiePar)
+  createdAt      DateTime  @default(now())
+}

@@ -9,6 +9,7 @@ import { buildTelephonieRouter } from "./api/telephonieRoutes";
 import { buildReseauxSociauxRouter } from "./api/reseauxSociauxRoutes";
 import { buildPagesJaunesRouter } from "./api/pagesJaunesRoutes";
 import { buildRealisationsRouter } from "./api/realisationsRoutes";
+import { buildArchiveComptableRouter } from "./api/archiveComptableRoutes";
 import { obtenirActiviteParToken, construireGaleriePageHtml } from "./services/realisations";
 import { installerRelaisVocal } from "./services/relaisVocal";
 import {
@@ -41,6 +42,7 @@ app.use("/api/prospection/suivi", buildProspectionTrackingRouter(prisma));
 app.use("/api/reseaux-sociaux", buildReseauxSociauxRouter(prisma));
 app.use("/api/pagesjaunes", buildPagesJaunesRouter(prisma));
 app.use("/api/realisations", buildRealisationsRouter(prisma));
+app.use("/api/archives-comptables", buildArchiveComptableRouter(prisma));
 app.use("/auth", buildAuthRouter(prisma));
 // Page de galerie publique (module Realisations) : sans authentification
 // (le prestataire externe n'a pas le mot de passe du site), protegee
