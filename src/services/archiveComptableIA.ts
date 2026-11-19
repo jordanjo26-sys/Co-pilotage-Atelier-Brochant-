@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { PrismaClient } from "@prisma/client";
+import { logEvenement } from "./journalService";
 
 /**
  * Extraction par IA des champs d'une facture pour le module Comptabilite
@@ -51,7 +53,16 @@ une reponse plus "utile". Une information omise n'a aucune consequence (l'utilis
 a la main), alors qu'une valeur inventee presentee comme certaine serait une fausse preuve en cas \
 de controle. Appelle systematiquement l'outil extraire_facture avec ce que tu as reellement lu.`;
 
-async function appelerExtraction(client: Anthropic, contenu: Anthropic.MessageParam["content"]): Promise<ChampsFacture | null> {
+/**
+ * prisma optionnel : uniquement pour journaliser une PANNE reelle (cle
+ * invalide, erreur reseau, limite de debit...), jamais le cas normal "rien
+ * d'extrait" (aucun bloc tool_use - le modele n'a simplement rien trouve
+ * de lisible). Sans ce journal, une panne silencieuse etait indiscernable
+ * d'un document genuinement illisible - vecu en novembre 2026, une facture
+ * et un ticket papier reels sont restes "non renseigne" apres plusieurs
+ * tentatives sans qu'aucune erreur ne soit jamais visible nulle part.
+ */
+async function appelerExtraction(client: Anthropic, contenu: Anthropic.MessageParam["content"], prisma?: PrismaClient): Promise<ChampsFacture | null> {
   try {
     const reponse = await client.messages.create({
       model: MODELE,
@@ -71,32 +82,44 @@ async function appelerExtraction(client: Anthropic, contenu: Anthropic.MessagePa
     if (typeof entree.montantHT === "number" && entree.montantHT > 0) resultat.montantHT = entree.montantHT;
     if (typeof entree.montantTTC === "number" && entree.montantTTC > 0) resultat.montantTTC = entree.montantTTC;
     return Object.keys(resultat).length > 0 ? resultat : null;
-  } catch {
+  } catch (err) {
+    if (prisma) {
+      await logEvenement(prisma, {
+        evenement: "extraction_ia_facture_echec",
+        action: "Extraction IA des champs d'une facture",
+        resultat: (err as Error).message,
+      }).catch(() => {
+        // Le journal lui-meme est indisponible : rien de plus a tenter,
+        // l'appelant recoit deja "null" comme avant ce journal.
+      });
+    }
     return null;
   }
 }
 
 /** Extraction a partir du texte deja extrait d'un PDF (voir extractPdfText). */
-export async function extraireChampsFacturePdf(texte: string): Promise<ChampsFacture | null> {
+export async function extraireChampsFacturePdf(texte: string, prisma?: PrismaClient): Promise<ChampsFacture | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   const contenu = texte.trim().slice(0, 6000);
   if (!contenu) return null;
   const client = new Anthropic({ apiKey });
-  return appelerExtraction(client, contenu);
+  return appelerExtraction(client, contenu, prisma);
 }
 
 const MIME_IMAGES_SUPPORTEES = new Set(["image/jpeg", "image/png"]);
 
 /** Extraction par vision a partir d'une photo/scan (JPEG/PNG). */
-export async function extraireChampsFactureImage(donnees: Buffer, mimeType: string): Promise<ChampsFacture | null> {
+export async function extraireChampsFactureImage(donnees: Buffer, mimeType: string, prisma?: PrismaClient): Promise<ChampsFacture | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const mime = mimeType.toLowerCase();
   if (!apiKey || !MIME_IMAGES_SUPPORTEES.has(mime)) return null;
   if (donnees.length > 15 * 1024 * 1024) return null;
 
   const client = new Anthropic({ apiKey });
-  return appelerExtraction(client, [
-    { type: "image", source: { type: "base64", media_type: mime as "image/jpeg" | "image/png", data: donnees.toString("base64") } },
-  ]);
+  return appelerExtraction(
+    client,
+    [{ type: "image", source: { type: "base64", media_type: mime as "image/jpeg" | "image/png", data: donnees.toString("base64") } }],
+    prisma
+  );
 }

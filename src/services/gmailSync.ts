@@ -53,6 +53,7 @@ const MIME_IMAGES_FACTURE = new Set(["image/jpeg", "image/png"]);
  * les trois niveaux reste explicitement "non renseigne".
  */
 async function resoudreMontantsFacture(
+  prisma: PrismaClient,
   mimeType: string,
   donnees: Buffer,
   contenuExtrait: string | undefined
@@ -63,12 +64,12 @@ async function resoudreMontantsFacture(
   if (montantHT == null || montantTTC == null) {
     let champsIA = null;
     if (contenuExtrait) {
-      champsIA = await extraireChampsFacturePdf(contenuExtrait);
+      champsIA = await extraireChampsFacturePdf(contenuExtrait, prisma);
     } else {
       const mime = mimeType.toLowerCase();
       const imageBuffer = MIME_IMAGES_FACTURE.has(mime) ? donnees : mime === "application/pdf" ? rendrePremierePageEnImage(donnees) : undefined;
       const imageMime = MIME_IMAGES_FACTURE.has(mime) ? mime : "image/png";
-      if (imageBuffer) champsIA = await extraireChampsFactureImage(imageBuffer, imageMime);
+      if (imageBuffer) champsIA = await extraireChampsFactureImage(imageBuffer, imageMime, prisma);
     }
     if (champsIA) {
       if (montantHT == null && champsIA.montantHT != null) montantHT = champsIA.montantHT;
@@ -522,7 +523,7 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
           // un sujet/corps peut mentionner un montant sans rapport (devis
           // precedent, relance...) a la difference du document lui-meme.
           const { montantHT, montantTTC } =
-            type === "facture" ? await resoudreMontantsFacture(piece.mimeType, donnees, contenuExtrait) : { montantHT: null, montantTTC: null };
+            type === "facture" ? await resoudreMontantsFacture(prisma, piece.mimeType, donnees, contenuExtrait) : { montantHT: null, montantTTC: null };
           piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, montantHT, montantTTC, classifiePar });
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
@@ -946,7 +947,7 @@ async function traiterBackfillMontants(
           // (rendrePremierePageEnImage), contenuExtrait reste undefined.
         }
       }
-      const resolu = await resoudreMontantsFacture(mimeType, donnees, contenuExtrait);
+      const resolu = await resoudreMontantsFacture(prisma, mimeType, donnees, contenuExtrait);
       const montantTTC = document.montantTTC ?? resolu.montantTTC;
       const montantHT = document.montantHT ?? resolu.montantHT;
       if (montantHT != null || montantTTC != null) {

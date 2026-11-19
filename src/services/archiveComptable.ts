@@ -132,7 +132,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
     if (texte) {
       montantHT = extraireMontantHTFacture(texte);
       montantTTC = extraireMontantTTCFacture(texte);
-      const champsIA = await extraireChampsFacturePdf(texte);
+      const champsIA = await extraireChampsFacturePdf(texte, prisma);
       if (champsIA) {
         classifiePar = "ia";
         fournisseurNom = champsIA.fournisseurNom ?? null;
@@ -150,7 +150,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
       // ("coder correctement pour qu'il puisse lire tous les montants").
       const image = rendrePremierePageEnImage(fichier.donnees);
       if (image) {
-        const champsIA = await extraireChampsFactureImage(image, "image/png");
+        const champsIA = await extraireChampsFactureImage(image, "image/png", prisma);
         if (champsIA) {
           classifiePar = "ia";
           fournisseurNom = champsIA.fournisseurNom ?? null;
@@ -162,7 +162,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
       }
     }
   } else {
-    const champsIA = await extraireChampsFactureImage(fichier.donnees, mimeType);
+    const champsIA = await extraireChampsFactureImage(fichier.donnees, mimeType, prisma);
     if (champsIA) {
       classifiePar = "ia";
       fournisseurNom = champsIA.fournisseurNom ?? null;
