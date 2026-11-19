@@ -32,6 +32,7 @@ import {
   MontantDocumentFournisseurError,
   assignerFournisseurDocument,
   FournisseurDocumentError,
+  enregistrerFournisseur,
 } from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
@@ -772,6 +773,20 @@ export function buildRouter(prisma: PrismaClient): Router {
 
   router.get("/fournisseurs", async (_req, res) => {
     res.json(await listerFournisseurs(prisma));
+  });
+
+  // Enregistrement direct d'un fournisseur par son nom, sans document
+  // associe - demande explicite de l'utilisateur (liste de fournisseurs vus
+  // dans l'archive Comptabilite, a enregistrer meme sans facture Dext/e-mail
+  // correspondante). Idempotent : un nom deja existant ne cree rien de plus.
+  router.post("/fournisseurs", async (req, res) => {
+    try {
+      const nom = typeof req.body?.nom === "string" ? req.body.nom : "";
+      const resultat = await enregistrerFournisseur(prisma, nom);
+      res.status(resultat.cree ? 201 : 200).json(resultat);
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   router.get("/fournisseurs/:id", async (req, res) => {

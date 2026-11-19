@@ -369,3 +369,23 @@ export async function assignerFournisseurDocument(prisma: PrismaClient, document
   });
   await prisma.documentFournisseur.update({ where: { id: documentId }, data: { fournisseurId: fournisseur.id } });
 }
+
+/**
+ * Enregistre un fournisseur par son seul nom, sans document associe -
+ * demande explicite de l'utilisateur (liste de fournisseurs identifies dans
+ * l'archive Comptabilite, a enregistrer meme sans facture Dext/e-mail
+ * correspondante). Meme table que les fournisseurs resolus automatiquement
+ * (resoudreFournisseur) ou corriges a la main (assignerFournisseurDocument) -
+ * ni doublon, ni distinction cachee : si le nom existe deja (recherche
+ * exacte), ne fait rien plutot que de dupliquer.
+ */
+export async function enregistrerFournisseur(prisma: PrismaClient, nomBrut: string): Promise<{ nom: string; cree: boolean }> {
+  const nom = nomBrut.trim();
+  if (!nom) throw new FournisseurDocumentError("Le nom du fournisseur est requis.");
+
+  const existant = await prisma.fournisseur.findUnique({ where: { nom } });
+  if (existant) return { nom: existant.nom, cree: false };
+
+  const cree = await prisma.fournisseur.create({ data: { nom } });
+  return { nom: cree.nom, cree: true };
+}

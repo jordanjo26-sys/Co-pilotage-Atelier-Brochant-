@@ -292,5 +292,24 @@ test("saisie manuelle du montant d'une facture fournisseur", async (t) => {
     await assert.rejects(assignerFournisseurDocument(prisma, "inexistant", "Leclerc"), FournisseurDocumentError);
   });
 
+  const { enregistrerFournisseur } = await import("../src/services/fournisseurs");
+
+  await t.test("enregistrerFournisseur : cree un fournisseur par son seul nom, sans document associe", async () => {
+    const resultat = await enregistrerFournisseur(prisma, "OVH");
+    assert.equal(resultat.nom, "OVH");
+    assert.equal(resultat.cree, true);
+    assert.equal(await prisma.fournisseur.count({ where: { nom: "OVH" } }), 1);
+  });
+
+  await t.test("enregistrerFournisseur : un nom deja existant ne cree pas de doublon", async () => {
+    const resultat = await enregistrerFournisseur(prisma, "OVH");
+    assert.equal(resultat.cree, false);
+    assert.equal(await prisma.fournisseur.count({ where: { nom: "OVH" } }), 1);
+  });
+
+  await t.test("enregistrerFournisseur : nom vide -> erreur", async () => {
+    await assert.rejects(enregistrerFournisseur(prisma, "   "), FournisseurDocumentError);
+  });
+
   await prisma.$disconnect();
 });
