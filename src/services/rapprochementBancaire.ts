@@ -45,6 +45,15 @@ const FENETRE_JOURS_FACTURE_FOURNISSEUR = 20;
 // la securite vient de l'egalite exacte de la somme, jamais de la largeur
 // de la fenetre.
 const FENETRE_JOURS_REMISE_CB = 4;
+// Un virement client (VIR INST, EVI...) n'est jamais regroupe en lot
+// (contrairement a une remise CB ou cheques) - chaque ligne du releve
+// correspond a un seul encaissement. Le nom affiche sur le releve ne
+// correspond pas toujours au nom du client dans Synec (demande explicite
+// de l'utilisateur : "Ethan Zerbib" sur le compte peut correspondre a une
+// autre raison sociale cote facture) - jamais de recherche par nom, donc,
+// uniquement montant + fenetre de dates, comme les autres rapprochements
+// de ce fichier.
+const FENETRE_JOURS_VIREMENT_CLIENT = 5;
 const TOLERANCE_MONTANT = 0.01; // arrondi centime
 
 export interface ResultatRapprochement {
@@ -66,6 +75,11 @@ export interface ResultatRapprochement {
   nbRapprochesRemisesCb: number;
   nbAmbigusRemisesCb: number;
   nbSansCorrespondanceRemisesCb: number;
+  // Rapprochement des virements clients directs (hors remise CB/Stripe,
+  // un seul encaissement par mouvement, jamais un lot) - voir plus bas.
+  nbRapprochesVirementsClients: number;
+  nbAmbigusVirementsClients: number;
+  nbSansCorrespondanceVirementsClients: number;
   details: Array<{ payoutRef: string; resultat: "rapproche" | "ambigu" | "sans_correspondance"; mouvementId?: string }>;
   detailsFournisseurs: Array<{
     factureId: string;
@@ -83,6 +97,12 @@ export interface ResultatRapprochement {
     mouvementId: string;
     resultat: "rapproche" | "ambigu" | "sans_correspondance";
     nbEncaissements?: number;
+  }>;
+  detailsVirementsClients: Array<{
+    mouvementId: string;
+    libelle: string;
+    resultat: "rapproche" | "ambigu" | "sans_correspondance";
+    encaissementId?: string;
   }>;
 }
 
@@ -110,10 +130,14 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     nbRapprochesRemisesCb: 0,
     nbAmbigusRemisesCb: 0,
     nbSansCorrespondanceRemisesCb: 0,
+    nbRapprochesVirementsClients: 0,
+    nbAmbigusVirementsClients: 0,
+    nbSansCorrespondanceVirementsClients: 0,
     details: [],
     detailsFournisseurs: [],
     detailsDocuments: [],
     detailsRemisesCb: [],
+    detailsVirementsClients: [],
   };
   // Un mouvement deja affecte au cours de cette meme execution (payout,
   // facture fournisseur ou document fournisseur) ne doit pas etre propose
@@ -307,6 +331,55 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     }
   }
 
+  // --- Virements clients directs (credit, hors remise/Stripe) ----------
+  // Un virement/EVI recu directement (pas via Stripe, pas regroupe en
+  // remise CB) correspond toujours a un seul encaissement - jamais un lot.
+  // Exclut explicitement les remises (REMISE CB/REMISE CHEQUES/REM CHQ -
+  // des lots, pas des paiements individuels, non geres ici) et tout libelle
+  // Stripe (deja couvert par sa propre passe ci-dessus, montant net precis).
+  const LIBELLE_EXCLU_VIREMENT_CLIENT = /^REMISE CB|^REMISE CHEQUES|^REM CHQ|STRIPE/i;
+  const creditsRestants = mouvementsCredit.filter(
+    (m) => !dejaUtilises.has(m.id) && m.montant > 0 && !LIBELLE_EXCLU_VIREMENT_CLIENT.test(m.libelle)
+  );
+
+  if (creditsRestants.length > 0) {
+    const encaissementsVirement = await prisma.encaissement.findMany({
+      where: { mode: "Virement", mouvementBancaireId: null, date: { not: null } },
+    });
+    const encaissementsUtilisesVirement = new Set<string>();
+
+    for (const mouvement of creditsRestants) {
+      const candidats = encaissementsVirement.filter(
+        (e) =>
+          !encaissementsUtilisesVirement.has(e.id) &&
+          Math.abs(e.montant - mouvement.montant) < TOLERANCE_MONTANT &&
+          differenceJours(e.date as Date, mouvement.date) <= FENETRE_JOURS_VIREMENT_CLIENT
+      );
+
+      if (candidats.length === 1) {
+        const encaissement = candidats[0];
+        await prisma.$transaction([
+          prisma.encaissement.update({ where: { id: encaissement.id }, data: { mouvementBancaireId: mouvement.id } }),
+          prisma.mouvementBancaire.update({ where: { id: mouvement.id }, data: { rapprochementStatut: "rapproche" } }),
+        ]);
+        encaissementsUtilisesVirement.add(encaissement.id);
+        resultat.nbRapprochesVirementsClients++;
+        resultat.detailsVirementsClients.push({
+          mouvementId: mouvement.id,
+          libelle: mouvement.libelle,
+          resultat: "rapproche",
+          encaissementId: encaissement.id,
+        });
+      } else if (candidats.length > 1) {
+        resultat.nbAmbigusVirementsClients++;
+        resultat.detailsVirementsClients.push({ mouvementId: mouvement.id, libelle: mouvement.libelle, resultat: "ambigu" });
+      } else {
+        resultat.nbSansCorrespondanceVirementsClients++;
+        resultat.detailsVirementsClients.push({ mouvementId: mouvement.id, libelle: mouvement.libelle, resultat: "sans_correspondance" });
+      }
+    }
+  }
+
   if (
     resultat.nbRapproches > 0 ||
     resultat.nbAmbigus > 0 ||
@@ -315,12 +388,14 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     resultat.nbRapprochesDocuments > 0 ||
     resultat.nbAmbigusDocuments > 0 ||
     resultat.nbRapprochesRemisesCb > 0 ||
-    resultat.nbAmbigusRemisesCb > 0
+    resultat.nbAmbigusRemisesCb > 0 ||
+    resultat.nbRapprochesVirementsClients > 0 ||
+    resultat.nbAmbigusVirementsClients > 0
   ) {
     await logEvenement(prisma, {
       evenement: "rapprochement_bancaire",
       action: "Rapprochement automatique payouts/factures fournisseurs <-> mouvements bancaires",
-      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance.`,
+      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance. Virements clients directs : ${resultat.nbRapprochesVirementsClients} rapproche(s), ${resultat.nbAmbigusVirementsClients} ambigu(s), ${resultat.nbSansCorrespondanceVirementsClients} sans correspondance.`,
     });
   }
 

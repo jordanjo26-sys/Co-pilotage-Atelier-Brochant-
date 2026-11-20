@@ -359,3 +359,79 @@ test("rapprochement bancaire : remises carte bleue (REMISE CB) <-> encaissements
 
   await prisma.$disconnect();
 });
+
+// Demande explicite de l'utilisateur : le nom affiche sur le releve
+// ("Ethan Zerbib") ne correspond pas toujours au nom du client/fournisseur
+// dans nos donnees ("LM Débouchage") - jamais de recherche par nom, donc,
+// uniquement montant + fenetre de dates (voir rapprochementBancaire.ts).
+test("rapprochement bancaire : virements clients directs (VIR INST/EVI, un seul encaissement par mouvement)", async (t) => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { executerRapprochementBancaire } = await import("../src/services/rapprochementBancaire");
+  const prisma = new PrismaClient();
+
+  async function virementRecu(libelle: string, date: Date, montant: number) {
+    return prisma.mouvementBancaire.create({
+      data: { date, libelle, debit: 0, credit: montant, montant, hashLigne: ref("hash-vir") },
+    });
+  }
+  async function facture() {
+    return prisma.facture.create({
+      data: { reference: ref("fact"), clientNom: "Client Test", montantTTC: 1000, statut: "payee" },
+    });
+  }
+  async function encaissementVirement(factureId: string, date: Date, montant: number) {
+    return prisma.encaissement.create({ data: { factureId, date, montant, mode: "Virement" } });
+  }
+
+  await t.test("montant unique dans la fenetre -> rapproche, meme si le nom affiche ne correspond a rien cote client", async () => {
+    const f = await facture();
+    const e = await encaissementVirement(f.id, new Date("2026-01-01"), 1080);
+    const m = await virementRecu("VIR INST ethan zerbib", new Date("2026-01-02"), 1080);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsVirementsClients.find((x) => x.mouvementId === m.id)?.resultat, "rapproche");
+
+    const eMaj = await prisma.encaissement.findUnique({ where: { id: e.id } });
+    assert.equal(eMaj?.mouvementBancaireId, m.id);
+  });
+
+  await t.test("deux encaissements au meme montant dans la fenetre -> ambigu", async () => {
+    const f1 = await facture();
+    const f2 = await facture();
+    await encaissementVirement(f1.id, new Date("2026-02-01"), 300);
+    await encaissementVirement(f2.id, new Date("2026-02-02"), 300);
+    const m = await virementRecu("EVI MME TEST", new Date("2026-02-03"), 300);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsVirementsClients.find((x) => x.mouvementId === m.id)?.resultat, "ambigu");
+  });
+
+  await t.test("aucun encaissement au bon montant -> sans correspondance", async () => {
+    const m = await virementRecu("VIR INST inconnu", new Date("2026-03-01"), 777.77);
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsVirementsClients.find((x) => x.mouvementId === m.id)?.resultat, "sans_correspondance");
+  });
+
+  await t.test("une REMISE CB n'est jamais traitee par cette passe (lot, pas un virement individuel)", async () => {
+    const f = await facture();
+    await encaissementVirement(f.id, new Date("2026-04-01"), 200);
+    const m = await prisma.mouvementBancaire.create({
+      data: {
+        date: new Date("2026-04-02"),
+        libelle: "REMISE CB 999",
+        debit: 0,
+        credit: 200,
+        montant: 200,
+        montantBrut: 200,
+        hashLigne: ref("hash-remise-exclue"),
+      },
+    });
+    await executerRapprochementBancaire(prisma);
+    const mApres = await prisma.mouvementBancaire.findUnique({ where: { id: m.id } });
+    // La remise CB est traitee par sa propre passe (ici sans correspondance
+    // Carte, donc restee non_rapproche), jamais par celle des virements.
+    assert.equal(mApres?.rapprochementStatut, "non_rapproche");
+  });
+
+  await prisma.$disconnect();
+});

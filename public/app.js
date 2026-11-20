@@ -422,7 +422,8 @@ document.getElementById("btn-relancer-rapprochement").addEventListener("click", 
     resultatDiv.innerHTML = `
       Payouts Stripe : ${data.nbRapproches} rapproché(s), ${data.nbAmbigus} ambigu(s), ${data.nbSansCorrespondance} sans correspondance.<br>
       Factures fournisseurs : ${data.nbRapprochesDocuments} rapprochée(s), ${data.nbAmbigusDocuments} ambiguë(s), ${data.nbSansCorrespondanceDocuments} sans correspondance.<br>
-      Règlements clients en carte (remises CB) : ${data.nbRapprochesRemisesCb} rapprochée(s), ${data.nbAmbigusRemisesCb} ambiguë(s), ${data.nbSansCorrespondanceRemisesCb} sans correspondance.
+      Règlements clients en carte (remises CB) : ${data.nbRapprochesRemisesCb} rapprochée(s), ${data.nbAmbigusRemisesCb} ambiguë(s), ${data.nbSansCorrespondanceRemisesCb} sans correspondance.<br>
+      Virements clients directs : ${data.nbRapprochesVirementsClients} rapproché(s), ${data.nbAmbigusVirementsClients} ambigu(s), ${data.nbSansCorrespondanceVirementsClients} sans correspondance.
     `;
     await chargerMouvementsBancaires();
   } catch (err) {
