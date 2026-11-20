@@ -432,8 +432,13 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.json(recap);
   });
 
+  // take genereux (pas un vrai plafond fonctionnel) : avec plusieurs
+  // releves mensuels deposes d'un coup, le nombre reel de mouvements depasse
+  // vite les quelques centaines - un plafond trop bas masquait silencieusement
+  // les mouvements les plus anciens (ex. janvier disparu de la vue des que
+  // les mois suivants ont ete deposes, constate en production).
   router.get("/mouvements-bancaires", async (_req, res) => {
-    const mouvements = await prisma.mouvementBancaire.findMany({ orderBy: { date: "desc" }, take: 500 });
+    const mouvements = await prisma.mouvementBancaire.findMany({ orderBy: { date: "desc" }, take: 5000 });
     res.json(mouvements);
   });
 
