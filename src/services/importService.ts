@@ -100,6 +100,22 @@ async function finalizeImport(
  * sont transmises au normalisateur generique `importBankStatement`, comme
  * si elles venaient d'un CSV.
  */
+// hashFichier est unique sur ImportBatch : un redepot du meme relevé PDF
+// (jamais court-circuite en amont, voir receiveCsv) tomberait sur la
+// contrainte d'unicite si on recreait bêtement un lot. Reutilise le lot
+// existant dans ce cas, quel que soit le chemin de sortie de
+// receivePdfBankStatement (succes, echec de lecture ou mise en page non
+// reconnue).
+async function trouverOuCreerBatch(
+  prisma: PrismaClient,
+  hashFichier: string,
+  data: Parameters<PrismaClient["importBatch"]["create"]>[0]["data"]
+) {
+  const existant = await prisma.importBatch.findUnique({ where: { hashFichier } });
+  if (existant) return existant;
+  return prisma.importBatch.create({ data });
+}
+
 async function receivePdfBankStatement(
   prisma: PrismaClient,
   fichierNom: string,
@@ -119,15 +135,13 @@ async function receivePdfBankStatement(
       transactions = extractReleveTransactions(texte);
     }
   } catch (err) {
-    const batch = await prisma.importBatch.create({
-      data: {
-        fichierNom,
-        typeDetecte,
-        hashFichier,
-        statut: "echec",
-        nbLignes: 0,
-        details: JSON.stringify([{ ligne: 0, message: (err as Error).message }]),
-      },
+    const batch = await trouverOuCreerBatch(prisma, hashFichier, {
+      fichierNom,
+      typeDetecte,
+      hashFichier,
+      statut: "echec",
+      nbLignes: 0,
+      details: JSON.stringify([{ ligne: 0, message: (err as Error).message }]),
     });
     await logEvenement(prisma, {
       evenement: "import_csv",
@@ -151,8 +165,12 @@ async function receivePdfBankStatement(
     // Mise en page non reconnue (PDF different d'un relevé Banque
     // Populaire ou American Express) : on trace pour verification
     // manuelle, jamais on ne devine.
-    const batch = await prisma.importBatch.create({
-      data: { fichierNom, typeDetecte: "inconnu", hashFichier, statut: "type_inconnu", nbLignes: 0 },
+    const batch = await trouverOuCreerBatch(prisma, hashFichier, {
+      fichierNom,
+      typeDetecte: "inconnu",
+      hashFichier,
+      statut: "type_inconnu",
+      nbLignes: 0,
     });
     await logEvenement(prisma, {
       evenement: "import_csv",
@@ -172,8 +190,13 @@ async function receivePdfBankStatement(
     };
   }
 
-  const batch = await prisma.importBatch.create({
-    data: { fichierNom, typeDetecte, hashFichier, nbLignes: transactions.length, statut: "ok" },
+  // Backfill (ex. montantBrut) sur redepot : voir trouverOuCreerBatch.
+  const batch = await trouverOuCreerBatch(prisma, hashFichier, {
+    fichierNom,
+    typeDetecte,
+    hashFichier,
+    nbLignes: transactions.length,
+    statut: "ok",
   });
 
   // cleHash incorpore la reference bancaire de la ligne (quand le releve
@@ -221,6 +244,16 @@ export async function receiveCsv(
 ): Promise<ImportSummary> {
   const hashFichier = sha256Hex(buffer);
 
+  // Un relevé PDF n'est jamais court-circuite ici par le controle de
+  // doublon au niveau du fichier (ci-dessous) : contrairement aux autres
+  // types, le fichier d'origine n'est pas conserve, donc un redepot est le
+  // seul moyen de completer une ligne deja connue avec un champ ajoute
+  // depuis l'import initial (ex. montantBrut) - voir receivePdfBankStatement,
+  // qui gere lui-meme sa propre idempotence au niveau des lignes.
+  if (isPdfFile(buffer, fichierNom)) {
+    return receivePdfBankStatement(prisma, fichierNom, buffer, hashFichier);
+  }
+
   const dejaImporte = await prisma.importBatch.findUnique({ where: { hashFichier } });
   if (dejaImporte) {
     await logEvenement(prisma, {
@@ -239,10 +272,6 @@ export async function receiveCsv(
       erreurs: [],
       importBatchId: dejaImporte.id,
     };
-  }
-
-  if (isPdfFile(buffer, fichierNom)) {
-    return receivePdfBankStatement(prisma, fichierNom, buffer, hashFichier);
   }
 
   const { headers, normalizedHeaders, rows } = parseCsvBuffer(buffer);
