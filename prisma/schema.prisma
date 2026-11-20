@@ -96,6 +96,13 @@ model Encaissement {
   montant   Float
   mode      String
   note      String?
+  // Rapprochement avec la remise carte bleue ("REMISE CB") qui a credite
+  // ce reglement sur le compte (meme principe que
+  // DocumentFournisseur.mouvementBancaireId : pas une vraie relation
+  // Prisma, juste un identifiant pose par rapprochementBancaire.ts).
+  // Plusieurs encaissements du meme jour partagent generalement le meme
+  // mouvement (la remise regroupe tous les paiements carte d'une journee).
+  mouvementBancaireId String?
   createdAt DateTime @default(now())
 
   @@index([factureId])
@@ -185,6 +192,13 @@ model MouvementBancaire {
   debit               Float     @default(0)
   credit              Float     @default(0)
   montant             Float
+  // Montant BRUT (avant commission bancaire) d'une remise carte bleue
+  // ("REMISE CB"), quand le releve l'imprime (voir bankStatementPdf.ts) -
+  // seul ce montant correspond a ce que les clients ont effectivement paye
+  // (le montant net credite ci-dessus est deja ampute de la commission).
+  // Necessaire pour rapprocher la remise des encaissements clients en
+  // carte (voir Encaissement.mouvementBancaireId et rapprochementBancaire.ts).
+  montantBrut         Float?
   rapprochementStatut String    @default("non_rapproche") // non_rapproche | rapproche | a_verifier
   hashLigne           String    @unique
   sourceImportId      String?

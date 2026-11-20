@@ -16,6 +16,16 @@ export interface PdfTransaction {
   // importBankStatement les confondrait a tort en doublons et en perdrait
   // 3 sur 4 (voir receivePdfBankStatement).
   reference?: string;
+  // Montant BRUT (avant commission bancaire) d'une remise carte bleue
+  // ("REMISE CB", le versement groupe sur le compte des paiements carte
+  // encaisses aupres des clients), quand la ligne de detail l'imprime -
+  // ex. "BRUT 2 377,88E - COM 29,72E" sous "REMISE CB 1317821012 ...
+  // 2 348,16 €" (le montant credite, net, reste dans `montant` ci-dessus,
+  // inchange). Necessaire pour rapprocher cette remise des encaissements
+  // clients realises en carte (Encaissement.mode = "Carte") la veille :
+  // c'est le total AVANT commission qui correspond a ce que les clients
+  // ont paye, jamais le montant net credite.
+  montantBrut?: string;
 }
 
 /**
@@ -94,6 +104,15 @@ const CARTE_SANS_COMMERCANT = /^\d{6}\s+CB\*{4}\d{4}$/;
 const LIGNE_BRUIT_MISE_EN_PAGE =
   /^\d{4}\s+\d{4}$|^\d{8}\*|^Page\s+\d+\s*\/\s*\d+$|^VOTRE COMPTE COURANT|^RELEVE N°|^DATE$|^LIBELLE|^COMPTA|^Banque Populaire|^sous le N°|^compétent en cas de litige/i;
 
+// Versement groupe des paiements carte bleue encaisses aupres des clients
+// (terminal/Tap to Pay) - le montant credite (net) est suivi d'une ligne de
+// detail "BRUT 2 377,88E - COM 29,72E" (constate sur un vrai releve). Pour
+// rapprocher cette remise des reglements clients Synec (Encaissement.mode
+// = "Carte"), il faut le montant BRUT (avant commission) - jamais le net
+// credite, qui ne correspond a rien cote client.
+const REMISE_CB = /^REMISE CB\b/i;
+const BRUT_COM = /BRUT\s+([\d\s]+,\d{2})E\s*-\s*COM\s*[\d\s]+,\d{2}E/;
+
 /**
  * Reconstitue les operations d'un relevé de compte Banque Populaire a
  * partir du texte extrait (mise en page conservee, `pdftotext -layout`).
@@ -120,7 +139,7 @@ export function extractReleveTransactions(pdfText: string): PdfTransaction[] {
     const m = lignes[i].match(TRANSACTION_LINE);
     if (!m) continue;
 
-    const [, dateCompta, rest, , , montantBrut] = m;
+    const [, dateCompta, rest, , , montantColonne] = m;
 
     // Le libelle et la reference (quand elle existe) sont separes par un
     // grand blanc du a la mise en page en colonnes fixes ; les mots d'un
@@ -147,6 +166,18 @@ export function extractReleveTransactions(pdfText: string): PdfTransaction[] {
       }
     }
 
+    let montantBrut: string | undefined;
+    if (REMISE_CB.test(libelle)) {
+      for (let j = i + 1; j < lignes.length && j <= i + 3; j++) {
+        if (TRANSACTION_LINE.test(lignes[j])) break;
+        const brutMatch = lignes[j].match(BRUT_COM);
+        if (brutMatch) {
+          montantBrut = brutMatch[1].replace(/\s+/g, " ").trim();
+          break;
+        }
+      }
+    }
+
     const mois = Number(dateCompta.split("/")[1]);
     let annee = headerYear;
     if (headerMonth !== null && mois > headerMonth + 1) {
@@ -157,8 +188,9 @@ export function extractReleveTransactions(pdfText: string): PdfTransaction[] {
     transactions.push({
       date: `${dateCompta}/${annee}`,
       libelle,
-      montant: montantBrut.replace(/\s+/g, " ").trim(),
+      montant: montantColonne.replace(/\s+/g, " ").trim(),
       reference,
+      montantBrut,
     });
   }
 

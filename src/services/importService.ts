@@ -179,13 +179,23 @@ async function receivePdfBankStatement(
   // cleHash incorpore la reference bancaire de la ligne (quand le releve
   // en imprime une) pour ne jamais confondre deux operations distinctes
   // mais sinon identiques en date+libelle+montant (voir PdfTransaction.reference).
+  // montantBrut (remise carte bleue - voir PdfTransaction.montantBrut) est
+  // absent pour la plupart des lignes : parseAmount(undefined) renvoie
+  // simplement null, jamais une erreur.
   const rows = transactions.map((t) => ({
     date: t.date,
     libelle: t.libelle,
     montant: t.montant,
     cleHash: t.reference ? `${t.libelle}|${t.reference}` : t.libelle,
+    montantBrut: t.montantBrut ?? "",
   }));
-  const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant", cleHash: "cleHash" };
+  const resolvedColumns = {
+    date: "date",
+    libelle: "libelle",
+    montant: "montant",
+    cleHash: "cleHash",
+    montantBrut: "montantBrut",
+  };
   const result = await importBankStatement(prisma, rows, resolvedColumns, batch.id);
 
   const summary = await finalizeImport(prisma, fichierNom, typeDetecte, label, batch.id, transactions.length, result);

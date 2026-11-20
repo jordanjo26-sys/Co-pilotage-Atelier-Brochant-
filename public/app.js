@@ -421,7 +421,8 @@ document.getElementById("btn-relancer-rapprochement").addEventListener("click", 
     if (!res.ok) throw new Error(data.erreur || "Échec du rapprochement.");
     resultatDiv.innerHTML = `
       Payouts Stripe : ${data.nbRapproches} rapproché(s), ${data.nbAmbigus} ambigu(s), ${data.nbSansCorrespondance} sans correspondance.<br>
-      Factures fournisseurs : ${data.nbRapprochesDocuments} rapprochée(s), ${data.nbAmbigusDocuments} ambiguë(s), ${data.nbSansCorrespondanceDocuments} sans correspondance.
+      Factures fournisseurs : ${data.nbRapprochesDocuments} rapprochée(s), ${data.nbAmbigusDocuments} ambiguë(s), ${data.nbSansCorrespondanceDocuments} sans correspondance.<br>
+      Règlements clients en carte (remises CB) : ${data.nbRapprochesRemisesCb} rapprochée(s), ${data.nbAmbigusRemisesCb} ambiguë(s), ${data.nbSansCorrespondanceRemisesCb} sans correspondance.
     `;
     await chargerMouvementsBancaires();
   } catch (err) {

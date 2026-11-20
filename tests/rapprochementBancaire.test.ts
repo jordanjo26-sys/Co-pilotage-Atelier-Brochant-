@@ -250,3 +250,112 @@ test("rapprochement bancaire : documents fournisseurs (vraies factures Gmail/Dex
 
   await prisma.$disconnect();
 });
+
+// Demande explicite de l'utilisateur : "quand elle date du 9-10, c'est
+// qu'il y a eu des reglements le 8-10 en carte bleue" - une remise carte
+// bleue regroupe tous les encaissements Carte d'une journee donnee (voir
+// rapprochementBancaire.ts).
+test("rapprochement bancaire : remises carte bleue (REMISE CB) <-> encaissements clients Carte", async (t) => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { executerRapprochementBancaire } = await import("../src/services/rapprochementBancaire");
+  const prisma = new PrismaClient();
+
+  async function remiseCb(date: Date, montantNet: number, montantBrut: number) {
+    return prisma.mouvementBancaire.create({
+      data: {
+        date,
+        libelle: "REMISE CB 1317821012",
+        debit: 0,
+        credit: montantNet,
+        montant: montantNet,
+        montantBrut,
+        hashLigne: ref("hash-remise"),
+      },
+    });
+  }
+  async function facture() {
+    return prisma.facture.create({
+      data: { reference: ref("fact"), clientNom: "Client Test", montantTTC: 1000, statut: "payee" },
+    });
+  }
+  async function encaissementCarte(factureId: string, date: Date, montant: number) {
+    return prisma.encaissement.create({ data: { factureId, date, montant, mode: "Carte" } });
+  }
+
+  await t.test("un seul jour candidat dont la somme egale le BRUT -> rapprochee, tous les encaissements lies", async () => {
+    const f1 = await facture();
+    const f2 = await facture();
+    const e1 = await encaissementCarte(f1.id, new Date("2026-01-01"), 2377.88);
+    const r = await remiseCb(new Date("2026-01-02"), 2348.16, 2377.88);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "rapproche");
+
+    const e1Maj = await prisma.encaissement.findUnique({ where: { id: e1.id } });
+    assert.equal(e1Maj?.mouvementBancaireId, r.id);
+    const rMaj = await prisma.mouvementBancaire.findUnique({ where: { id: r.id } });
+    assert.equal(rMaj?.rapprochementStatut, "rapproche");
+    void f2;
+  });
+
+  await t.test("plusieurs encaissements du meme jour sommes ensemble -> tous rapproches au meme mouvement", async () => {
+    const f1 = await facture();
+    const f2 = await facture();
+    const e1 = await encaissementCarte(f1.id, new Date("2026-02-01"), 100);
+    const e2 = await encaissementCarte(f2.id, new Date("2026-02-01"), 50.5);
+    const r = await remiseCb(new Date("2026-02-02"), 145, 150.5);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "rapproche");
+
+    const e1Maj = await prisma.encaissement.findUnique({ where: { id: e1.id } });
+    const e2Maj = await prisma.encaissement.findUnique({ where: { id: e2.id } });
+    assert.equal(e1Maj?.mouvementBancaireId, r.id);
+    assert.equal(e2Maj?.mouvementBancaireId, r.id);
+  });
+
+  await t.test("deux jours candidats a la meme somme -> ambigu, rien de rapproche", async () => {
+    const f1 = await facture();
+    const f2 = await facture();
+    await encaissementCarte(f1.id, new Date("2026-03-01"), 60);
+    await encaissementCarte(f2.id, new Date("2026-03-02"), 60);
+    const r = await remiseCb(new Date("2026-03-03"), 59, 60);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "ambigu");
+
+    const rMaj = await prisma.mouvementBancaire.findUnique({ where: { id: r.id } });
+    assert.equal(rMaj?.rapprochementStatut, "non_rapproche");
+  });
+
+  await t.test("aucun jour a la bonne somme -> sans correspondance", async () => {
+    const f1 = await facture();
+    await encaissementCarte(f1.id, new Date("2026-04-01"), 33.33);
+    const r = await remiseCb(new Date("2026-04-02"), 98, 99.99);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "sans_correspondance");
+  });
+
+  await t.test("un encaissement en Cheque (pas Carte) n'est jamais utilise pour une remise CB", async () => {
+    const f1 = await facture();
+    await prisma.encaissement.create({
+      data: { factureId: f1.id, date: new Date("2026-05-01"), montant: 77, mode: "Chèque" },
+    });
+    const r = await remiseCb(new Date("2026-05-02"), 76, 77);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "sans_correspondance");
+  });
+
+  await t.test("un encaissement trop ancien (hors fenetre) n'est jamais utilise", async () => {
+    const f1 = await facture();
+    await encaissementCarte(f1.id, new Date("2026-06-01"), 44.44);
+    const r = await remiseCb(new Date("2026-06-20"), 43, 44.44);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "sans_correspondance");
+  });
+
+  await prisma.$disconnect();
+});

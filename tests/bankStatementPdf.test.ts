@@ -94,6 +94,44 @@ test("extractReleveTransactions : reference absente (ex. LCR, sans reference imp
   assert.equal(t?.reference, undefined);
 });
 
+// Fixture reproduisant la mise en page reelle d'une remise carte bleue
+// (voir extractReleveTransactions) : le montant credite (net) est suivi
+// d'une ligne de detail "BRUT ... - COM ...".
+const FIXTURE_REMISE_CB = `
+                                                                         Votre relevé de compte n°3 au 05/01/2026
+
+                                                                         DETAIL DES OPERATIONS DE VOTRE COMPTE COURANT N° 00000000000
+
+                                                                           DATE                                                                                          DATE                   DATE
+                                                                                           LIBELLE / REFERENCE                                                                                                 MONTANT
+                                                                          COMPTA                                                                                       OPERATION               VALEUR
+
+                                                                                           SOLDE CREDITEUR AU 27/12/2025                                                                                       10 000,00 €
+                                                                            02/01             REMISE CB 1317821012                                                     0033976              02/01                02/01                          2 348,16 €
+                                                                                                BRUT       2 377,88E - COM 29,72E
+                                                                                                           - NB0002/120976
+
+                  TOTAL DES MOUVEMENTS DEBITEURS                                                                                                                        0,00 €
+                  TOTAL DES MOUVEMENTS CREDITEURS                                                                                                                   2 348,16 €
+
+                  SOLDE CREDITEUR AU 05/01/2026*                                                                                                                    12 348,16 €
+
+DETAIL DE VOS MOUVEMENTS SEPA
+`;
+
+test("extractReleveTransactions capture le montant BRUT (avant commission) d'une remise carte bleue", () => {
+  const txs = extractReleveTransactions(FIXTURE_REMISE_CB);
+  const t = txs.find((t) => t.libelle.startsWith("REMISE CB"));
+  assert.equal(t?.montant, "2 348,16");
+  assert.equal(t?.montantBrut, "2 377,88");
+});
+
+test("extractReleveTransactions : montantBrut absent pour une operation qui n'est pas une remise CB", () => {
+  const txs = extractReleveTransactions(FIXTURE);
+  const t = txs.find((t) => t.libelle.includes("LCR"));
+  assert.equal(t?.montantBrut, undefined);
+});
+
 test("extractReleveTransactions retourne un tableau vide si la mise en page n'est pas reconnue", () => {
   const txs = extractReleveTransactions("Un texte quelconque sans rapport avec un releve bancaire.");
   assert.deepEqual(txs, []);

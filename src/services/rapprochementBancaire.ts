@@ -37,6 +37,14 @@ const FENETRE_JOURS_PAYOUT = 5;
 // l'unicite du montant dans cette fenetre, pas de sa largeur - un montant
 // ambigu reste "ambigu".
 const FENETRE_JOURS_FACTURE_FOURNISSEUR = 20;
+// Le terminal carte (Tap to Pay) encaisse les paiements d'une journee et la
+// banque les credite en un seul lot ("REMISE CB") le ou les jours suivants
+// (demande explicite de l'utilisateur : "quand elle date du 9-10, c'est
+// qu'il y a eu des reglements le 8-10 en carte bleue"). Fenetre volontairement
+// un peu plus large qu'un seul jour pour absorber un week-end/jour ferie -
+// la securite vient de l'egalite exacte de la somme, jamais de la largeur
+// de la fenetre.
+const FENETRE_JOURS_REMISE_CB = 4;
 const TOLERANCE_MONTANT = 0.01; // arrondi centime
 
 export interface ResultatRapprochement {
@@ -52,6 +60,12 @@ export interface ResultatRapprochement {
   nbRapprochesDocuments: number;
   nbAmbigusDocuments: number;
   nbSansCorrespondanceDocuments: number;
+  // Rapprochement des remises carte bleue (MouvementBancaire "REMISE CB")
+  // avec les encaissements clients en carte (Encaissement.mode = "Carte") -
+  // voir plus bas, troisieme source de credits possibles cote clients.
+  nbRapprochesRemisesCb: number;
+  nbAmbigusRemisesCb: number;
+  nbSansCorrespondanceRemisesCb: number;
   details: Array<{ payoutRef: string; resultat: "rapproche" | "ambigu" | "sans_correspondance"; mouvementId?: string }>;
   detailsFournisseurs: Array<{
     factureId: string;
@@ -64,6 +78,11 @@ export interface ResultatRapprochement {
     fichierNom: string | null;
     resultat: "rapproche" | "ambigu" | "sans_correspondance";
     mouvementId?: string;
+  }>;
+  detailsRemisesCb: Array<{
+    mouvementId: string;
+    resultat: "rapproche" | "ambigu" | "sans_correspondance";
+    nbEncaissements?: number;
   }>;
 }
 
@@ -88,9 +107,13 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     nbRapprochesDocuments: 0,
     nbAmbigusDocuments: 0,
     nbSansCorrespondanceDocuments: 0,
+    nbRapprochesRemisesCb: 0,
+    nbAmbigusRemisesCb: 0,
+    nbSansCorrespondanceRemisesCb: 0,
     details: [],
     detailsFournisseurs: [],
     detailsDocuments: [],
+    detailsRemisesCb: [],
   };
   // Un mouvement deja affecte au cours de cette meme execution (payout,
   // facture fournisseur ou document fournisseur) ne doit pas etre propose
@@ -225,18 +248,79 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     }
   }
 
+  // --- Remises carte bleue (credit) <-> encaissements clients ----------
+  // Une "REMISE CB" regroupe en un seul credit tous les paiements carte
+  // (Tap to Pay) encaisses sur une journee donnee - jamais un sous-ensemble
+  // arbitraire choisi pour faire correspondre un montant (ce serait deviner),
+  // seulement "tous les encaissements Carte d'un jour calendaire precis",
+  // qui est la realite physique d'un releve de terminal. Le montant de
+  // reference est le BRUT (avant commission bancaire) : c'est ce que les
+  // clients ont paye, jamais le montant net credite sur le compte.
+  const remisesAtraiter = await prisma.mouvementBancaire.findMany({
+    where: { rapprochementStatut: "non_rapproche", montantBrut: { not: null } },
+  });
+
+  if (remisesAtraiter.length > 0) {
+    const encaissementsCarte = await prisma.encaissement.findMany({
+      where: { mode: "Carte", mouvementBancaireId: null, date: { not: null } },
+    });
+    const encaissementsUtilises = new Set<string>();
+
+    for (const remise of remisesAtraiter) {
+      const parJour = new Map<string, typeof encaissementsCarte>();
+      for (const e of encaissementsCarte) {
+        if (encaissementsUtilises.has(e.id) || !e.date) continue;
+        if (e.date > remise.date) continue; // un encaissement ne peut jamais precede sa propre remise
+        if (differenceJours(e.date, remise.date) > FENETRE_JOURS_REMISE_CB) continue;
+        const cle = e.date.toISOString().slice(0, 10);
+        const liste = parJour.get(cle) ?? [];
+        liste.push(e);
+        parJour.set(cle, liste);
+      }
+
+      const joursCandidats: Array<{ encaissements: typeof encaissementsCarte }> = [];
+      for (const encaissementsJour of parJour.values()) {
+        const somme = encaissementsJour.reduce((s, e) => s + e.montant, 0);
+        if (Math.abs(somme - (remise.montantBrut as number)) < TOLERANCE_MONTANT) {
+          joursCandidats.push({ encaissements: encaissementsJour });
+        }
+      }
+
+      if (joursCandidats.length === 1) {
+        const { encaissements } = joursCandidats[0];
+        await prisma.$transaction([
+          ...encaissements.map((e) =>
+            prisma.encaissement.update({ where: { id: e.id }, data: { mouvementBancaireId: remise.id } })
+          ),
+          prisma.mouvementBancaire.update({ where: { id: remise.id }, data: { rapprochementStatut: "rapproche" } }),
+        ]);
+        for (const e of encaissements) encaissementsUtilises.add(e.id);
+        resultat.nbRapprochesRemisesCb++;
+        resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "rapproche", nbEncaissements: encaissements.length });
+      } else if (joursCandidats.length > 1) {
+        resultat.nbAmbigusRemisesCb++;
+        resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "ambigu" });
+      } else {
+        resultat.nbSansCorrespondanceRemisesCb++;
+        resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "sans_correspondance" });
+      }
+    }
+  }
+
   if (
     resultat.nbRapproches > 0 ||
     resultat.nbAmbigus > 0 ||
     resultat.nbRapprochesFournisseurs > 0 ||
     resultat.nbAmbigusFournisseurs > 0 ||
     resultat.nbRapprochesDocuments > 0 ||
-    resultat.nbAmbigusDocuments > 0
+    resultat.nbAmbigusDocuments > 0 ||
+    resultat.nbRapprochesRemisesCb > 0 ||
+    resultat.nbAmbigusRemisesCb > 0
   ) {
     await logEvenement(prisma, {
       evenement: "rapprochement_bancaire",
       action: "Rapprochement automatique payouts/factures fournisseurs <-> mouvements bancaires",
-      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance.`,
+      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance.`,
     });
   }
 

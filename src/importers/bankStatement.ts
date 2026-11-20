@@ -40,6 +40,11 @@ export async function importBankStatement(
       let debit = resolvedColumns.debit ? parseAmount(row[resolvedColumns.debit]) ?? 0 : 0;
       let credit = resolvedColumns.credit ? parseAmount(row[resolvedColumns.credit]) ?? 0 : 0;
       let montant = resolvedColumns.montant ? parseAmount(row[resolvedColumns.montant]) : null;
+      // Montant BRUT d'une remise carte bleue (colonne "montantBrut"
+      // optionnelle - voir receivePdfBankStatement / PdfTransaction.montantBrut).
+      const montantBrut = resolvedColumns.montantBrut
+        ? parseAmount(row[resolvedColumns.montantBrut])
+        : null;
 
       if (montant === null) {
         montant = credit - debit;
@@ -73,6 +78,7 @@ export async function importBankStatement(
           debit,
           credit,
           montant,
+          montantBrut: montantBrut ?? undefined,
           hashLigne,
           sourceImportId: importBatchId,
         },
