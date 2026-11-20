@@ -245,3 +245,55 @@ test("importBankStatement : sans cleHash fournie (ex. CSV), le libelle seul rest
   await prisma.mouvementBancaire.deleteMany({ where: { libelle: "VIR INST Sans Reference" } });
   await prisma.$disconnect();
 });
+
+// Le PDF d'origine n'est jamais conserve (voir receivePdfBankStatement) :
+// un releve importe avant l'ajout du montant BRUT (remise carte bleue,
+// voir rapprochementBancaire.ts) ne peut etre complete qu'en redeposant le
+// meme fichier. Un simple redepot ne doit donc pas se contenter de compter
+// un doublon - il doit aussi enrichir la ligne deja connue, sans jamais
+// ecraser une valeur deja renseignee.
+test("importBankStatement : un redepot du meme mouvement backfill le montantBrut manquant sans ecraser une valeur existante", async () => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { importBankStatement } = await import("../src/importers/bankStatement");
+  const prisma = new PrismaClient();
+
+  const batch = await prisma.importBatch.create({
+    data: { fichierNom: "test-montantBrut.pdf", typeDetecte: "banque_releve_pdf", hashFichier: `test-${Date.now()}-c` },
+  });
+  const resolvedColumns = { date: "date", libelle: "libelle", montant: "montant", montantBrut: "montantBrut" };
+
+  const premierDepot = await importBankStatement(
+    prisma,
+    [{ date: "20/01/2026", libelle: "REMISE CB 1234", montant: "97,00", montantBrut: "" }],
+    resolvedColumns,
+    batch.id
+  );
+  assert.equal(premierDepot.nbNouveaux, 1);
+
+  const redepot = await importBankStatement(
+    prisma,
+    [{ date: "20/01/2026", libelle: "REMISE CB 1234", montant: "97,00", montantBrut: "100,00" }],
+    resolvedColumns,
+    batch.id
+  );
+  assert.equal(redepot.nbNouveaux, 0);
+  assert.equal(redepot.nbDoublons, 1);
+
+  const mouvement = await prisma.mouvementBancaire.findFirst({ where: { libelle: "REMISE CB 1234" } });
+  assert.equal(mouvement?.montantBrut, 100);
+
+  // Un troisieme redepot avec une valeur differente ne doit jamais ecraser
+  // la valeur deja renseignee (protection d'une correction manuelle
+  // eventuelle, meme principe que les autres backfills de ce code).
+  await importBankStatement(
+    prisma,
+    [{ date: "20/01/2026", libelle: "REMISE CB 1234", montant: "97,00", montantBrut: "999,00" }],
+    resolvedColumns,
+    batch.id
+  );
+  const mouvementApresTroisiemeDepot = await prisma.mouvementBancaire.findFirst({ where: { libelle: "REMISE CB 1234" } });
+  assert.equal(mouvementApresTroisiemeDepot?.montantBrut, 100);
+
+  await prisma.mouvementBancaire.deleteMany({ where: { libelle: "REMISE CB 1234" } });
+  await prisma.$disconnect();
+});

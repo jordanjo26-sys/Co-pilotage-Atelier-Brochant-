@@ -67,6 +67,15 @@ export async function importBankStatement(
       const existing = await prisma.mouvementBancaire.findUnique({ where: { hashLigne } });
 
       if (existing) {
+        // Un mouvement deja connu (ex. redepot du meme releve) peut tout de
+        // meme enrichir une ligne existante : les relevés importés avant la
+        // capture du montant BRUT (remise carte bleue) n'avaient jamais ce
+        // champ, faute de pouvoir reparser le PDF d'origine (non conserve)
+        // - un redepot du meme fichier permet de le completer sans jamais
+        // ecraser une valeur deja renseignee.
+        if (montantBrut !== null && existing.montantBrut === null) {
+          await prisma.mouvementBancaire.update({ where: { id: existing.id }, data: { montantBrut } });
+        }
         nbDoublons++;
         continue;
       }
