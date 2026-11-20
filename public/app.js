@@ -3509,33 +3509,39 @@ document.getElementById("form-import").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = document.getElementById("input-fichier");
   const resultatDiv = document.getElementById("resultat-import");
-  if (!input.files[0]) return;
+  const fichiers = Array.from(input.files || []);
+  if (fichiers.length === 0) return;
 
-  const formData = new FormData();
-  formData.append("fichier", input.files[0]);
+  // Un fichier a la fois vers /api/import (le serveur ne lit qu'un fichier
+  // par appel) - une ligne de resultat par fichier, affichee au fur et a
+  // mesure plutot que d'attendre la fin de tous les envois.
+  const lignes = fichiers.map((f) => `<li>${echapper(f.name)} — en cours…</li>`);
+  resultatDiv.innerHTML = `<ul class="zone-depot-liste">${lignes.join("")}</ul>`;
+  const items = resultatDiv.querySelectorAll("li");
 
-  resultatDiv.textContent = "Import en cours…";
-
-  try {
-    const res = await fetch("/api/import", { method: "POST", body: formData });
-    const data = await res.json();
-
-    if (!res.ok) {
-      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(data.erreur)}`;
-      return;
+  for (let i = 0; i < fichiers.length; i++) {
+    const formData = new FormData();
+    formData.append("fichier", fichiers[i]);
+    try {
+      const res = await fetch("/api/import", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        items[i].innerHTML = `${echapper(fichiers[i].name)} — <span class="badge badge-echec">Erreur</span> ${echapper(data.erreur)}`;
+        continue;
+      }
+      items[i].innerHTML = `
+        ${echapper(fichiers[i].name)} —
+        <span class="badge badge-${data.statut}">${data.statut}</span>
+        Type détecté : <strong>${echapper(data.typeDetecte)}</strong> —
+        ${data.nbNouveaux} nouveau(x), ${data.nbDoublons} doublon(s), ${data.nbErreurs} erreur(s) sur ${data.nbLignes} ligne(s).
+      `;
+    } catch (err) {
+      items[i].innerHTML = `${echapper(fichiers[i].name)} — <span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }
-
-    resultatDiv.innerHTML = `
-      <span class="badge badge-${data.statut}">${data.statut}</span>
-      Type détecté : <strong>${echapper(data.typeDetecte)}</strong> —
-      ${data.nbNouveaux} nouveau(x), ${data.nbDoublons} doublon(s), ${data.nbErreurs} erreur(s) sur ${data.nbLignes} ligne(s).
-    `;
-
-    input.value = "";
-    await rafraichirTout();
-  } catch (err) {
-    resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
   }
+
+  input.value = "";
+  await rafraichirTout();
 });
 
 rafraichirTout();
