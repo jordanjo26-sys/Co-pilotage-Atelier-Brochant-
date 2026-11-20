@@ -252,6 +252,13 @@ model DocumentFournisseur {
   gmailExpediteur   String?
   gmailObjet        String?
   dateReceptionMail DateTime?
+  // Rapprochement avec un mouvement bancaire (meme principe que
+  // FactureFournisseur.mouvementBancaireId ci-dessus, et pour la meme
+  // raison : FactureFournisseur n'est jamais alimentee par aucun code actif,
+  // les vraies factures fournisseurs - celles qui arrivent par Gmail/Dext -
+  // vivent ici). Pas une vraie relation Prisma, juste un identifiant pose
+  // par rapprochementBancaire.ts, verifie par requete applicative.
+  mouvementBancaireId String?
   createdAt      DateTime  @default(now())
   // Document papier numerise depuis l'application (section "Scanner un
   // document papier") : chemin local du PDF genere (voir uploads/scans/,

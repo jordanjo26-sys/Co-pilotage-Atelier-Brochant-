@@ -179,3 +179,74 @@ test("rapprochement bancaire : factures fournisseurs (debit)", async (t) => {
 
   await prisma.$disconnect();
 });
+
+// FactureFournisseur (teste au-dessus) n'est alimentee par aucun code
+// actif de l'application - les vraies factures fournisseurs (Gmail/Dext)
+// vivent dans DocumentFournisseur, d'ou cette deuxieme passe de
+// rapprochement distincte (voir rapprochementBancaire.ts).
+test("rapprochement bancaire : documents fournisseurs (vraies factures Gmail/Dext, debit)", async (t) => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { executerRapprochementBancaire } = await import("../src/services/rapprochementBancaire");
+  const prisma = new PrismaClient();
+
+  async function mouvementDebit(date: Date, montant: number) {
+    return prisma.mouvementBancaire.create({
+      data: { date, libelle: "LEROY MERLIN", debit: montant, credit: 0, montant: -montant, hashLigne: ref("hash-doc-debit") },
+    });
+  }
+  async function document(date: Date | null, montantTTC: number) {
+    return prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: ref("facture") + ".pdf", date, montantTTC },
+    });
+  }
+
+  await t.test("un seul mouvement debit candidat -> rapproche", async () => {
+    const m = await mouvementDebit(new Date("2026-09-15"), 48.07);
+    const d = await document(new Date("2026-09-10"), 48.07);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsDocuments.find((x) => x.documentId === d.id)?.resultat, "rapproche");
+
+    const documentMaj = await prisma.documentFournisseur.findUnique({ where: { id: d.id } });
+    assert.equal(documentMaj?.mouvementBancaireId, m.id);
+  });
+
+  await t.test("deux mouvements debit au meme montant -> ambigu, document inchange", async () => {
+    await mouvementDebit(new Date("2026-10-05"), 50);
+    await mouvementDebit(new Date("2026-10-06"), 50);
+    const d = await document(new Date("2026-10-01"), 50);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsDocuments.find((x) => x.documentId === d.id)?.resultat, "ambigu");
+
+    const documentMaj = await prisma.documentFournisseur.findUnique({ where: { id: d.id } });
+    assert.equal(documentMaj?.mouvementBancaireId, null);
+  });
+
+  await t.test("document sans date (ni date ni dateReceptionMail) -> jamais rapproche a l'aveugle", async () => {
+    await mouvementDebit(new Date("2026-11-01"), 66.6);
+    const d = await document(null, 66.6);
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsDocuments.find((x) => x.documentId === d.id)?.resultat, "sans_correspondance");
+  });
+
+  await t.test("montant TTC absent (document pas encore exploitable) -> jamais candidat", async () => {
+    const d = await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: ref("facture-sans-montant") + ".pdf", date: new Date("2026-11-05"), montantTTC: null },
+    });
+    await mouvementDebit(new Date("2026-11-05"), 123.0);
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsDocuments.find((x) => x.documentId === d.id), undefined);
+  });
+
+  await t.test("un type different de 'facture' (ex. devis) n'est jamais candidat", async () => {
+    const d = await prisma.documentFournisseur.create({
+      data: { type: "devis", fichierNom: ref("devis") + ".pdf", date: new Date("2026-11-10"), montantTTC: 200 },
+    });
+    await mouvementDebit(new Date("2026-11-10"), 200);
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsDocuments.find((x) => x.documentId === d.id), undefined);
+  });
+
+  await prisma.$disconnect();
+});
