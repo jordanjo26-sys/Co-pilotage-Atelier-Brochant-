@@ -357,6 +357,129 @@ test("rapprochement bancaire : remises carte bleue (REMISE CB) <-> encaissements
     assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "sans_correspondance");
   });
 
+  // Cas reel de production (remise du 2026-10-08, montant brut 433.48€) :
+  // l'encaissement correspondant n'a ete saisi dans Synec que le lendemain
+  // de la remise bancaire - jamais suppose qu'un encaissement precede
+  // toujours sa remise (section 14, verifie via /api/encaissements).
+  await t.test("un encaissement saisi un jour APRES la date de la remise est quand meme retenu", async () => {
+    const f1 = await facture();
+    const e1 = await encaissementCarte(f1.id, new Date("2026-07-02"), 433.48);
+    const r = await remiseCb(new Date("2026-07-01"), 420, 433.48);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "rapproche");
+
+    const e1Maj = await prisma.encaissement.findUnique({ where: { id: e1.id } });
+    assert.equal(e1Maj?.mouvementBancaireId, r.id);
+  });
+
+  // Cas reel de production (remise du 2026-02-26, montant brut 902€) : la
+  // meme journee comporte deux encaissements Carte (450€ et 902€), mais un
+  // seul lot correspond a cette remise precise - jamais de regroupement
+  // par jour calendaire entier (ce serait deviner), seulement le
+  // sous-ensemble dont la somme egale exactement le brut.
+  await t.test("un seul encaissement d'une journee qui en compte plusieurs -> rapproche uniquement celui-la", async () => {
+    const f1 = await facture();
+    const f2 = await facture();
+    const e1 = await encaissementCarte(f1.id, new Date("2026-08-01"), 450);
+    const e2 = await encaissementCarte(f2.id, new Date("2026-08-01"), 902);
+    const r = await remiseCb(new Date("2026-08-02"), 890, 902);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "rapproche");
+
+    const e1Maj = await prisma.encaissement.findUnique({ where: { id: e1.id } });
+    const e2Maj = await prisma.encaissement.findUnique({ where: { id: e2.id } });
+    assert.equal(e1Maj?.mouvementBancaireId, null);
+    assert.equal(e2Maj?.mouvementBancaireId, r.id);
+  });
+
+  await prisma.$disconnect();
+});
+
+// Une remise de cheques peut regrouper des cheques encaisses sur une
+// periode bien plus longue et irreguliere qu'une remise CB (le depot en
+// banque n'est pas quotidien) - voir rapprochementBancaire.ts,
+// FENETRE_JOURS_REMISE_CHEQUES_*. Pas de commission sur un cheque : la
+// cible est le montant du mouvement lui-meme (pas de montantBrut).
+test("rapprochement bancaire : remises de cheques (REMISE CHEQUES/REM CHQ) <-> encaissements clients Chèque", async (t) => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { executerRapprochementBancaire } = await import("../src/services/rapprochementBancaire");
+  const prisma = new PrismaClient();
+
+  async function remiseCheques(libelle: string, date: Date, montant: number) {
+    return prisma.mouvementBancaire.create({
+      data: { date, libelle, debit: 0, credit: montant, montant, hashLigne: ref("hash-remise-cheque") },
+    });
+  }
+  async function facture() {
+    return prisma.facture.create({
+      data: { reference: ref("fact"), clientNom: "Client Test", montantTTC: 1000, statut: "payee" },
+    });
+  }
+  async function encaissementCheque(factureId: string, date: Date, montant: number) {
+    return prisma.encaissement.create({ data: { factureId, date, montant, mode: "Chèque" } });
+  }
+
+  await t.test("un seul cheque encaisse plusieurs semaines avant le depot -> rapproche", async () => {
+    const f1 = await facture();
+    const e1 = await encaissementCheque(f1.id, new Date("2026-01-05"), 4000);
+    const r = await remiseCheques("REMISE CHEQUES 12345", new Date("2026-02-20"), 4000);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCheques.find((x) => x.mouvementId === r.id)?.resultat, "rapproche");
+
+    const e1Maj = await prisma.encaissement.findUnique({ where: { id: e1.id } });
+    assert.equal(e1Maj?.mouvementBancaireId, r.id);
+  });
+
+  await t.test("plusieurs cheques de dates differentes regroupes dans un seul depot -> tous rapproches", async () => {
+    const f1 = await facture();
+    const f2 = await facture();
+    const e1 = await encaissementCheque(f1.id, new Date("2026-03-01"), 1000);
+    const e2 = await encaissementCheque(f2.id, new Date("2026-03-20"), 2000);
+    const r = await remiseCheques("REM CHQ DEPLACE 999", new Date("2026-04-02"), 3000);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCheques.find((x) => x.mouvementId === r.id)?.resultat, "rapproche");
+
+    const e1Maj = await prisma.encaissement.findUnique({ where: { id: e1.id } });
+    const e2Maj = await prisma.encaissement.findUnique({ where: { id: e2.id } });
+    assert.equal(e1Maj?.mouvementBancaireId, r.id);
+    assert.equal(e2Maj?.mouvementBancaireId, r.id);
+  });
+
+  await t.test("deux cheques isoles au meme montant -> ambigu", async () => {
+    const f1 = await facture();
+    const f2 = await facture();
+    await encaissementCheque(f1.id, new Date("2026-05-01"), 500);
+    await encaissementCheque(f2.id, new Date("2026-05-15"), 500);
+    const r = await remiseCheques("REMISE CHEQUES 111", new Date("2026-06-01"), 500);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCheques.find((x) => x.mouvementId === r.id)?.resultat, "ambigu");
+  });
+
+  await t.test("aucun cheque a la bonne somme -> sans correspondance", async () => {
+    const f1 = await facture();
+    await encaissementCheque(f1.id, new Date("2026-07-01"), 123.45);
+    const r = await remiseCheques("REMISE CHEQUES 222", new Date("2026-07-10"), 999.99);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCheques.find((x) => x.mouvementId === r.id)?.resultat, "sans_correspondance");
+  });
+
+  await t.test("un encaissement en Carte (pas Cheque) n'est jamais utilise pour une remise de cheques", async () => {
+    const f1 = await facture();
+    await prisma.encaissement.create({
+      data: { factureId: f1.id, date: new Date("2026-08-01"), montant: 321, mode: "Carte" },
+    });
+    const r = await remiseCheques("REMISE CHEQUES 333", new Date("2026-08-10"), 321);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsRemisesCheques.find((x) => x.mouvementId === r.id)?.resultat, "sans_correspondance");
+  });
+
   await prisma.$disconnect();
 });
 

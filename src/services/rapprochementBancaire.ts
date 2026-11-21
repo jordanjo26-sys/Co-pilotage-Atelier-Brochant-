@@ -37,14 +37,34 @@ const FENETRE_JOURS_PAYOUT = 5;
 // l'unicite du montant dans cette fenetre, pas de sa largeur - un montant
 // ambigu reste "ambigu".
 const FENETRE_JOURS_FACTURE_FOURNISSEUR = 20;
-// Le terminal carte (Tap to Pay) encaisse les paiements d'une journee et la
-// banque les credite en un seul lot ("REMISE CB") le ou les jours suivants
-// (demande explicite de l'utilisateur : "quand elle date du 9-10, c'est
-// qu'il y a eu des reglements le 8-10 en carte bleue"). Fenetre volontairement
-// un peu plus large qu'un seul jour pour absorber un week-end/jour ferie -
-// la securite vient de l'egalite exacte de la somme, jamais de la largeur
-// de la fenetre.
-const FENETRE_JOURS_REMISE_CB = 4;
+// Le terminal carte (Tap to Pay) encaisse les paiements et la banque les
+// credite en lot ("REMISE CB") le ou les jours suivants. Verifie sur les
+// donnees reelles de production (jamais suppose - section 14) via
+// /api/encaissements : un lot n'est PAS toujours "toute une journee
+// calendaire" (un terminal peut scinder une journee en plusieurs lots), et
+// un encaissement peut meme etre saisi dans Synec un jour APRES la date de
+// la remise bancaire (decalage de saisie, cas reel observe le 2026-10-08/09).
+// D'ou une fenetre asymetrique et une recherche par SOUS-ENSEMBLE EXACT
+// (voir rechercherSousEnsemblesExacts) plutot qu'un simple regroupement par
+// jour - la securite vient de l'unicite du sous-ensemble exact, jamais de
+// la largeur de la fenetre.
+const FENETRE_JOURS_REMISE_CB_AVANT = 4;
+const FENETRE_JOURS_REMISE_CB_APRES = 1;
+// Une remise de cheques peut regrouper des cheques encaisses sur une
+// periode bien plus longue et irreguliere qu'une remise CB (le depot en
+// banque n'est pas quotidien) - verifie sur les 12 remises reelles de
+// production : l'ecart constate entre la date d'un encaissement cheque et
+// la remise bancaire correspondante va jusqu'a plusieurs mois. Meme
+// principe de securite : sous-ensemble exact et unique, jamais une
+// supposition sur le regroupement.
+const FENETRE_JOURS_REMISE_CHEQUES_AVANT = 90;
+const FENETRE_JOURS_REMISE_CHEQUES_APRES = 5;
+// Au-dela de ce nombre de candidats dans la fenetre, une recherche
+// exhaustive de sous-ensemble exact n'est plus pratiquee (jamais de
+// raccourci qui risquerait un mauvais rapprochement) - le mouvement reste
+// simplement "sans_correspondance" comme avant cette passe. Jamais atteint
+// en pratique sur les donnees reelles (maximum observe : 20 candidats).
+const LIMITE_CANDIDATS_SOUS_ENSEMBLE = 25;
 // Un virement client (VIR INST, EVI...) n'est jamais regroupe en lot
 // (contrairement a une remise CB ou cheques) - chaque ligne du releve
 // correspond a un seul encaissement. Le nom affiche sur le releve ne
@@ -75,6 +95,13 @@ export interface ResultatRapprochement {
   nbRapprochesRemisesCb: number;
   nbAmbigusRemisesCb: number;
   nbSansCorrespondanceRemisesCb: number;
+  // Rapprochement des remises de cheques (MouvementBancaire "REMISE
+  // CHEQUES"/"REM CHQ") avec les encaissements clients en cheque
+  // (Encaissement.mode = "Chèque") - meme principe que les remises CB,
+  // fenetre de dates differente (voir FENETRE_JOURS_REMISE_CHEQUES_*).
+  nbRapprochesRemisesCheques: number;
+  nbAmbigusRemisesCheques: number;
+  nbSansCorrespondanceRemisesCheques: number;
   // Rapprochement des virements clients directs (hors remise CB/Stripe,
   // un seul encaissement par mouvement, jamais un lot) - voir plus bas.
   nbRapprochesVirementsClients: number;
@@ -98,6 +125,11 @@ export interface ResultatRapprochement {
     resultat: "rapproche" | "ambigu" | "sans_correspondance";
     nbEncaissements?: number;
   }>;
+  detailsRemisesCheques: Array<{
+    mouvementId: string;
+    resultat: "rapproche" | "ambigu" | "sans_correspondance";
+    nbEncaissements?: number;
+  }>;
   detailsVirementsClients: Array<{
     mouvementId: string;
     libelle: string;
@@ -108,6 +140,54 @@ export interface ResultatRapprochement {
 
 function differenceJours(a: Date, b: Date): number {
   return Math.abs(a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24);
+}
+
+/**
+ * Recherche tous les sous-ensembles de `candidats` dont la somme egale
+ * exactement `cibleCentimes` (en centimes, pour eviter les arrondis
+ * flottants), avec arret anticipe dans deux cas :
+ *  - plus de deux sous-ensembles trouves (l'ambiguite est deja etablie,
+ *    pas besoin d'enumerer tous les cas) ;
+ *  - trop de candidats pour une recherche exhaustive fiable (voir
+ *    LIMITE_CANDIDATS_SOUS_ENSEMBLE) - renvoie alors null plutot que de
+ *    deviner sur un sous-ensemble partiel.
+ * Un elagage par somme suffixe (candidats tries par montant decroissant)
+ * rend la recherche quasi instantanee dans les cas reels, ou tres peu de
+ * sous-ensembles atteignent exactement la cible.
+ */
+function rechercherSousEnsemblesExacts<T>(
+  candidats: Array<{ item: T; montant: number }>,
+  cibleCentimes: number
+): Array<T[]> | null {
+  if (candidats.length === 0 || cibleCentimes <= 0) return [];
+  if (candidats.length > LIMITE_CANDIDATS_SOUS_ENSEMBLE) return null;
+
+  const tries = [...candidats].sort((a, b) => b.montant - a.montant);
+  const sommesSuffixe = new Array<number>(tries.length + 1).fill(0);
+  for (let i = tries.length - 1; i >= 0; i--) {
+    sommesSuffixe[i] = sommesSuffixe[i + 1] + Math.round(tries[i].montant * 100);
+  }
+
+  const resultats: T[][] = [];
+
+  function backtrack(depart: number, resteCentimes: number, chemin: T[]) {
+    if (resultats.length >= 2) return;
+    if (resteCentimes === 0 && chemin.length > 0) {
+      resultats.push([...chemin]);
+      if (resultats.length >= 2) return;
+    }
+    for (let i = depart; i < tries.length; i++) {
+      if (sommesSuffixe[i] < resteCentimes) break; // meme les plus gros restants n'atteignent pas la cible
+      const centimes = Math.round(tries[i].montant * 100);
+      if (centimes > resteCentimes) continue; // cet element seul depasse deja le reste
+      chemin.push(tries[i].item);
+      backtrack(i + 1, resteCentimes - centimes, chemin);
+      chemin.pop();
+      if (resultats.length >= 2) return;
+    }
+  }
+  backtrack(0, cibleCentimes, []);
+  return resultats;
 }
 
 /**
@@ -130,6 +210,9 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     nbRapprochesRemisesCb: 0,
     nbAmbigusRemisesCb: 0,
     nbSansCorrespondanceRemisesCb: 0,
+    nbRapprochesRemisesCheques: 0,
+    nbAmbigusRemisesCheques: 0,
+    nbSansCorrespondanceRemisesCheques: 0,
     nbRapprochesVirementsClients: 0,
     nbAmbigusVirementsClients: 0,
     nbSansCorrespondanceVirementsClients: 0,
@@ -137,6 +220,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     detailsFournisseurs: [],
     detailsDocuments: [],
     detailsRemisesCb: [],
+    detailsRemisesCheques: [],
     detailsVirementsClients: [],
   };
   // Un mouvement deja affecte au cours de cette meme execution (payout,
@@ -272,46 +356,68 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     }
   }
 
-  // --- Remises carte bleue (credit) <-> encaissements clients ----------
-  // Une "REMISE CB" regroupe en un seul credit tous les paiements carte
-  // (Tap to Pay) encaisses sur une journee donnee - jamais un sous-ensemble
-  // arbitraire choisi pour faire correspondre un montant (ce serait deviner),
-  // seulement "tous les encaissements Carte d'un jour calendaire precis",
-  // qui est la realite physique d'un releve de terminal. Le montant de
-  // reference est le BRUT (avant commission bancaire) : c'est ce que les
-  // clients ont paye, jamais le montant net credite sur le compte.
-  const remisesAtraiter = await prisma.mouvementBancaire.findMany({
+  // --- Remises en lot (carte bleue / cheques) <-> encaissements clients ---
+  // Une remise bancaire ("REMISE CB" ou "REMISE CHEQUES"/"REM CHQ") regroupe
+  // en un seul credit plusieurs encaissements clients du mode correspondant.
+  // Jamais de sous-ensemble arbitraire choisi pour faire correspondre un
+  // montant (ce serait deviner, section 14) : rechercherSousEnsemblesExacts
+  // trouve le ou les sous-ensembles dont la somme egale EXACTEMENT la cible,
+  // et seule une correspondance unique declenche le rapprochement. Pour une
+  // remise CB, la cible est le montant BRUT (avant commission bancaire) :
+  // c'est ce que les clients ont paye, jamais le montant net credite sur le
+  // compte ; une remise de cheques n'a pas de commission, la cible est donc
+  // le montant du mouvement lui-meme.
+  async function rapprocherRemiseEnLot(
+    remise: { id: string; date: Date },
+    cible: number,
+    mode: string,
+    encaissementsDisponibles: Array<{ id: string; date: Date | null; montant: number }>,
+    fenetreAvantJours: number,
+    fenetreApresJours: number
+  ): Promise<{ resultat: "rapproche" | "ambigu" | "sans_correspondance"; encaissements?: Array<{ id: string }> }> {
+    const candidats = encaissementsDisponibles.filter((e) => {
+      if (!e.date) return false;
+      const diffJours = (e.date.getTime() - remise.date.getTime()) / (1000 * 60 * 60 * 24);
+      return diffJours <= fenetreApresJours && diffJours >= -fenetreAvantJours;
+    });
+
+    const sousEnsembles = rechercherSousEnsemblesExacts(
+      candidats.map((e) => ({ item: e, montant: e.montant })),
+      Math.round(cible * 100)
+    );
+
+    if (sousEnsembles === null || sousEnsembles.length === 0) {
+      return { resultat: "sans_correspondance" };
+    }
+    if (sousEnsembles.length > 1) {
+      return { resultat: "ambigu" };
+    }
+    void mode; // deja filtre par l'appelant via encaissementsDisponibles
+    return { resultat: "rapproche", encaissements: sousEnsembles[0] };
+  }
+
+  const remisesCbAtraiter = await prisma.mouvementBancaire.findMany({
     where: { rapprochementStatut: "non_rapproche", montantBrut: { not: null } },
   });
 
-  if (remisesAtraiter.length > 0) {
+  if (remisesCbAtraiter.length > 0) {
     const encaissementsCarte = await prisma.encaissement.findMany({
       where: { mode: "Carte", mouvementBancaireId: null, date: { not: null } },
     });
     const encaissementsUtilises = new Set<string>();
 
-    for (const remise of remisesAtraiter) {
-      const parJour = new Map<string, typeof encaissementsCarte>();
-      for (const e of encaissementsCarte) {
-        if (encaissementsUtilises.has(e.id) || !e.date) continue;
-        if (e.date > remise.date) continue; // un encaissement ne peut jamais precede sa propre remise
-        if (differenceJours(e.date, remise.date) > FENETRE_JOURS_REMISE_CB) continue;
-        const cle = e.date.toISOString().slice(0, 10);
-        const liste = parJour.get(cle) ?? [];
-        liste.push(e);
-        parJour.set(cle, liste);
-      }
+    for (const remise of remisesCbAtraiter) {
+      const disponibles = encaissementsCarte.filter((e) => !encaissementsUtilises.has(e.id));
+      const { resultat: issue, encaissements } = await rapprocherRemiseEnLot(
+        remise,
+        remise.montantBrut as number,
+        "Carte",
+        disponibles,
+        FENETRE_JOURS_REMISE_CB_AVANT,
+        FENETRE_JOURS_REMISE_CB_APRES
+      );
 
-      const joursCandidats: Array<{ encaissements: typeof encaissementsCarte }> = [];
-      for (const encaissementsJour of parJour.values()) {
-        const somme = encaissementsJour.reduce((s, e) => s + e.montant, 0);
-        if (Math.abs(somme - (remise.montantBrut as number)) < TOLERANCE_MONTANT) {
-          joursCandidats.push({ encaissements: encaissementsJour });
-        }
-      }
-
-      if (joursCandidats.length === 1) {
-        const { encaissements } = joursCandidats[0];
+      if (issue === "rapproche" && encaissements) {
         await prisma.$transaction([
           ...encaissements.map((e) =>
             prisma.encaissement.update({ where: { id: e.id }, data: { mouvementBancaireId: remise.id } })
@@ -321,12 +427,60 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
         for (const e of encaissements) encaissementsUtilises.add(e.id);
         resultat.nbRapprochesRemisesCb++;
         resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "rapproche", nbEncaissements: encaissements.length });
-      } else if (joursCandidats.length > 1) {
+      } else if (issue === "ambigu") {
         resultat.nbAmbigusRemisesCb++;
         resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "ambigu" });
       } else {
         resultat.nbSansCorrespondanceRemisesCb++;
         resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "sans_correspondance" });
+      }
+    }
+  }
+
+  // --- Remises de cheques (credit) <-> encaissements clients Cheque ----
+  // Meme principe que les remises CB ci-dessus, fenetre de dates
+  // beaucoup plus large (voir FENETRE_JOURS_REMISE_CHEQUES_*) : un depot
+  // de cheques en banque n'est pas quotidien, et peut regrouper des
+  // cheques encaisses sur plusieurs mois.
+  const LIBELLE_REMISE_CHEQUES = /^REMISE CHEQUES|^REM CHQ/i;
+  const mouvementsNonRapproches = await prisma.mouvementBancaire.findMany({
+    where: { rapprochementStatut: "non_rapproche" },
+  });
+  const remisesChequesAtraiter = mouvementsNonRapproches.filter((m) => LIBELLE_REMISE_CHEQUES.test(m.libelle));
+
+  if (remisesChequesAtraiter.length > 0) {
+    const encaissementsCheque = await prisma.encaissement.findMany({
+      where: { mode: "Chèque", mouvementBancaireId: null, date: { not: null } },
+    });
+    const encaissementsUtilisesCheque = new Set<string>();
+
+    for (const remise of remisesChequesAtraiter) {
+      const disponibles = encaissementsCheque.filter((e) => !encaissementsUtilisesCheque.has(e.id));
+      const { resultat: issue, encaissements } = await rapprocherRemiseEnLot(
+        remise,
+        remise.montant,
+        "Chèque",
+        disponibles,
+        FENETRE_JOURS_REMISE_CHEQUES_AVANT,
+        FENETRE_JOURS_REMISE_CHEQUES_APRES
+      );
+
+      if (issue === "rapproche" && encaissements) {
+        await prisma.$transaction([
+          ...encaissements.map((e) =>
+            prisma.encaissement.update({ where: { id: e.id }, data: { mouvementBancaireId: remise.id } })
+          ),
+          prisma.mouvementBancaire.update({ where: { id: remise.id }, data: { rapprochementStatut: "rapproche" } }),
+        ]);
+        for (const e of encaissements) encaissementsUtilisesCheque.add(e.id);
+        resultat.nbRapprochesRemisesCheques++;
+        resultat.detailsRemisesCheques.push({ mouvementId: remise.id, resultat: "rapproche", nbEncaissements: encaissements.length });
+      } else if (issue === "ambigu") {
+        resultat.nbAmbigusRemisesCheques++;
+        resultat.detailsRemisesCheques.push({ mouvementId: remise.id, resultat: "ambigu" });
+      } else {
+        resultat.nbSansCorrespondanceRemisesCheques++;
+        resultat.detailsRemisesCheques.push({ mouvementId: remise.id, resultat: "sans_correspondance" });
       }
     }
   }
@@ -389,13 +543,15 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     resultat.nbAmbigusDocuments > 0 ||
     resultat.nbRapprochesRemisesCb > 0 ||
     resultat.nbAmbigusRemisesCb > 0 ||
+    resultat.nbRapprochesRemisesCheques > 0 ||
+    resultat.nbAmbigusRemisesCheques > 0 ||
     resultat.nbRapprochesVirementsClients > 0 ||
     resultat.nbAmbigusVirementsClients > 0
   ) {
     await logEvenement(prisma, {
       evenement: "rapprochement_bancaire",
       action: "Rapprochement automatique payouts/factures fournisseurs <-> mouvements bancaires",
-      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance. Virements clients directs : ${resultat.nbRapprochesVirementsClients} rapproche(s), ${resultat.nbAmbigusVirementsClients} ambigu(s), ${resultat.nbSansCorrespondanceVirementsClients} sans correspondance.`,
+      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance. Remises cheques : ${resultat.nbRapprochesRemisesCheques} rapprochee(s), ${resultat.nbAmbigusRemisesCheques} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCheques} sans correspondance. Virements clients directs : ${resultat.nbRapprochesVirementsClients} rapproche(s), ${resultat.nbAmbigusVirementsClients} ambigu(s), ${resultat.nbSansCorrespondanceVirementsClients} sans correspondance.`,
     });
   }
 
