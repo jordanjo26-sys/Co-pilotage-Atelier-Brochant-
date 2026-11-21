@@ -819,4 +819,12 @@ model ArchiveComptable {
   classifiePar   String? // "ia" si au moins un champ a ete propose par l'IA (transparence, meme principe que DocumentFournisseur.classifiePar)
   categorie      String? // categorie comptable (voir CATEGORIES_FACTURE dans archiveComptableIA.ts) - classement automatique, toujours corrigeable a la main
   createdAt      DateTime  @default(now())
+  // Rapprochement avec un mouvement bancaire (meme principe que
+  // DocumentFournisseur.mouvementBancaireId ci-dessus) - demande explicite
+  // de l'utilisateur : certains fournisseurs recurrents (EDF, Bouygues
+  // Telecom...) ne passent jamais par Gmail/Dext, seulement par ce module
+  // (facture telechargee directement en PDF), donc jamais rapproches sans
+  // cette passe dediee. Pas une vraie relation Prisma, juste un identifiant
+  // pose par rapprochementBancaire.ts, verifie par requete applicative.
+  mouvementBancaireId String?
 }

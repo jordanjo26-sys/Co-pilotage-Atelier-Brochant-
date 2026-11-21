@@ -65,6 +65,15 @@ const FENETRE_JOURS_REMISE_CHEQUES_APRES = 5;
 // simplement "sans_correspondance" comme avant cette passe. Jamais atteint
 // en pratique sur les donnees reelles (maximum observe : 20 candidats).
 const LIMITE_CANDIDATS_SOUS_ENSEMBLE = 25;
+// Certains fournisseurs recurrents (EDF, Bouygues Telecom...) ne passent
+// jamais par Gmail/Dext : leurs factures sont telechargees directement en
+// PDF et vivent uniquement dans le module Comptabilite (ArchiveComptable),
+// jamais dans DocumentFournisseur (demande explicite de l'utilisateur,
+// verifie via /api/archives-comptables?fournisseurNom=... - 10 factures
+// Bouygues Telecom et 29 factures EDF trouvees ainsi, 0 cote
+// DocumentFournisseur). Meme fenetre et meme principe de securite que les
+// factures fournisseurs Dext ci-dessus.
+const FENETRE_JOURS_ARCHIVE_COMPTABLE = 20;
 // Un virement client (VIR INST, EVI...) n'est jamais regroupe en lot
 // (contrairement a une remise CB ou cheques) - chaque ligne du releve
 // correspond a un seul encaissement. Le nom affiche sur le releve ne
@@ -89,6 +98,12 @@ export interface ResultatRapprochement {
   nbRapprochesDocuments: number;
   nbAmbigusDocuments: number;
   nbSansCorrespondanceDocuments: number;
+  // Rapprochement des factures archivees hors circuit Dext (module
+  // Comptabilite, ArchiveComptable) - ex. EDF, Bouygues Telecom, qui ne
+  // passent jamais par Gmail. Voir plus bas.
+  nbRapprochesArchives: number;
+  nbAmbigusArchives: number;
+  nbSansCorrespondanceArchives: number;
   // Rapprochement des remises carte bleue (MouvementBancaire "REMISE CB")
   // avec les encaissements clients en carte (Encaissement.mode = "Carte") -
   // voir plus bas, troisieme source de credits possibles cote clients.
@@ -117,6 +132,12 @@ export interface ResultatRapprochement {
   detailsDocuments: Array<{
     documentId: string;
     fichierNom: string | null;
+    resultat: "rapproche" | "ambigu" | "sans_correspondance";
+    mouvementId?: string;
+  }>;
+  detailsArchives: Array<{
+    archiveId: string;
+    fichierNom: string;
     resultat: "rapproche" | "ambigu" | "sans_correspondance";
     mouvementId?: string;
   }>;
@@ -207,6 +228,9 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     nbRapprochesDocuments: 0,
     nbAmbigusDocuments: 0,
     nbSansCorrespondanceDocuments: 0,
+    nbRapprochesArchives: 0,
+    nbAmbigusArchives: 0,
+    nbSansCorrespondanceArchives: 0,
     nbRapprochesRemisesCb: 0,
     nbAmbigusRemisesCb: 0,
     nbSansCorrespondanceRemisesCb: 0,
@@ -219,6 +243,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     details: [],
     detailsFournisseurs: [],
     detailsDocuments: [],
+    detailsArchives: [],
     detailsRemisesCb: [],
     detailsRemisesCheques: [],
     detailsVirementsClients: [],
@@ -353,6 +378,52 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     } else {
       resultat.nbSansCorrespondanceDocuments++;
       resultat.detailsDocuments.push({ documentId: document.id, fichierNom: document.fichierNom, resultat: "sans_correspondance" });
+    }
+  }
+
+  // --- Archives comptables hors Dext (debit) --------------------------
+  // Demande explicite de l'utilisateur : certains fournisseurs recurrents
+  // (EDF, Bouygues Telecom...) ne sont jamais recus par Gmail - la facture
+  // est telechargee directement en PDF et deposee dans le module
+  // Comptabilite (ArchiveComptable), jamais dans DocumentFournisseur.
+  // Meme logique que la passe precedente, seule la source change.
+  const [archivesAtraiter, mouvementsDebitArchives] = await Promise.all([
+    prisma.archiveComptable.findMany({
+      where: { montantTTC: { not: null }, mouvementBancaireId: null },
+    }),
+    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } }),
+  ]);
+
+  for (const archive of archivesAtraiter) {
+    if (archive.dateFacture === null) {
+      // Pas de date de reference exploitable : jamais de rapprochement a
+      // l'aveugle sur le montant seul (section 14).
+      resultat.nbSansCorrespondanceArchives++;
+      resultat.detailsArchives.push({ archiveId: archive.id, fichierNom: archive.fichierNom, resultat: "sans_correspondance" });
+      continue;
+    }
+    const candidats = mouvementsDebitArchives.filter(
+      (m) =>
+        !dejaUtilises.has(m.id) &&
+        Math.abs(m.debit - (archive.montantTTC as number)) < TOLERANCE_MONTANT &&
+        differenceJours(m.date, archive.dateFacture as Date) <= FENETRE_JOURS_ARCHIVE_COMPTABLE
+    );
+
+    if (candidats.length === 1) {
+      const mouvement = candidats[0];
+      await prisma.$transaction([
+        prisma.archiveComptable.update({ where: { id: archive.id }, data: { mouvementBancaireId: mouvement.id } }),
+        prisma.mouvementBancaire.update({ where: { id: mouvement.id }, data: { rapprochementStatut: "rapproche" } }),
+      ]);
+      dejaUtilises.add(mouvement.id);
+      resultat.nbRapprochesArchives++;
+      resultat.detailsArchives.push({ archiveId: archive.id, fichierNom: archive.fichierNom, resultat: "rapproche", mouvementId: mouvement.id });
+    } else if (candidats.length > 1) {
+      resultat.nbAmbigusArchives++;
+      resultat.detailsArchives.push({ archiveId: archive.id, fichierNom: archive.fichierNom, resultat: "ambigu" });
+    } else {
+      resultat.nbSansCorrespondanceArchives++;
+      resultat.detailsArchives.push({ archiveId: archive.id, fichierNom: archive.fichierNom, resultat: "sans_correspondance" });
     }
   }
 
@@ -541,6 +612,8 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     resultat.nbAmbigusFournisseurs > 0 ||
     resultat.nbRapprochesDocuments > 0 ||
     resultat.nbAmbigusDocuments > 0 ||
+    resultat.nbRapprochesArchives > 0 ||
+    resultat.nbAmbigusArchives > 0 ||
     resultat.nbRapprochesRemisesCb > 0 ||
     resultat.nbAmbigusRemisesCb > 0 ||
     resultat.nbRapprochesRemisesCheques > 0 ||
@@ -551,7 +624,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     await logEvenement(prisma, {
       evenement: "rapprochement_bancaire",
       action: "Rapprochement automatique payouts/factures fournisseurs <-> mouvements bancaires",
-      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance. Remises cheques : ${resultat.nbRapprochesRemisesCheques} rapprochee(s), ${resultat.nbAmbigusRemisesCheques} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCheques} sans correspondance. Virements clients directs : ${resultat.nbRapprochesVirementsClients} rapproche(s), ${resultat.nbAmbigusVirementsClients} ambigu(s), ${resultat.nbSansCorrespondanceVirementsClients} sans correspondance.`,
+      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Archives comptables hors Dext : ${resultat.nbRapprochesArchives} rapprochee(s), ${resultat.nbAmbigusArchives} ambigue(s), ${resultat.nbSansCorrespondanceArchives} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance. Remises cheques : ${resultat.nbRapprochesRemisesCheques} rapprochee(s), ${resultat.nbAmbigusRemisesCheques} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCheques} sans correspondance. Virements clients directs : ${resultat.nbRapprochesVirementsClients} rapproche(s), ${resultat.nbAmbigusVirementsClients} ambigu(s), ${resultat.nbSansCorrespondanceVirementsClients} sans correspondance.`,
     });
   }
 

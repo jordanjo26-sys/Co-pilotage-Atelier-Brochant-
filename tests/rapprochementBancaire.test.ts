@@ -251,6 +251,75 @@ test("rapprochement bancaire : documents fournisseurs (vraies factures Gmail/Dex
   await prisma.$disconnect();
 });
 
+// Demande explicite de l'utilisateur : des fournisseurs recurrents (EDF,
+// Bouygues Telecom...) ne passent jamais par Gmail/Dext - la facture est
+// telechargee directement en PDF et vit uniquement dans le module
+// Comptabilite (ArchiveComptable, verifie sur les donnees reelles de
+// production via /api/archives-comptables : 10 factures Bouygues Telecom
+// et 29 factures EDF, 0 cote DocumentFournisseur pour ces deux fournisseurs).
+test("rapprochement bancaire : archives comptables hors Dext (EDF, Bouygues Telecom..., debit)", async (t) => {
+  const { PrismaClient } = await import("@prisma/client");
+  const { executerRapprochementBancaire } = await import("../src/services/rapprochementBancaire");
+  const prisma = new PrismaClient();
+
+  async function mouvementDebit(libelle: string, date: Date, montant: number) {
+    return prisma.mouvementBancaire.create({
+      data: { date, libelle, debit: montant, credit: 0, montant: -montant, hashLigne: ref("hash-archive-debit") },
+    });
+  }
+  async function archive(fournisseurNom: string, dateFacture: Date | null, montantTTC: number | null) {
+    return prisma.archiveComptable.create({
+      data: {
+        fichierNom: ref("archive") + ".pdf",
+        cheminFichier: "/tmp/inexistant.pdf",
+        mimeType: "application/pdf",
+        fournisseurNom,
+        dateFacture,
+        montantTTC,
+      },
+    });
+  }
+
+  await t.test("facture EDF archivee, un seul mouvement debit candidat -> rapprochee", async () => {
+    const m = await mouvementDebit("PRLV SEPA EDF", new Date("2026-09-15"), 31.78);
+    const a = await archive("EDF", new Date("2026-09-11"), 31.78);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsArchives.find((x) => x.archiveId === a.id)?.resultat, "rapproche");
+
+    const archiveMaj = await prisma.archiveComptable.findUnique({ where: { id: a.id } });
+    assert.equal(archiveMaj?.mouvementBancaireId, m.id);
+  });
+
+  await t.test("deux mouvements debit au meme montant -> ambigu, archive inchangee", async () => {
+    await mouvementDebit("PRLV SEPA BOUYGUES TELECOM", new Date("2026-10-05"), 54.95);
+    await mouvementDebit("PRLV SEPA BOUYGUES TELECOM", new Date("2026-10-06"), 54.95);
+    const a = await archive("BOUYGUES TELECOM", new Date("2026-10-01"), 54.95);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsArchives.find((x) => x.archiveId === a.id)?.resultat, "ambigu");
+
+    const archiveMaj = await prisma.archiveComptable.findUnique({ where: { id: a.id } });
+    assert.equal(archiveMaj?.mouvementBancaireId, null);
+  });
+
+  await t.test("archive sans date de facture -> jamais rapprochee a l'aveugle", async () => {
+    await mouvementDebit("PRLV SEPA BOUYGUES TELECOM", new Date("2026-11-01"), 94.54);
+    const a = await archive("BOUYGUES TELECOM", null, 94.54);
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsArchives.find((x) => x.archiveId === a.id)?.resultat, "sans_correspondance");
+  });
+
+  await t.test("montant TTC absent (archive pas encore exploitable) -> jamais candidate", async () => {
+    const a = await archive("BOUYGUES TELECOM", new Date("2026-11-05"), null);
+    await mouvementDebit("PRLV SEPA BOUYGUES TELECOM", new Date("2026-11-05"), 116.42);
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsArchives.find((x) => x.archiveId === a.id), undefined);
+  });
+
+  await prisma.$disconnect();
+});
+
 // Demande explicite de l'utilisateur : "quand elle date du 9-10, c'est
 // qu'il y a eu des reglements le 8-10 en carte bleue" - une remise carte
 // bleue regroupe tous les encaissements Carte d'une journee donnee (voir
