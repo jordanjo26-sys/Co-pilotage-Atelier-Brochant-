@@ -7,6 +7,8 @@ import {
   extraireMontantTTCFacture,
   extraireMontantHTFacture,
   completerMontantHTSansTva,
+  completerMontantTTCManquant,
+  estAutoliquidation,
   estPieceJointeZip,
   EmailAClassifier,
 } from "../src/services/gmailClassify";
@@ -486,9 +488,14 @@ test("completerMontantHTSansTva : TTC trouve, HT absent, aucune mention de TVA/V
   assert.equal(completerMontantHTSansTva(texte, null, 20), 20);
 });
 
-test("completerMontantHTSansTva : TTC trouve, HT absent, mais le document mentionne la TVA ailleurs -> HT reste non renseigne (mise en page non reconnue, pas une absence reelle de TVA)", () => {
+// Demande explicite de l'utilisateur (novembre 2026) : plutot que de
+// laisser indefiniment "non renseigne" quand le libelle HT n'est pas
+// reconnu mais que la TVA est bien mentionnee (ni autoliquidation, ni
+// absence totale de TVA), le HT se deduit du TTC au taux standard francais
+// (20%) - ses achats sont toujours a ce taux.
+test("completerMontantHTSansTva : TTC trouve, HT absent, TVA mentionnee (ni autoliquidation ni absence de TVA) -> HT deduit du taux standard 20%", () => {
   const texte = "TVA 20,00% incluse\nTotal TTC 120,00 €";
-  assert.equal(completerMontantHTSansTva(texte, null, 120), null);
+  assert.equal(completerMontantHTSansTva(texte, null, 120), 100);
 });
 
 test("completerMontantHTSansTva : pas de TTC trouve non plus -> reste null", () => {
@@ -579,4 +586,35 @@ test("estPieceJointeZip ne confond pas un PDF en octet-stream generique avec un 
 
 test("estPieceJointeZip rejette un mimeType et une extension sans rapport", () => {
   assert.equal(estPieceJointeZip("application/pdf", "facture.pdf"), false);
+});
+
+test("estAutoliquidation reconnait les trois orthographes reelles (collee, espacee, avec tiret)", () => {
+  assert.equal(estAutoliquidation("TVA auto liquidation"), true);
+  assert.equal(estAutoliquidation("AUTOLIQUIDATION DE LA TVA"), true);
+  assert.equal(estAutoliquidation("auto-liquidation de la TVA"), true);
+  assert.equal(estAutoliquidation("TVA 20,00% incluse"), false);
+});
+
+// completerMontantTTCManquant : symetrique de completerMontantHTSansTva,
+// demande explicite de l'utilisateur (meme principe dans l'autre sens).
+test("completerMontantTTCManquant : TTC deja trouve -> inchange", () => {
+  assert.equal(completerMontantTTCManquant("peu importe", 100, 120), 120);
+});
+
+test("completerMontantTTCManquant : HT trouve, TTC absent, aucune mention de TVA/VAT -> TTC = HT", () => {
+  assert.equal(completerMontantTTCManquant("Sous-total 20,00 $US\nMontant dû 20,00 $US", 20, null), 20);
+});
+
+test("completerMontantTTCManquant : HT trouve, TTC absent, autoliquidation -> TTC = HT", () => {
+  const texte = "Intervention de sous traitance TVA auto liquidation\nSous-total 300,00 €";
+  assert.equal(completerMontantTTCManquant(texte, 300, null), 300);
+});
+
+test("completerMontantTTCManquant : HT trouve, TTC absent, TVA mentionnee (ni autoliquidation ni absence de TVA) -> TTC deduit du taux standard 20%", () => {
+  const texte = "TVA 20,00% incluse\nTotal HT 100,00 €";
+  assert.equal(completerMontantTTCManquant(texte, 100, null), 120);
+});
+
+test("completerMontantTTCManquant : pas de HT trouve non plus -> reste null", () => {
+  assert.equal(completerMontantTTCManquant("Merci de votre commande.", null, null), null);
 });

@@ -36,6 +36,15 @@ export const CATEGORIES_FACTURE = [
   "Matériel et fournitures",
   "Location de matériel",
   "Sous-traitance",
+  // Demande explicite de l'utilisateur (novembre 2026) : les factures de
+  // sous-traitance en autoliquidation de la TVA (article 283-2 nonies du
+  // CGI) doivent etre etiquetees distinctement de "Sous-traitance" - cote
+  // comptable, le traitement de la TVA differe (TVA auto-liquidee par
+  // l'utilisateur, jamais payee au sous-traitant). Voir
+  // archiveComptable.ts : forcee automatiquement quand le document
+  // mentionne explicitement une autoliquidation (gmailClassify.ts,
+  // estAutoliquidation), jamais devinee par l'IA seule.
+  "Auto liquidation",
   "Véhicule",
   "Assurance",
   "Télécommunications",
@@ -87,8 +96,11 @@ presentee comme certaine serait une fausse preuve en cas de controle.
 Pour le champ categorie en revanche, c'est different : ce n'est pas une donnee ecrite sur le document \
 mais un classement, donc fournis-le TOUJOURS meme si tu dois deduire la categorie la plus probable a \
 partir du nom du fournisseur et de la nature visible de l'achat (ex. EDF/Engie -> Energie, une station \
-essence -> Carburant, Kiloutou -> Location de materiel). N'utilise "Autre" qu'en dernier recours, si \
-vraiment aucune categorie ne correspond.
+essence -> Carburant, Kiloutou -> Location de materiel). Utilise "Auto liquidation" uniquement si le \
+document mentionne explicitement une autoliquidation de la TVA (ex. "TVA auto liquidation", \
+"AUTOLIQUIDATION DE LA TVA", article 283-2 nonies du CGI) - jamais une simple facture de sous-traitance \
+classique, qui reste "Sous-traitance". N'utilise "Autre" qu'en dernier recours, si vraiment aucune \
+categorie ne correspond.
 
 Appelle systematiquement l'outil extraire_facture avec ce que tu as reellement lu.`;
 

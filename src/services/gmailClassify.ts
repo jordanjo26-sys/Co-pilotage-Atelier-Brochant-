@@ -512,6 +512,26 @@ export function extraireMontantHTFacture(texte: string): number | null {
 // factures où il n'y a pas de TVA c'est un auto liquidation").
 const MOTIF_AUTOLIQUIDATION = /auto[\s-]*liquidation/i;
 
+/** Expose la detection d'autoliquidation (demande explicite de l'utilisateur : etiqueter ces factures "Auto liquidation" - voir archiveComptable.ts). */
+export function estAutoliquidation(texte: string): boolean {
+  return MOTIF_AUTOLIQUIDATION.test(texte);
+}
+
+// Taux de TVA standard francais - demande explicite de l'utilisateur :
+// "c'est toujours des TVA à 20%" pour ses achats. Dernier recours apres les
+// deux cas certains ci-dessus (absence totale de TVA, autoliquidation) : le
+// document mentionne bien une TVA mais le libelle HT/TTC manquant n'a pas
+// ete reconnu par un motif connu (mise en page non vue) - plutot que de
+// laisser indefiniment "non renseigne", on deduit la valeur manquante du
+// taux standard. Une approximation assumee (jamais une lecture directe du
+// document), explicitement demandee par l'utilisateur plutot qu'un champ
+// vide - toujours corrigeable a la main si le vrai taux differe.
+const TAUX_TVA_STANDARD = 1.2;
+
+function arrondiCentimes(valeur: number): number {
+  return Math.round(valeur * 100) / 100;
+}
+
 /**
  * Repli explicite demande par l'utilisateur (video, novembre 2026, facture
  * Emergent Labs Inc en dollars - abonnement emergent.sh) : si le TTC a ete
@@ -523,11 +543,27 @@ const MOTIF_AUTOLIQUIDATION = /auto[\s-]*liquidation/i;
  * page non reconnue sur un document qui, lui, mentionne la TVA quelque part.
  * Meme conclusion (HT = TTC), raison differente, quand le document mentionne
  * explicitement une autoliquidation de la TVA (voir MOTIF_AUTOLIQUIDATION).
+ * Sinon (TVA mentionnee, ni autoliquidation), dernier recours : taux
+ * standard 20% (voir TAUX_TVA_STANDARD).
  */
 export function completerMontantHTSansTva(texte: string, montantHT: number | null, montantTTC: number | null): number | null {
   if (montantHT != null) return montantHT;
   if (montantTTC == null) return montantHT;
   if (!/tva|vat/i.test(texte)) return montantTTC;
-  if (MOTIF_AUTOLIQUIDATION.test(texte)) return montantTTC;
-  return montantHT;
+  if (estAutoliquidation(texte)) return montantTTC;
+  return arrondiCentimes(montantTTC / TAUX_TVA_STANDARD);
+}
+
+/**
+ * Symetrique de completerMontantHTSansTva : complete le TTC manquant a
+ * partir du HT connu, avec exactement les memes trois cas (absence totale
+ * de TVA, autoliquidation, taux standard 20% en dernier recours) - demande
+ * explicite de l'utilisateur, meme principe applique dans l'autre sens.
+ */
+export function completerMontantTTCManquant(texte: string, montantHT: number | null, montantTTC: number | null): number | null {
+  if (montantTTC != null) return montantTTC;
+  if (montantHT == null) return montantTTC;
+  if (!/tva|vat/i.test(texte)) return montantHT;
+  if (estAutoliquidation(texte)) return montantHT;
+  return arrondiCentimes(montantHT * TAUX_TVA_STANDARD);
 }

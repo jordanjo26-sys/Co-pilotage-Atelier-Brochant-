@@ -5,7 +5,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { extraireFichiersDepuisZip, mimeTypeDepuisNom, FichierExtrait } from "../importers/zipBulk";
 import { extractPdfText, texteSignificatif } from "../importers/bankStatementPdf";
 import { rendrePremierePageEnImage } from "../importers/pdfRenderImage";
-import { extraireMontantHTFacture, extraireMontantTTCFacture, completerMontantHTSansTva } from "./gmailClassify";
+import { extraireMontantHTFacture, extraireMontantTTCFacture, completerMontantHTSansTva, completerMontantTTCManquant, estAutoliquidation } from "./gmailClassify";
 import { extraireChampsFacturePdf, extraireChampsFactureImage, CATEGORIES_FACTURE } from "./archiveComptableIA";
 import { logEvenement } from "./journalService";
 
@@ -230,6 +230,12 @@ async function extraireChampsDocument(prisma: PrismaClient, donnees: Buffer, mim
         if (montantTTC == null && champsIA.montantTTC != null) montantTTC = champsIA.montantTTC;
       }
       montantHT = completerMontantHTSansTva(texte, montantHT, montantTTC);
+      montantTTC = completerMontantTTCManquant(texte, montantHT, montantTTC);
+      // Marquage deterministe "Auto liquidation" (demande explicite de
+      // l'utilisateur) : prioritaire sur la categorie proposee par l'IA
+      // (ex. "Sous-traitance"), car c'est une mention EXPLICITE et certaine
+      // du document lui-meme, jamais une deduction.
+      if (estAutoliquidation(texte)) categorie = "Auto liquidation";
     } else {
       // PDF sans AUCUN texte extractible (scan/photo integree sans couche
       // texte, cas reel d'un export Dext fait a partir de factures papier

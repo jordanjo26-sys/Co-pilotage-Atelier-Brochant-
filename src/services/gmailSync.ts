@@ -9,6 +9,7 @@ import {
   extraireMontantTTCFacture,
   extraireMontantHTFacture,
   completerMontantHTSansTva,
+  completerMontantTTCManquant,
   estPieceDocument,
   estPieceJointeZip,
   EmailAClassifier,
@@ -46,8 +47,10 @@ const MIME_IMAGES_FACTURE = new Set(["image/jpeg", "image/png"]);
  *     rendu en PNG) - seulement si (1) n'a pas tout trouve, pour ne pas
  *     multiplier les appels IA sur les factures qui s'extraient deja
  *     parfaitement par regle.
- *  3. completerMontantHTSansTva (TVA = 0 explicite quand le document ne
- *     mentionne jamais la TVA/VAT) en tout dernier recours.
+ *  3. completerMontantHTSansTva/completerMontantTTCManquant en tout
+ *     dernier recours : TVA = 0 explicite (document qui ne mentionne
+ *     jamais la TVA/VAT, ou autoliquidation), sinon taux standard francais
+ *     20% (demande explicite de l'utilisateur - voir gmailClassify.ts).
  * Chaque niveau ne retente que ce que le precedent n'a pas trouve -
  * jamais n'ecrase un montant deja obtenu, jamais n'invente de chiffre
  * (section 14, "jamais deviner") : un montant toujours introuvable apres
@@ -78,7 +81,10 @@ async function resoudreMontantsFacture(
     }
   }
 
-  if (contenuExtrait) montantHT = completerMontantHTSansTva(contenuExtrait, montantHT, montantTTC);
+  if (contenuExtrait) {
+    montantHT = completerMontantHTSansTva(contenuExtrait, montantHT, montantTTC);
+    montantTTC = completerMontantTTCManquant(contenuExtrait, montantHT, montantTTC);
+  }
   return { montantHT, montantTTC };
 }
 
