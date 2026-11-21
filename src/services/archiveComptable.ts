@@ -170,6 +170,50 @@ async function traiterFichiersArchive(prisma: PrismaClient, fichiers: FichierExt
   });
 }
 
+// L'utilisateur (Atelier Brochant) n'est jamais son propre fournisseur -
+// meme principe que MOTIF_DONNEUR_ORDRE_CONNU dans gmailClassify.ts, mais
+// applique ici a l'extraction du NOM du fournisseur plutot qu'a la
+// classification du document. Bug reel constate en production (novembre
+// 2026, signale par l'utilisateur) : sur une facture La Plateforme Du
+// Batiment (ou Costa Immobilier), le texte extractible du PDF ne contient
+// QUE le nom du destinataire ("ATELIER BROCHANT", imprime en gros dans le
+// bloc adresse de facturation) - le nom du vrai fournisseur n'etant qu'un
+// logo/image non capture par pdftotext, l'IA n'avait alors litteralement
+// que ce nom a lire et le reportait a tort comme fournisseurNom, sur des
+// dizaines de factures reelles.
+const MOTIF_PROPRE_ENTREPRISE = /^(?:sas\s+)?atelier\s+brochant(?:\s+sas)?$/i;
+
+function estProprEntreprise(nom: string | null): boolean {
+  return !!nom && MOTIF_PROPRE_ENTREPRISE.test(nom.trim());
+}
+
+// Convention de nommage des fichiers deposes dans l'archive (export Dext ou
+// renommage manuel de l'utilisateur) : "<Fournisseur> - AAAA-MM-JJ -
+// <reference>.<extension>" - vu sur la quasi-totalite des fichiers reels
+// (OVHcloud, EDF, La Plateforme Du Batiment...). Source de repli FIABLE
+// uniquement pour corriger le cas d'erreur ci-dessus (jamais utilisee en
+// priorite sur une lecture reelle du document, souvent plus precise - ex.
+// "Amazon" dans le nom de fichier mais "DELTA ELECTRIC INTERNATIONAL", le
+// vrai vendeur tiers, correctement lu dans le document).
+const MOTIF_NOM_FICHIER_FOURNISSEUR = /^(.+?) - \d{4}-\d{2}-\d{2} - /;
+
+function extraireFournisseurDepuisNomFichier(fichierNom: string): string | null {
+  const trouve = MOTIF_NOM_FICHIER_FOURNISSEUR.exec(fichierNom);
+  return trouve ? trouve[1].trim() : null;
+}
+
+/**
+ * Ecarte un fournisseurNom qui s'avere etre la propre entreprise de
+ * l'utilisateur (jamais un fournisseur valide) et le remplace par celui
+ * devine depuis le nom de fichier si ce dernier suit la convention connue -
+ * sinon laisse le champ vide (jamais une fausse certitude) plutot que de
+ * conserver une valeur prouvee fausse.
+ */
+function resoudreFournisseurNom(candidat: string | null, fichierNom: string): string | null {
+  if (candidat && !estProprEntreprise(candidat)) return candidat;
+  return extraireFournisseurDepuisNomFichier(fichierNom);
+}
+
 export interface ChampsExtraitsArchive {
   montantHT: number | null;
   montantTTC: number | null;
@@ -279,11 +323,12 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
   const cheminFichier = path.join(DOSSIER_ARCHIVES, `${crypto.randomUUID()}${extension}`);
   await fs.writeFile(cheminFichier, fichier.donnees);
 
-  const { montantHT, montantTTC, fournisseurNom, numero, dateFacture, classifiePar, categorie } = await extraireChampsDocument(
+  const { montantHT, montantTTC, fournisseurNom: fournisseurNomBrut, numero, dateFacture, classifiePar, categorie } = await extraireChampsDocument(
     prisma,
     fichier.donnees,
     mimeType
   );
+  const fournisseurNom = resoudreFournisseurNom(fournisseurNomBrut, fichier.nom);
   const complet = montantHT != null && montantTTC != null && !!fournisseurNom;
 
   await prisma.archiveComptable.create({
@@ -313,15 +358,25 @@ export interface ResultatReextractionArchives {
  * Relance l'extraction (regle + IA) sur les archives deja importees mais
  * restees "a verifier", OU sans categorie (champ ajoute apres coup : toutes
  * les archives importees avant son ajout n'en ont jamais recu, meme celles
- * deja "complete") - sans bloquer la reponse HTTP (voir demarrerImportFichiers,
- * meme principe) : utile apres un correctif de l'extraction (nouveau libelle
+ * deja "complete"), OU dont le fournisseurNom s'avere etre la propre
+ * entreprise de l'utilisateur (voir estProprEntreprise/resoudreFournisseurNom
+ * - signale en production, novembre 2026 : des archives deja "complete",
+ * categorie deja renseignee, restaient malgre tout corrompues avec ce
+ * mauvais fournisseur sans jamais etre reprises par ce troisieme critere) -
+ * sans bloquer la reponse HTTP (voir demarrerImportFichiers, meme
+ * principe) : utile apres un correctif de l'extraction (nouveau libelle
  * reconnu, filet vision, nouvelle categorie...) pour que les archives deja
  * presentes en beneficient sans avoir a tout re-deposer. Ne retouche jamais
  * un champ deja renseigne (ex. corrige a la main via modifierArchiveComptable)
- * - ne complete que ce qui manque encore.
+ * - ne complete que ce qui manque encore, hormis cette correction ciblee
+ * d'une valeur prouvee fausse.
  */
 export async function demarrerReextractionArchivesIncompletes(prisma: PrismaClient): Promise<ResultatReextractionArchives> {
-  const aTraiter = await prisma.archiveComptable.findMany({ where: { OR: [{ statut: "a_verifier" }, { categorie: null }] } });
+  const aTraiter = await prisma.archiveComptable.findMany({
+    where: {
+      OR: [{ statut: "a_verifier" }, { categorie: null }, { fournisseurNom: { contains: "brochant", mode: "insensitive" } }],
+    },
+  });
   if (aTraiter.length === 0) return { total: 0 };
 
   reextraireArchives(prisma, aTraiter).catch(async (err) => {
@@ -344,7 +399,7 @@ async function reextraireArchives(prisma: PrismaClient, archives: Awaited<Return
     try {
       const donnees = await fs.readFile(archive.cheminFichier);
       const extrait = await extraireChampsDocument(prisma, donnees, archive.mimeType);
-      const fournisseurNom = archive.fournisseurNom ?? extrait.fournisseurNom;
+      const fournisseurNom = resoudreFournisseurNom(archive.fournisseurNom ?? extrait.fournisseurNom, archive.fichierNom);
       const numero = archive.numero ?? extrait.numero;
       const dateFacture = archive.dateFacture ?? extrait.dateFacture;
       const montantHT = archive.montantHT ?? extrait.montantHT;

@@ -168,6 +168,83 @@ test("Module Comptabilité — archive de factures", async (t) => {
     assert.equal(total, 0);
   });
 
+  // Bug reel signale par l'utilisateur en production (novembre 2026) : sur
+  // des factures reelles (La Plateforme Du Batiment, Costa Immobilier...),
+  // le texte extractible du PDF ne contient que le nom du DESTINATAIRE
+  // ("ATELIER BROCHANT", imprime dans le bloc adresse de facturation), le
+  // vrai fournisseur n'etant qu'un logo non capture par pdftotext - corrige
+  // via le nom de fichier ("<Fournisseur> - AAAA-MM-JJ - <reference>",
+  // convention Dext/export), meme pour une archive deja "complete" avec une
+  // categorie deja renseignee (jamais reprise par les deux autres criteres
+  // de demarrerReextractionArchivesIncompletes).
+  await t.test(
+    "demarrerReextractionArchivesIncompletes : corrige un fournisseurNom qui s'avere etre la propre entreprise de l'utilisateur, meme sur une archive deja complete",
+    async () => {
+      const cheminFichier = path.join(DOSSIER_ARCHIVES, `${Date.now()}-test-plateforme.pdf`);
+      await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+      await fs.writeFile(cheminFichier, PDF_MINIMAL);
+      const creee = await prisma.archiveComptable.create({
+        data: {
+          fichierNom: "La Plateforme Du Batiment - 2026-07-20 - 805606.pdf",
+          cheminFichier,
+          mimeType: "application/pdf",
+          fournisseurNom: "ATELIER BROCHANT",
+          montantHT: 145.19,
+          montantTTC: 174.23,
+          statut: "complete",
+          categorie: "Sous-traitance",
+        },
+      });
+
+      const { total } = await demarrerReextractionArchivesIncompletes(prisma);
+      assert.equal(total, 1);
+      await attendreJusqua(async () => (await prisma.archiveComptable.findUnique({ where: { id: creee.id } }))?.fournisseurNom === "La Plateforme Du Batiment");
+      const corrigee = await prisma.archiveComptable.findUnique({ where: { id: creee.id } });
+      assert.equal(corrigee?.fournisseurNom, "La Plateforme Du Batiment");
+      assert.equal(corrigee?.statut, "complete");
+      // Les montants et la categorie, deja justes, restent inchanges.
+      assert.equal(corrigee?.montantHT, 145.19);
+      assert.equal(corrigee?.montantTTC, 174.23);
+      assert.equal(corrigee?.categorie, "Sous-traitance");
+
+      await prisma.archiveComptable.delete({ where: { id: creee.id } });
+    }
+  );
+
+  // Cas sans repli possible : le nom de fichier ne suit pas la convention
+  // "<Fournisseur> - date - reference" (ex. propre facture de vente de
+  // l'utilisateur misclassee dans l'archive) - jamais une fausse certitude,
+  // le champ redevient simplement vide et l'archive repasse "a verifier".
+  await t.test(
+    "demarrerReextractionArchivesIncompletes : si le nom de fichier ne permet aucun repli, le fournisseurNom redevient vide plutot que de garder la valeur fausse",
+    async () => {
+      const cheminFichier = path.join(DOSSIER_ARCHIVES, `${Date.now()}-test-sans-repli.pdf`);
+      await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+      await fs.writeFile(cheminFichier, PDF_MINIMAL);
+      const creee = await prisma.archiveComptable.create({
+        data: {
+          fichierNom: "FACTURE-1750_5m44q.pdf",
+          cheminFichier,
+          mimeType: "application/pdf",
+          fournisseurNom: "ATELIER BROCHANT",
+          montantHT: 100,
+          montantTTC: 120,
+          statut: "complete",
+          categorie: "Autre",
+        },
+      });
+
+      const { total } = await demarrerReextractionArchivesIncompletes(prisma);
+      assert.equal(total, 1);
+      await attendreJusqua(async () => (await prisma.archiveComptable.findUnique({ where: { id: creee.id } }))?.statut === "a_verifier");
+      const corrigee = await prisma.archiveComptable.findUnique({ where: { id: creee.id } });
+      assert.equal(corrigee?.fournisseurNom, null);
+      assert.equal(corrigee?.statut, "a_verifier");
+
+      await prisma.archiveComptable.delete({ where: { id: creee.id } });
+    }
+  );
+
   // Categorie comptable (CATEGORIES_FACTURE) : champ ajoute apres coup - demande
   // explicite de l'utilisateur ("classement intelligent et actif"). Une archive
   // deja "complete" (montants/fournisseur deja renseignes) mais sans categorie
