@@ -135,6 +135,29 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.json(factures);
   });
 
+  // Consultation des encaissements (detail ligne a ligne des reglements
+  // Synec, voir Encaissement) - utile pour diagnostiquer un rapprochement
+  // de remise (CB ou cheques) qui ne trouve pas de correspondance : permet
+  // de verifier reellement ce qui a ete encaisse a une date donnee plutot
+  // que de supposer (section 14). Filtres optionnels mode/depuis/jusqua.
+  router.get("/encaissements", async (req, res) => {
+    const mode = typeof req.query.mode === "string" ? req.query.mode : undefined;
+    const depuisStr = typeof req.query.depuis === "string" ? req.query.depuis : undefined;
+    const jusquaStr = typeof req.query.jusqua === "string" ? req.query.jusqua : undefined;
+    const depuis = depuisStr ? new Date(depuisStr) : undefined;
+    const jusqua = jusquaStr ? new Date(jusquaStr) : undefined;
+    const encaissements = await prisma.encaissement.findMany({
+      where: {
+        ...(mode ? { mode } : {}),
+        ...(depuis || jusqua ? { date: { ...(depuis ? { gte: depuis } : {}), ...(jusqua ? { lte: jusqua } : {}) } } : {}),
+      },
+      include: { facture: { select: { reference: true, clientNom: true } } },
+      orderBy: { date: "asc" },
+      take: 2000,
+    });
+    res.json(encaissements);
+  });
+
   // Export PDF des factures impayees (demande explicite de l'utilisateur,
   // apres avoir constate que Morgane ne peut pas generer de document - son
   // jeu d'outils est volontairement limite a des actions/requetes precises).
