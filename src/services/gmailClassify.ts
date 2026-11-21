@@ -102,6 +102,41 @@ function estAvisDeVirement(contexte: string): boolean {
   return MOTIF_AVIS_VIREMENT.test(contexte);
 }
 
+// Une convention/un programme de formation professionnelle (ex. QUALIPAC,
+// RGE...) n'est jamais une facture, meme si son propre contenu mentionne
+// incidemment le mot "facture" (clause de modalites de facturation du
+// stage) - meme risque que MOTIF_AVOIR/MOTIF_DEVIS ci-dessus/dessous, mais
+// cote contenu integral du PDF cette fois (seul le type "facture" le
+// regarde, voir plus bas). Verifie uniquement sur le contexte (sujet/corps/
+// nom de fichier) : signale par l'utilisateur en production (novembre 2026,
+// fiche "Institec" creee a tort depuis un e-mail dont le corps annoncait
+// explicitement "Convention de formation Programme de formation RIB de la
+// formation" en pieces jointes - aucune des trois n'est une facture).
+const MOTIF_DOCUMENT_FORMATION = /convention[\s.-]*de[\s.-]*formation|programme[\s.-]*de[\s.-]*formation/i;
+
+function estDocumentDeFormation(contexte: string): boolean {
+  return MOTIF_DOCUMENT_FORMATION.test(contexte);
+}
+
+// Un fichier nomme exactement "FACTURE-<numero>" est la propre facture DE
+// VENTE de l'utilisateur (reference Synec, ex. "FACTURE-2051.pdf") que son
+// client renvoie ou evoque (relance de paiement, accuse de reglement...) -
+// jamais une facture D'ACHAT emise par un fournisseur, qui a toujours sa
+// propre numerotation (jamais vu "FACTURE-<chiffres>" chez un vrai
+// fournisseur sur l'ensemble des documents reels traites). Meme principe
+// que MOTIF_DONNEUR_ORDRE_CONNU : l'inverse exact de la relation presumee
+// par la regle "facture" plus bas. Signale par l'utilisateur en production
+// (novembre 2026 : fiche "Te Traiteur" - un CLIENT, pas un fournisseur -
+// creee a tort depuis "FACTURE-2051.pdf", sa propre facture renvoyee lors
+// d'une relance "RELANCE FACTURES"). Verifie sur le nom du fichier
+// uniquement (jamais le sujet/corps, trop susceptible de faux positifs sur
+// une vraie facture fournisseur qui mentionnerait une de nos references).
+const MOTIF_PROPRE_FACTURE_VENTE = /^facture-\d+/i;
+
+function estProprefactureDeVente(nomFichier: string): boolean {
+  return MOTIF_PROPRE_FACTURE_VENTE.test(nomFichier.trim());
+}
+
 // "application/octet-stream" est le type MIME generique utilise par de
 // nombreux systemes de facturation/ERP quand ils ne renseignent pas (ou
 // mal) le type reel de la piece jointe - constate en production : une
@@ -166,6 +201,11 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   // DOMAINES_EXPEDITEURS_NON_FOURNISSEURS).
   if (estExpediteurNonFournisseurConnu(email.expediteur)) return "autre";
 
+  // Avant toute autre verification, meme le filtre MIME : un fichier nomme
+  // comme une de nos propres factures de vente n'est jamais une facture
+  // fournisseur, quel que soit son format (voir MOTIF_PROPRE_FACTURE_VENTE).
+  if (estProprefactureDeVente(piece.nomFichier)) return "autre";
+
   // Contexte "sûr" (sujet, corps, nom de fichier) : ces quatre autres types
   // de document restent verifies UNIQUEMENT ici, jamais dans le contenu
   // integral du PDF. "avoir" en particulier est un mot francais tres
@@ -185,6 +225,7 @@ export function classifierPieceJointe(email: EmailAClassifier, piece: PieceJoint
   // jointe.
   if (mentionneDonneurOrdreConnu(contexte)) return "autre";
   if (estAvisDeVirement(contexte)) return "autre";
+  if (estDocumentDeFormation(contexte)) return "autre";
   if (!estPieceDocument(piece)) return "ambigu";
 
   if (MOTIF_BON_ENLEVEMENT.test(contexte)) return "bon_enlevement";

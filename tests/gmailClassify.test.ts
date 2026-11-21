@@ -113,6 +113,44 @@ test("un avis de virement n'est jamais classe comme facture, meme s'il mentionne
   assert.equal(type, "autre");
 });
 
+// Regression reelle en production (novembre 2026, Institec) : un e-mail
+// annonçant explicitement "Convention de formation Programme de formation
+// RIB de la formation" en pieces jointes (QUALIPAC) creait a tort une
+// fiche fournisseur - le contenu integral de la convention mentionnait
+// incidemment "facture" (clause de modalites de facturation du stage).
+test("une convention de formation n'est jamais classee comme facture, meme si son contenu mentionne 'facture'", () => {
+  const e = email({
+    sujet: "Formation QUALIPAC - Pompe à chaleur en habitat individuel - QUALIT ENR",
+    extraitCorps: "Pour faire suite à votre demande, voici : Convention de formation Programme de formation RIB de la formation",
+  });
+  const type = classifierPieceJointe(
+    e,
+    { nomFichier: "BU-CV-05-009 Pompe à chaleur en habitat individuel.pdf", mimeType: "application/pdf" },
+    "Modalités de facturation : le stagiaire sera facturé selon les conditions ci-dessous."
+  );
+  assert.equal(type, "autre");
+});
+
+test("un programme de formation n'est jamais classe comme ambigu non plus (autre, comme la convention)", () => {
+  const e = email({
+    sujet: "Formation QUALIPAC",
+    extraitCorps: "Convention de formation Programme de formation RIB de la formation",
+  });
+  const type = classifierPieceJointe(e, { nomFichier: "BU-PG-02-014 QUALIPAC.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "autre");
+});
+
+// Regression reelle en production (novembre 2026, Te Traiteur) : un
+// CLIENT (pas un fournisseur) relance le reglement de sa propre facture et
+// la joint/l'evoque ("RELANCE FACTURES") - le fichier porte la
+// numerotation Synec de l'utilisateur (FACTURE-<numero>), jamais celle
+// d'un fournisseur. Creait a tort une fiche fournisseur au nom du client.
+test("un fichier nomme comme une facture de vente propre (FACTURE-<numero>) n'est jamais classe comme facture fournisseur", () => {
+  const e = email({ sujet: "RE: RELANCE FACTURES", extraitCorps: "La facture FACTURE-2051 doit être adressée à l'Usine Té" });
+  const type = classifierPieceJointe(e, { nomFichier: "FACTURE-2051.pdf", mimeType: "application/pdf" });
+  assert.equal(type, "autre");
+});
+
 test("classifie un avoir (mot en tete de sujet)", () => {
   const e = email({ sujet: "Avoir suite a votre reclamation" });
   const type = classifierPieceJointe(e, { nomFichier: "avoir.pdf", mimeType: "application/pdf" });
