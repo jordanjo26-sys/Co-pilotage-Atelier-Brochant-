@@ -351,6 +351,27 @@ test("extraireMontantHTFacture/extraireMontantTTCFacture : 'Total de la facture 
   assert.equal(extraireMontantTTCFacture(texte), 25.54);
 });
 
+// Regression reelle en production (novembre 2026, vraie facture Darty
+// "JUSTIFICATIF DE VENTE") : l'en-tete de tableau "Total HT"/"Total TTC"
+// s'etale sur DEUX lignes ("Référence Qté Libellé ... Total HT ... Total
+// TTC" puis "... délivrance Taux TVA" juste en-dessous, suite du meme
+// en-tete) avant la vraie ligne de donnees - le repli "valeur sur une des
+// trois lignes suivantes, en colonne" s'arretait a tort des la premiere
+// ligne non vide rencontree (celle de continuation d'en-tete, sans le
+// moindre chiffre), sans jamais regarder la ligne suivante ou se trouvait
+// pourtant la vraie valeur.
+test("extraireMontantHTFacture/extraireMontantTTCFacture : en-tete de tableau sur deux lignes avant la ligne de donnees (vraie facture Darty)", () => {
+  const texte =
+    "                                                                       Date                                      Montant /\n" +
+    "Référence Qté Libellé                                                                           Total HT                        Total TTC\n" +
+    "                                                                    délivrance                                   Taux TVA\n" +
+    " 7765711      1    ROWEN ASPIRATEUR TRAINEAU                        18/11/2025                   166,66 €              33,33      199,99 €\n" +
+    "                   RO7943                                                                                             20,00 %\n" +
+    "                   Disponibilité des pièces détachées : 15 ans";
+  assert.equal(extraireMontantHTFacture(texte), 166.66);
+  assert.equal(extraireMontantTTCFacture(texte), 199.99);
+});
+
 // Regressions a partir d'exemples reels fournis par l'utilisateur
 // (novembre 2026) : apres deploiement, la quasi-totalite des factures deja
 // en base restaient a "0,00 €" malgre une extraction "a posteriori"

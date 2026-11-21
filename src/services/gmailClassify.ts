@@ -463,8 +463,16 @@ function trouverMontantPourMotif(texte: string, motif: RegExp): number | null {
           meilleur = { valeur: correspondanceNombre[0], distance };
         }
       }
-      if (meilleur) dernierTrouve = normaliserMontant(meilleur.valeur);
-      break;
+      if (meilleur) {
+        dernierTrouve = normaliserMontant(meilleur.valeur);
+        break;
+      }
+      // Sinon : cette ligne n'a pas de nombre exploitable dans la colonne
+      // attendue - continue vers la ligne suivante de la fenetre plutot que
+      // d'abandonner immediatement (bug reel constate en production, vraie
+      // facture Darty : en-tete de tableau sur deux lignes, "Total HT" /
+      // "Total TTC" suivis d'une ligne de continuation d'en-tete sans le
+      // moindre chiffre avant la vraie ligne de donnees).
     }
   }
 
