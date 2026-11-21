@@ -323,8 +323,15 @@ export function extraireNumeroFacture(texte: string): string | null {
 // peut etre 0 ou partiel alors que le total reel de la facture est plus
 // eleve (jamais verifie sur une vraie facture Emergent Labs avec acompte,
 // par precaution).
+// "total de la facture ttc" : vu sur une vraie facture OVHcloud ("Total de
+// la facture HT" / "Total de la facture TTC" juste en-dessous) - les mots
+// "de la facture" entre "total" et "ttc" ne matchaient aucun motif
+// ci-dessous, le TTC n'etant alors retrouve que par coincidence via une
+// autre ligne ("Total TTC" isolee en pied de page) - jamais garanti,
+// jamais le cas pour le HT correspondant (voir MOTIFS_MONTANT_HT_PAR_PRIORITE).
 const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
   /montant\s*total\s*ttc/i,
+  /total\s*de\s*la\s*facture\s*ttc/i,
   /total\s*€?\s*ttc/i,
   /montant\s*ttc/i,
   /tot\.?\s*ttc/i,
@@ -354,8 +361,14 @@ const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
 // peut capturer n'importe quelle autre occurrence du mot "net" plus loin
 // dans le document (ex. un montant par ligne d'article) - bug reel
 // constate en production (novembre 2026, HT errone sur cette facture).
+// "total de la facture ht" : meme vraie facture OVHcloud que ci-dessus
+// (MOTIFS_MONTANT_TTC_PAR_PRIORITE) - "Total de la facture HT" n'etait
+// reconnu par aucun motif existant (ni "total ht" ni "montant ht", les
+// mots "de la facture" s'intercalant), laissant le HT durablement "non
+// renseigne" sur des dizaines de vraies factures OVHcloud.
 const MOTIFS_MONTANT_HT_PAR_PRIORITE = [
   /montant\s*total\s*(?:net\s*)?ht/i,
+  /total\s*de\s*la\s*facture\s*ht/i,
   /total\s*€?\s*ht/i,
   /montant\s*ht/i,
   /montant\s*hors\s*tva/i,
@@ -487,6 +500,18 @@ export function extraireMontantHTFacture(texte: string): number | null {
   return extraireMontantParLibelles(texte, MOTIFS_MONTANT_HT_PAR_PRIORITE);
 }
 
+// Autoliquidation de la TVA (sous-traitance BTP, article 283-2 nonies du
+// CGI) : le sous-traitant facture le HT seul, le TVA etant auto-liquidee
+// par le donneur d'ordre (l'utilisateur) - HT = TTC par definition meme du
+// dispositif, jamais une supposition de mise en page. Verifie sur deux
+// vraies factures reelles (La Centrale Du Debouchage, APF Assainissement
+// Pompage Fosse) : toutes deux mentionnent explicitement "TVA" (donc le
+// filet general ci-dessous, reserve a l'absence totale de mention TVA, ne
+// s'applique pas), sous la forme "TVA auto liquidation" ou "AUTOLIQUIDATION
+// DE LA TVA" - demande explicite de l'utilisateur ("hormis quelques
+// factures où il n'y a pas de TVA c'est un auto liquidation").
+const MOTIF_AUTOLIQUIDATION = /auto[\s-]*liquidation/i;
+
 /**
  * Repli explicite demande par l'utilisateur (video, novembre 2026, facture
  * Emergent Labs Inc en dollars - abonnement emergent.sh) : si le TTC a ete
@@ -496,9 +521,13 @@ export function extraireMontantHTFacture(texte: string): number | null {
  * societe etrangere sans assujettissement francais) n'y est simplement pas
  * soumise - a la difference d'un vrai HT non trouve a cause d'une mise en
  * page non reconnue sur un document qui, lui, mentionne la TVA quelque part.
+ * Meme conclusion (HT = TTC), raison differente, quand le document mentionne
+ * explicitement une autoliquidation de la TVA (voir MOTIF_AUTOLIQUIDATION).
  */
 export function completerMontantHTSansTva(texte: string, montantHT: number | null, montantTTC: number | null): number | null {
   if (montantHT != null) return montantHT;
-  if (montantTTC != null && !/tva|vat/i.test(texte)) return montantTTC;
+  if (montantTTC == null) return montantHT;
+  if (!/tva|vat/i.test(texte)) return montantTTC;
+  if (MOTIF_AUTOLIQUIDATION.test(texte)) return montantTTC;
   return montantHT;
 }

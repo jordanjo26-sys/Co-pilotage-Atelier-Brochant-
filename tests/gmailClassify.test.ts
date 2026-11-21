@@ -329,6 +329,26 @@ test("extraireMontantHTFacture/extraireMontantTTCFacture sur une seconde vraie f
   assert.equal(extraireMontantTTCFacture(texte), 767.69);
 });
 
+// Regression reelle en production (novembre 2026, une vingtaine de vraies
+// factures OVHcloud restees "HT non renseigne") : le libelle "Total de la
+// facture HT"/"Total de la facture TTC" (les mots "de la facture"
+// s'intercalant) ne correspondait a aucun motif connu - seul le TTC etait
+// retrouve, par coincidence, via une ligne "Total TTC" isolee plus loin
+// dans le document (pied de page), jamais le HT.
+test("extraireMontantHTFacture/extraireMontantTTCFacture : 'Total de la facture HT/TTC' (vraie facture OVHcloud)", () => {
+  const texte =
+    " Facture FR75540643 du 01 Février 2026                                        Information de paiement :\n" +
+    "                                                                              Le montant de 25,54 € sera prélevé\n" +
+    " Total de la facture HT                                          21,28 €      le 01 Février 2026 sur votre moyen\n" +
+    "                                                                              de paiement par défaut.\n" +
+    " TVA (20%)                                                         4,26 €\n" +
+    "                                                                              Facture payable dès réception.\n" +
+    "\n" +
+    " Total de la facture TTC                                        25,54 €";
+  assert.equal(extraireMontantHTFacture(texte), 21.28);
+  assert.equal(extraireMontantTTCFacture(texte), 25.54);
+});
+
 // Regressions a partir d'exemples reels fournis par l'utilisateur
 // (novembre 2026) : apres deploiement, la quasi-totalite des factures deja
 // en base restaient a "0,00 €" malgre une extraction "a posteriori"
@@ -473,6 +493,22 @@ test("completerMontantHTSansTva : TTC trouve, HT absent, mais le document mentio
 
 test("completerMontantHTSansTva : pas de TTC trouve non plus -> reste null", () => {
   assert.equal(completerMontantHTSansTva("Merci de votre commande.", null, null), null);
+});
+
+// Demande explicite de l'utilisateur (novembre 2026) : les factures de
+// sous-traitance BTP en autoliquidation de la TVA (article 283-2 nonies du
+// CGI) mentionnent "TVA" (donc le repli general ci-dessus ne s'applique
+// pas) mais HT = TTC quand meme, par definition du dispositif - verifie
+// sur deux vraies factures reelles (La Centrale Du Debouchage, APF
+// Assainissement Pompage Fosse).
+test("completerMontantHTSansTva : autoliquidation explicite (sous-traitance BTP) -> HT = TTC meme si la TVA est mentionnee", () => {
+  const texte = "Intervention de sous traitance TVA auto liquidation 1 0,00 €\nSous-total 300,00 €\nTotal TTC 300,00 €";
+  assert.equal(completerMontantHTSansTva(texte, null, 300), 300);
+});
+
+test("completerMontantHTSansTva : autoliquidation avec orthographe sans espace (AUTOLIQUIDATION) -> HT = TTC", () => {
+  const texte = 'Sous-total 500,00 €\nTVA 0 % (500,00 €) 0,00 €\nTotal TTC 500,00 €\nDécret de finance du 01 janvier 2014 "AUTOLIQUIDATION DE LA TVA EN APPLICATION DE L\'ARTICLE 283.2 NONIES DU CGI"';
+  assert.equal(completerMontantHTSansTva(texte, null, 500), 500);
 });
 
 test("sujet/corps generiques, mais le mot facture est dans le contenu du PDF -> reconnue (pas ambigue)", () => {
