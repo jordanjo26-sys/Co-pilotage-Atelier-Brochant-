@@ -1048,6 +1048,68 @@ export async function listerPerformanceAnnonces(prisma: PrismaClient, groupeId: 
   }));
 }
 
+export interface ForceAnnonceAds {
+  groupeId: string;
+  adId: string;
+  statut: string;
+  forceAnnonce: string; // POOR | AVERAGE | GOOD | EXCELLENT | PENDING | NO_ADS | UNKNOWN
+  nombreTitres: number;
+  nombreDescriptions: number;
+  nombreTitresEpingles: number;
+  nombreDescriptionsEpinglees: number;
+}
+
+/**
+ * "Force de l'annonce" (Ad strength) de chaque annonce responsive search
+ * d'une campagne, directement depuis le champ ad_group_ad.ad_strength -
+ * demande explicite de l'utilisateur, pour comprendre pourquoi une annonce
+ * reste "Moyenne" plutot qu'"Excellente". Les deux leviers les plus
+ * frequents sont documentes par Google lui-meme : trop peu de titres/
+ * descriptions uniques (max 15 titres / 4 descriptions), ou un epinglage
+ * (pinned_field) trop systematique qui prive l'algorithme de marge pour
+ * tester des combinaisons - d'ou le decompte des deux ci-dessous. Lecture
+ * seule.
+ */
+export async function obtenirForceAnnoncesCampagne(prisma: PrismaClient, campagneId: string): Promise<ForceAnnonceAds[]> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure (jeton developpeur/numero de compte manquant) ou aucune boite Google connectee (se reconnecter via /auth/google).");
+  }
+  if (!/^\d+$/.test(campagneId)) throw new Error(`campagneId invalide : "${campagneId}" (attendu : uniquement des chiffres).`);
+
+  const lignes = await customer.query(`
+    SELECT
+      ad_group.id,
+      ad_group_ad.ad.id,
+      ad_group_ad.status,
+      ad_group_ad.ad_strength,
+      ad_group_ad.ad.responsive_search_ad.headlines,
+      ad_group_ad.ad.responsive_search_ad.descriptions
+    FROM ad_group_ad
+    WHERE campaign.id = ${campagneId}
+      AND ad_group_ad.status != 'REMOVED'
+  `);
+
+  return lignes.map((ligne) => {
+    const titres = ligne.ad_group_ad?.ad?.responsive_search_ad?.headlines ?? [];
+    const descriptions = ligne.ad_group_ad?.ad?.responsive_search_ad?.descriptions ?? [];
+    const estEpingle = (asset: { pinned_field?: unknown }) => {
+      const valeur = asset.pinned_field;
+      return valeur != null && valeur !== 0 && valeur !== "UNSPECIFIED";
+    };
+    return {
+      groupeId: String(ligne.ad_group?.id ?? ""),
+      adId: String(ligne.ad_group_ad?.ad?.id ?? ""),
+      statut: String(ligne.ad_group_ad?.status ?? ""),
+      forceAnnonce: decoderEnum(enums.AdStrength as unknown as Record<string, string | number>, ligne.ad_group_ad?.ad_strength),
+      nombreTitres: titres.length,
+      nombreDescriptions: descriptions.length,
+      nombreTitresEpingles: titres.filter(estEpingle).length,
+      nombreDescriptionsEpinglees: descriptions.filter(estEpingle).length,
+    };
+  });
+}
+
 export interface ParametresCreationCampagne {
   nom: string;
   budgetQuotidien: number; // euros/jour

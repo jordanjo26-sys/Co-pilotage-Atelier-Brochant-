@@ -90,6 +90,7 @@ import {
   diagnosticScopesJeton,
   diagnosticLienGestionnaire,
   listerObjectifsConversionCampagne,
+  obtenirForceAnnoncesCampagne,
 } from "../services/googleAds";
 import { diagnostiquerRejetsDext, listerRejetsDext } from "../services/dextDiagnostic";
 
@@ -1309,6 +1310,16 @@ export function buildRouter(prisma: PrismaClient): Router {
     try {
       const jours = req.query.jours ? Number(req.query.jours) : undefined;
       res.json(await listerCampagnesAds(prisma, jours));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // "Force de l'annonce" (ad strength) de chaque annonce d'une campagne -
+  // demande explicite de l'utilisateur, voir obtenirForceAnnoncesCampagne.
+  router.get("/google-ads/campagnes/:id/force-annonces", async (req, res) => {
+    try {
+      res.json(await obtenirForceAnnoncesCampagne(prisma, req.params.id));
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
