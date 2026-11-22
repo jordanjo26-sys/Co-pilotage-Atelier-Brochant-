@@ -117,11 +117,37 @@ async function appelerExtraction(client: Anthropic, contenu: Anthropic.MessagePa
   try {
     const reponse = await client.messages.create({
       model: MODELE,
-      max_tokens: 300,
+      // 700, pas 300 (ex-limite) : avec 6 champs a renseigner (dont une
+      // categorie a choisir parmi 11, qui peut amener le modele a
+      // raisonner brievement en texte avant d'appeler l'outil - jamais
+      // force via tool_choice, voir plus bas), 300 tokens pouvaient couper
+      // la reponse AVANT meme le bloc tool_use sur un document pourtant
+      // parfaitement lisible (bug reel trouve en production, novembre
+      // 2026 : des factures/tickets nets - ex. un peage Vinci Autoroutes
+      // avec "Prix HT"/"TVA"/"Prix TTC" imprimes en toutes lettres -
+      // restaient indefiniment "a verifier" sans la moindre erreur nulle
+      // part, car une troncature silencieuse (aucune exception levee)
+      // est indiscernable d'un "rien trouve" legitime sans le controle
+      // de stop_reason ajoute ci-dessous).
+      max_tokens: 700,
       system: PROMPT_SYSTEME,
       tools: [OUTIL_EXTRACTION],
       messages: [{ role: "user", content: contenu }],
     });
+
+    if (reponse.stop_reason === "max_tokens" && prisma) {
+      // Troncature reelle (voir le commentaire sur max_tokens ci-dessus) :
+      // journalisee separement d'une panne (cle/reseau) pour rester
+      // diagnosticable meme si un bloc tool_use partiel a neanmoins ete
+      // retourne et traite normalement plus bas.
+      await logEvenement(prisma, {
+        evenement: "extraction_ia_facture_tronquee",
+        action: "Extraction IA des champs d'une facture",
+        resultat: "Reponse coupee par max_tokens avant (ou pendant) l'appel de l'outil extraire_facture - voir si le nombre de champs reellement extraits est incomplet.",
+      }).catch(() => {
+        // Le journal lui-meme est indisponible : rien de plus a tenter.
+      });
+    }
 
     const appel = reponse.content.find((bloc): bloc is Anthropic.ToolUseBlock => bloc.type === "tool_use");
     if (!appel) return null;
