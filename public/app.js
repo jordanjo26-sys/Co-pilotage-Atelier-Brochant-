@@ -3405,6 +3405,7 @@ function construireCarteArchiveComptable(a, { doublon = false } = {}) {
           ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
           ${doublon ? ` · <span class="badge badge-palier-ambre">doublon possible</span>` : ""}
           ${a.categorie ? ` · <span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
+          · <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${a.rapproche ? "✓ rapproché" : "non rapproché"}</span>
         </div>
         <div class="fournisseur-actions fournisseur-actions-ligne">
           ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
@@ -3603,36 +3604,40 @@ async function chargerArchivesMoisCourant() {
 }
 
 /**
- * Index annee/mois de l'onglet Archives - cliquer sur un mois applique les
- * filtres de date existants (dateDebut/dateFin) sur les donnees DEJA
- * chargees par chargerArchivesComptables (recherche globale, voir
- * ID_FILTRES_ARCHIVE_COMPTABLE) : pas de nouvel appel reseau necessaire.
+ * Raccourci "Aller à un mois" de l'onglet Archives - menu deroulant compact
+ * (pas un mur de boutons, demande explicite de l'utilisateur : "j'aime pas
+ * le pavé... plutôt mettre quelque chose avec un filtre où on peut chercher
+ * les dates qu'on veut"). Choisir un mois ici n'est qu'un raccourci qui
+ * renseigne les memes champs Du/au que l'utilisateur peut aussi remplir
+ * lui-meme a la main - la recherche par dates libres (barre-filtres)
+ * reste le moyen principal, jamais remplace.
  */
 async function chargerArchivesAnnees() {
-  const conteneur = document.getElementById("archive-v2-annees");
-  if (!conteneur) return;
+  const select = document.getElementById("archive-v2-mois-select");
+  if (!select) return;
   try {
     const res = await fetch("/api/archives-comptables/mois-disponibles");
     const mois = await res.json();
     if (!res.ok) throw new Error(mois.erreur || "Chargement impossible.");
-    conteneur.innerHTML = mois
-      .map(
-        (m) =>
-          `<button type="button" class="archive-v2-mois-chip" data-anneemois="${echapper(m.periode)}">${echapper(m.libelle)}<span class="archive-v2-mois-chip-compte">${m.nombre}</span></button>`
-      )
-      .join("");
-    conteneur.querySelectorAll(".archive-v2-mois-chip").forEach((chip) => {
-      chip.addEventListener("click", () => {
-        const [annee, moisNum] = chip.dataset.anneemois.split("-").map(Number);
-        const debut = `${chip.dataset.anneemois}-01`;
+    const valeurActuelle = select.value;
+    select.innerHTML =
+      `<option value="">— choisir —</option>` +
+      mois.map((m) => `<option value="${echapper(m.periode)}">${echapper(m.libelle)} (${m.nombre})</option>`).join("");
+    select.value = valeurActuelle;
+
+    if (!select.dataset.initialise) {
+      select.addEventListener("change", () => {
+        if (!select.value) return;
+        const [annee, moisNum] = select.value.split("-").map(Number);
         const dernierJour = new Date(annee, moisNum, 0).getDate();
-        document.getElementById("filtre-archive-date-debut").value = debut;
-        document.getElementById("filtre-archive-date-fin").value = `${chip.dataset.anneemois}-${String(dernierJour).padStart(2, "0")}`;
+        document.getElementById("filtre-archive-date-debut").value = `${select.value}-01`;
+        document.getElementById("filtre-archive-date-fin").value = `${select.value}-${String(dernierJour).padStart(2, "0")}`;
         afficherArchivesComptablesFiltrees();
       });
-    });
+      select.dataset.initialise = "1";
+    }
   } catch {
-    conteneur.innerHTML = "";
+    // Raccourci indisponible : la recherche par dates libres reste possible.
   }
 }
 

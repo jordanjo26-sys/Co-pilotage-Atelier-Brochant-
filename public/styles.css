@@ -644,24 +644,6 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .archive-v2-sousonglet:hover { color: var(--ink); }
 .archive-v2-sousonglet.actif { color: var(--brand-brown); border-bottom-color: var(--brand-brown); }
-.archive-v2-annees {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.archive-v2-mois-chip {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px 11px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink-2);
-  cursor: pointer;
-}
-.archive-v2-mois-chip:hover { border-color: var(--brand-brown); color: var(--ink); }
-.archive-v2-mois-chip-compte { color: var(--ink-muted); margin-left: 4px; }
 
 .archive-v2-modal {
   position: fixed;

@@ -120,4 +120,25 @@ test("Module Comptabilité — mois disponibles, recherche globale, espace à v�
 
     for (const arch of [incomplete, doublon1, doublon2, propre]) await prisma.archiveComptable.delete({ where: { id: arch.id } });
   });
+
+  // Demande explicite de l'utilisateur : "rien qui précise si le
+  // rapprochement bancaire a été fait sur cette facture ou pas" - chaque
+  // archive renvoyée porte desormais un booleen "rapproche".
+  await t.test("listerArchivesComptables : signale 'rapproche' aussi bien pour le lien scalaire simple que pour un reglement manuel partiel (RapprochementLigne seule)", async () => {
+    const simple = await creerArchive({ fichierNom: "simple.pdf", fournisseurNom: "EDF", dateFacture: "2026-07-01", montantTTC: 50 });
+    const partiel = await creerArchive({ fichierNom: "partiel.pdf", fournisseurNom: "Kiloutou", dateFacture: "2026-07-02", montantTTC: 200 });
+    const jamais = await creerArchive({ fichierNom: "jamais.pdf", fournisseurNom: "OVHcloud", dateFacture: "2026-07-03", montantTTC: 15 });
+
+    await prisma.archiveComptable.update({ where: { id: simple.id }, data: { mouvementBancaireId: "mvt-test-1" } });
+    await prisma.rapprochementLigne.create({
+      data: { mouvementBancaireId: "mvt-test-2", cibleType: "archive_comptable", cibleId: partiel.id, montantAffecte: 80, origine: "manuel" },
+    });
+
+    const archives = await listerArchivesComptables(prisma, { anneeMois: "2026-07" });
+    assert.equal(archives.find((a) => a.id === simple.id)?.rapproche, true);
+    assert.equal(archives.find((a) => a.id === partiel.id)?.rapproche, true);
+    assert.equal(archives.find((a) => a.id === jamais.id)?.rapproche, false);
+
+    for (const arch of [simple, partiel, jamais]) await prisma.archiveComptable.delete({ where: { id: arch.id } });
+  });
 });

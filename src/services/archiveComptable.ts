@@ -480,10 +480,42 @@ export async function listerArchivesComptables(prisma: PrismaClient, filtres: Fi
     where.OR = [{ montantHT: conditionMontant }, { montantTTC: conditionMontant }];
   }
 
-  return prisma.archiveComptable.findMany({
+  const archives = await prisma.archiveComptable.findMany({
     where,
     orderBy: [{ dateFacture: "desc" }, { createdAt: "desc" }],
   });
+  return ajouterStatutRapprochement(prisma, archives);
+}
+
+/**
+ * Ajoute un booleen "rapproche" a chaque archive - demande explicite de
+ * l'utilisateur ("rien qui precise si le rapprochement bancaire a ete fait
+ * sur cette facture"). Vrai si le champ scalaire mouvementBancaireId est
+ * pose (cas simple 1-pour-1, ou lot/multi-factures automatique - voir
+ * rapprochementBancaire.ts) OU si une ligne RapprochementLigne active
+ * existe pour cette archive (reglement manuel partiel, qui ne pose jamais
+ * le champ scalaire - voir validerRapprochementManuel). Calcule en memoire
+ * via une seule requete (meme principe que detecterDoublonsArchives) plutot
+ * qu'une sous-requete par ligne, le volume restant modeste.
+ */
+async function ajouterStatutRapprochement<T extends { id: string; mouvementBancaireId: string | null }>(
+  prisma: PrismaClient,
+  archives: T[]
+): Promise<(T & { rapproche: boolean })[]> {
+  const idsSansLienScalaire = archives.filter((a) => a.mouvementBancaireId === null).map((a) => a.id);
+  const idsAvecLigneActive =
+    idsSansLienScalaire.length > 0
+      ? new Set(
+          (
+            await prisma.rapprochementLigne.findMany({
+              where: { cibleType: "archive_comptable", cibleId: { in: idsSansLienScalaire }, annuleLe: null },
+              select: { cibleId: true },
+            })
+          ).map((l) => l.cibleId)
+        )
+      : new Set<string>();
+
+  return archives.map((a) => ({ ...a, rapproche: a.mouvementBancaireId !== null || idsAvecLigneActive.has(a.id) }));
 }
 
 /**
@@ -568,8 +600,9 @@ export async function listerArchivesAVerifier(prisma: PrismaClient) {
     orderBy: [{ dateFacture: "desc" }, { createdAt: "desc" }],
   });
   const raisonsDoublons = detecterDoublonsArchives(toutes);
+  const avecStatutRapprochement = await ajouterStatutRapprochement(prisma, toutes);
 
-  return toutes
+  return avecStatutRapprochement
     .filter((a) => a.statut === "a_verifier" || raisonsDoublons.has(a.id))
     .map((a) => ({
       ...a,

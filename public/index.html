@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=37" />
+  <link rel="stylesheet" href="/styles.css?v=38" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -472,10 +472,10 @@
           <div id="archive-v2-mois-courant-liste"></div>
         </div>
 
-        <!-- Archives : index annee/mois + recherche globale sur toutes les periodes (filtres existants, deja non bornes par date par defaut). -->
+        <!-- Archives : recherche par filtre de dates (au choix de l'utilisateur) + recherche globale sur toutes les periodes. -->
         <div class="archive-v2-sousvue" data-sousvue-panneau="archives" hidden>
-          <div id="archive-v2-annees" class="archive-v2-annees"></div>
           <div class="barre-filtres">
+            <label class="aide-inline">Aller à un mois <select id="archive-v2-mois-select"><option value="">— choisir —</option></select></label>
             <label class="aide-inline">Du <input type="date" id="filtre-archive-date-debut" /></label>
             <label class="aide-inline">au <input type="date" id="filtre-archive-date-fin" /></label>
             <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
@@ -515,7 +515,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=63"></script>
+  <script src="/app.js?v=64"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>
