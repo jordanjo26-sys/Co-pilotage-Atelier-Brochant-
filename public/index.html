@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=36" />
+  <link rel="stylesheet" href="/styles.css?v=37" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -42,6 +42,10 @@
     <button type="button" class="onglet" data-onglet="tresorerie" role="tab" aria-selected="false">
       <span class="onglet-libelle">Trésorerie</span>
       <span class="onglet-badge" data-badge="tresorerie" hidden>0</span>
+    </button>
+    <button type="button" class="onglet" data-onglet="suivi-mensuel" role="tab" aria-selected="false">
+      <span class="onglet-libelle">Suivi mensuel</span>
+      <span class="onglet-badge" data-badge="suivi-mensuel" hidden>0</span>
     </button>
     <button type="button" class="onglet" data-onglet="google-ads" role="tab" aria-selected="false">
       <span class="onglet-libelle">Google Ads</span>
@@ -305,11 +309,20 @@
         <div class="table-scroll">
           <table id="table-mouvements-bancaires">
             <thead>
-              <tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Rapprochement</th></tr>
+              <tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Rapprochement</th><th>Actions</th></tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
+      </section>
+    </div>
+
+    <!-- ===== Suivi mensuel (etat du rapprochement bancaire, mois par mois) ===== -->
+    <div class="onglet-panneau" data-panneau="suivi-mensuel" hidden>
+      <section class="carte accent-teal">
+        <h2>Suivi mensuel du rapprochement bancaire</h2>
+        <p class="aide">Un mois passe en « Terminé et validé » uniquement lorsque vous le validez vous-même ci-dessous — jamais automatiquement, même si tous les mouvements du mois sont déjà rapprochés.</p>
+        <div id="suivi-mensuel-liste"></div>
       </section>
     </div>
 
@@ -446,34 +459,63 @@
         <div id="resultat-import-archive-comptable"></div>
       </section>
 
-      <section class="carte accent-teal">
-        <h2>Archives de factures</h2>
-        <div class="barre-filtres">
-          <label class="aide-inline">Du <input type="date" id="filtre-archive-date-debut" /></label>
-          <label class="aide-inline">au <input type="date" id="filtre-archive-date-fin" /></label>
-          <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
-          <input type="number" id="filtre-archive-montant-min" step="0.01" min="0" placeholder="Montant min." />
-          <input type="number" id="filtre-archive-montant-max" step="0.01" min="0" placeholder="Montant max." />
-          <select id="filtre-archive-categorie">
-            <option value="">Toutes catégories</option>
-          </select>
-          <label class="aide-inline"><input type="checkbox" id="filtre-archive-doublons-uniquement" /> Doublons uniquement</label>
+      <section class="carte accent-brun">
+        <div class="archive-v2-sousonglets" role="tablist" aria-label="Vue des factures d'achat">
+          <button type="button" class="archive-v2-sousonglet actif" data-sousvue="mois-courant" role="tab" aria-selected="true">Mois en cours</button>
+          <button type="button" class="archive-v2-sousonglet" data-sousvue="archives" role="tab" aria-selected="false">Archives</button>
+          <button type="button" class="archive-v2-sousonglet" data-sousvue="a-verifier" role="tab" aria-selected="false">À vérifier <span class="onglet-badge" data-badge="archive-a-verifier" hidden>0</span></button>
         </div>
-        <div class="ligne-boutons" style="margin-bottom: 10px;">
-          <button type="button" class="ghost" id="btn-reinitialiser-filtres-archive">Réinitialiser les filtres</button>
-          <button type="button" class="ghost" id="btn-reextraire-archives">Relancer l'extraction sur les archives "à vérifier"</button>
-          <button type="button" class="ghost" id="btn-exporter-archives-csv">Exporter en CSV</button>
-          <span class="aide-inline" id="compte-archives-filtrees" style="margin-left: auto;"></span>
+
+        <!-- Mois en cours (defaut) : classement selon dateFacture, pas la date d'import. -->
+        <div class="archive-v2-sousvue" data-sousvue-panneau="mois-courant">
+          <p class="aide" id="archive-v2-mois-courant-libelle"></p>
+          <div id="archive-v2-mois-courant-liste"></div>
         </div>
-        <div id="resultat-reextraction-archives"></div>
-        <div id="liste-archives-comptables"></div>
+
+        <!-- Archives : index annee/mois + recherche globale sur toutes les periodes (filtres existants, deja non bornes par date par defaut). -->
+        <div class="archive-v2-sousvue" data-sousvue-panneau="archives" hidden>
+          <div id="archive-v2-annees" class="archive-v2-annees"></div>
+          <div class="barre-filtres">
+            <label class="aide-inline">Du <input type="date" id="filtre-archive-date-debut" /></label>
+            <label class="aide-inline">au <input type="date" id="filtre-archive-date-fin" /></label>
+            <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
+            <input type="number" id="filtre-archive-montant-min" step="0.01" min="0" placeholder="Montant min." />
+            <input type="number" id="filtre-archive-montant-max" step="0.01" min="0" placeholder="Montant max." />
+            <select id="filtre-archive-categorie">
+              <option value="">Toutes catégories</option>
+            </select>
+            <label class="aide-inline"><input type="checkbox" id="filtre-archive-doublons-uniquement" /> Doublons uniquement</label>
+          </div>
+          <div class="ligne-boutons" style="margin-bottom: 10px;">
+            <button type="button" class="ghost" id="btn-reinitialiser-filtres-archive">Réinitialiser les filtres</button>
+            <button type="button" class="ghost" id="btn-reextraire-archives">Relancer l'extraction sur les archives "à vérifier"</button>
+            <button type="button" class="ghost" id="btn-exporter-archives-csv">Exporter en CSV</button>
+            <span class="aide-inline" id="compte-archives-filtrees" style="margin-left: auto;"></span>
+          </div>
+          <div id="resultat-reextraction-archives"></div>
+          <div id="liste-archives-comptables"></div>
+        </div>
+
+        <!-- À vérifier : doublons potentiels + informations manquantes (espace dedie). -->
+        <div class="archive-v2-sousvue" data-sousvue-panneau="a-verifier" hidden>
+          <p class="aide">Factures dont une information est manquante, ou qui semblent être un doublon d'une autre (même numéro ou même montant à la même date chez un même fournisseur) — à vérifier puis corriger ou supprimer.</p>
+          <div id="archive-v2-a-verifier-liste"></div>
+        </div>
       </section>
     </div>
   </main>
 
+  <!-- Visualiseur en page (PDF/image) pour le module Comptabilité - evite de quitter l'application pour consulter une facture. -->
+  <div id="archive-v2-modal" class="archive-v2-modal" hidden>
+    <div class="archive-v2-modal-contenu">
+      <button type="button" class="ghost archive-v2-modal-fermer" id="archive-v2-modal-fermer" aria-label="Fermer l'aperçu">✕ Fermer</button>
+      <div id="archive-v2-modal-corps"></div>
+    </div>
+  </div>
+
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=62"></script>
+  <script src="/app.js?v=63"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

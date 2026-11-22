@@ -8,6 +8,8 @@ import {
   demarrerImportFichiers,
   demarrerReextractionArchivesIncompletes,
   listerArchivesComptables,
+  obtenirMoisDisponiblesArchives,
+  listerArchivesAVerifier,
   obtenirArchiveComptable,
   modifierArchiveComptable,
   supprimerArchiveComptable,
@@ -96,11 +98,25 @@ export function buildArchiveComptableRouter(prisma: PrismaClient): Router {
     res.json(CATEGORIES_FACTURE);
   });
 
+  // Index annee/mois pour l'onglet Archives - a declarer avant "/:id/fichier"
+  // pour eviter toute ambiguite de routage (chemins fixes en premier).
+  router.get("/mois-disponibles", async (_req, res) => {
+    const mois = await obtenirMoisDisponiblesArchives(prisma);
+    res.json(mois);
+  });
+
+  // Espace "A verifier" (doublons probables + informations manquantes).
+  router.get("/a-verifier", async (_req, res) => {
+    const archives = await listerArchivesAVerifier(prisma);
+    res.json(archives);
+  });
+
   router.get("/", async (req, res) => {
-    const { dateDebut, dateFin, fournisseurNom, montantMin, montantMax, categorie } = req.query;
+    const { dateDebut, dateFin, anneeMois, fournisseurNom, montantMin, montantMax, categorie } = req.query;
     const archives = await listerArchivesComptables(prisma, {
       dateDebut: typeof dateDebut === "string" && dateDebut ? new Date(dateDebut) : undefined,
       dateFin: typeof dateFin === "string" && dateFin ? new Date(dateFin) : undefined,
+      anneeMois: typeof anneeMois === "string" && anneeMois ? anneeMois : undefined,
       fournisseurNom: typeof fournisseurNom === "string" && fournisseurNom ? fournisseurNom : undefined,
       montantMin: typeof montantMin === "string" && montantMin !== "" ? Number(montantMin) : undefined,
       montantMax: typeof montantMax === "string" && montantMax !== "" ? Number(montantMax) : undefined,

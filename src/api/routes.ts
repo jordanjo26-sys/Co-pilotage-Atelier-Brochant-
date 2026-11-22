@@ -38,7 +38,14 @@ import {
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
 import { listerDecisions, terminerDecision } from "../services/decisions";
-import { executerRapprochementBancaire } from "../services/rapprochementBancaire";
+import {
+  executerRapprochementBancaire,
+  validerRapprochementManuel,
+  annulerRapprochementManuel,
+  obtenirDetailMouvement,
+  obtenirCandidatsMouvement,
+} from "../services/rapprochementBancaire";
+import { obtenirStatutMoisBancaire, validerMoisComptable, invaliderMoisComptable } from "../services/suiviMensuel";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
 import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec, CHEMIN_CAPTURE_ECHEC } from "../services/synecSync";
 import { existsSync } from "fs";
@@ -463,6 +470,77 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/mouvements-bancaires", async (_req, res) => {
     const mouvements = await prisma.mouvementBancaire.findMany({ orderBy: { date: "desc" }, take: 5000 });
     res.json(mouvements);
+  });
+
+  // Detail d'un mouvement (facture(s) liee(s), origine, historique) -
+  // alimente la ligne depliable de l'interface de rapprochement (restructuration
+  // Comptabilite, voir le plan greedy-puzzling-quail).
+  router.get("/mouvements-bancaires/:id/detail", async (req, res) => {
+    try {
+      res.json(await obtenirDetailMouvement(prisma, req.params.id));
+    } catch (err) {
+      res.status(404).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Factures pas encore rapprochees, dans la fenetre de dates du mouvement -
+  // alimente l'outil de rattachement manuel (hand-pick) sans dupliquer la
+  // logique de fenetre cote client.
+  router.get("/mouvements-bancaires/:id/candidats", async (req, res) => {
+    try {
+      res.json(await obtenirCandidatsMouvement(prisma, req.params.id));
+    } catch (err) {
+      res.status(404).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Validation manuelle (reglement partiel ou multi-factures) - corps
+  // {"cibles": [{"type": "archive_comptable"|"document_fournisseur", "id": "...", "montantAffecte": 123.45}], "auteur"?: "..."}.
+  router.post("/mouvements-bancaires/:id/valider", async (req, res) => {
+    try {
+      const cibles = Array.isArray(req.body?.cibles) ? req.body.cibles : [];
+      const auteur = typeof req.body?.auteur === "string" ? req.body.auteur : undefined;
+      res.json(await validerRapprochementManuel(prisma, req.params.id, cibles, auteur));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Annulation controlee d'un rapprochement (manuel ou automatique) - corps
+  // optionnel {"auteur"?: "..."}.
+  router.post("/mouvements-bancaires/:id/annuler", async (req, res) => {
+    try {
+      const auteur = typeof req.body?.auteur === "string" ? req.body.auteur : undefined;
+      await annulerRapprochementManuel(prisma, req.params.id, auteur);
+      res.status(204).end();
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Suivi mensuel du rapprochement bancaire (demande explicite de
+  // l'utilisateur, voir suiviMensuel.ts) - une vue par mois, jamais validee
+  // automatiquement.
+  router.get("/suivi-mensuel", async (_req, res) => {
+    res.json(await obtenirStatutMoisBancaire(prisma));
+  });
+
+  router.post("/suivi-mensuel/:periode/valider", async (req, res) => {
+    try {
+      const auteur = typeof req.body?.auteur === "string" ? req.body.auteur : undefined;
+      res.json(await validerMoisComptable(prisma, req.params.periode, auteur));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.post("/suivi-mensuel/:periode/invalider", async (req, res) => {
+    try {
+      const motif = typeof req.body?.motif === "string" ? req.body.motif : undefined;
+      res.json(await invaliderMoisComptable(prisma, req.params.periode, motif));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   // Depenses par fournisseur, par jour/mois/annee (demande explicite de

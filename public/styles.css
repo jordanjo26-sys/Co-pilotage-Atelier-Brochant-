@@ -193,6 +193,7 @@ main {
 .carte.accent-critique { border-left-color: var(--critical); }
 .carte.accent-neutre { border-left-color: var(--line-strong); }
 .carte.accent-violet { border-left-color: var(--brand-violet); }
+.carte.accent-brun { border-left-color: var(--brand-brown); }
 .carte h2 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
 .aide { color: var(--ink-muted); font-size: 12.5px; margin: 0 0 10px; line-height: 1.5; }
 
@@ -617,6 +618,76 @@ button:disabled { opacity: 0.4; cursor: default; }
 .fournisseur-carte:first-of-type { border-top: none; padding-top: 0; }
 .fournisseur-nom { font-size: 13px; font-weight: 600; color: var(--ink); }
 .fournisseur-nom .fournisseur-nom-icone { margin-right: 4px; }
+
+/* ---------- Comptabilite : sous-onglets Mois en cours/Archives/A verifier ----------
+   Prefixe isole "archive-v2-*" : ne touche jamais .groupe-mois/.fournisseur-carte,
+   deja utilisees par l'onglet Fournisseurs (restructuration Comptabilite, voir
+   le plan greedy-puzzling-quail). */
+.archive-v2-sousonglets {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+.archive-v2-sousonglet {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.archive-v2-sousonglet:hover { color: var(--ink); }
+.archive-v2-sousonglet.actif { color: var(--brand-brown); border-bottom-color: var(--brand-brown); }
+.archive-v2-annees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.archive-v2-mois-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.archive-v2-mois-chip:hover { border-color: var(--brand-brown); color: var(--ink); }
+.archive-v2-mois-chip-compte { color: var(--ink-muted); margin-left: 4px; }
+
+.archive-v2-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 16, 30, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 24px;
+}
+.archive-v2-modal[hidden] { display: none; }
+.archive-v2-modal-contenu {
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  width: min(900px, 100%);
+  height: min(85vh, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.archive-v2-modal-fermer { align-self: flex-end; margin: 8px 8px 0 0; }
+#archive-v2-modal-corps { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; }
+#archive-v2-modal-corps iframe { width: 100%; height: 100%; border: none; }
+#archive-v2-modal-corps img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .fournisseur-actions { margin-top: 6px; }
 .fournisseur-actions-ligne { display: flex; gap: 8px; flex-wrap: wrap; }
 .fournisseur-documents { margin-top: 8px; font-size: 12.5px; }
@@ -695,6 +766,43 @@ th, td {
 }
 th { color: var(--ink-muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
 tbody tr:hover { background: var(--surface-2); }
+
+/* ---------- Rapprochement bancaire : bordures de statut + detail ----------
+   Demande explicite de l'utilisateur : encadrement vert (+ coche, posee cote
+   JS sur le badge) pour un rapprochement valide, orange pour une
+   correspondance incertaine. Les classes .badge-rapproche/.badge-a_verifier
+   restent inchangees (deja correctement colorees) - seule la bordure de
+   ligne est nouvelle, prefixe isole "rapprochement-*". */
+tr.rapprochement-ligne-ok td:first-child { border-left: 3px solid var(--good); }
+tr.rapprochement-ligne-attention td:first-child { border-left: 3px solid var(--warning); }
+tr.rapprochement-detail-ligne td { white-space: normal; background: var(--surface-2); }
+tr.rapprochement-detail-ligne[hidden] { display: none; }
+.rapprochement-detail-section { margin-bottom: 10px; }
+.rapprochement-detail-section h4 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-muted); margin: 0 0 6px; }
+.rapprochement-detail-cible { display: flex; align-items: center; gap: 8px; padding: 4px 0; flex-wrap: wrap; }
+.rapprochement-historique { margin: 0; padding-left: 18px; font-size: 12px; color: var(--ink-2); }
+.rapprochement-historique li { padding: 2px 0; }
+.rapprochement-picker { display: flex; flex-direction: column; gap: 6px; }
+.rapprochement-picker-ligne { display: flex; align-items: center; gap: 8px; font-size: 12.5px; flex-wrap: wrap; }
+.rapprochement-picker-montant { width: 90px; }
+
+/* ---------- Suivi mensuel ---------- */
+.suivi-mensuel-carte {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-strong);
+}
+.suivi-mensuel-carte:first-of-type { border-top: none; padding-top: 0; }
+.suivi-mensuel-mois { font-size: 13px; font-weight: 700; color: var(--ink); min-width: 140px; }
+.suivi-mensuel-compteurs { font-size: 12px; color: var(--ink-muted); }
+.suivi-mensuel-statut-termine_valide { background: var(--good-soft); color: var(--good); }
+.suivi-mensuel-statut-a_verifier { background: var(--warning-soft); color: var(--warning); }
+.suivi-mensuel-statut-en_cours { background: var(--surface-2); color: var(--ink-muted); }
+.suivi-mensuel-drift { color: var(--warning); font-size: 12px; }
 
 @media (min-width: 640px) {
   main { padding: 24px 24px 56px; gap: 18px; }

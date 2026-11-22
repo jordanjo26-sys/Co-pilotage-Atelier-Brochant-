@@ -438,6 +438,11 @@ async function reextraireArchives(prisma: PrismaClient, archives: Awaited<Return
 export interface FiltresArchiveComptable {
   dateDebut?: Date;
   dateFin?: Date;
+  // Raccourci "AAAA-MM" pour un mois precis (vue "Mois en cours"/Archives
+  // par mois) - equivalent a poser dateDebut/dateFin sur le 1er et le
+  // dernier jour du mois, mais sans que l'appelant ait a calculer ces deux
+  // bornes lui-meme.
+  anneeMois?: string;
   fournisseurNom?: string;
   montantMin?: number;
   montantMax?: number;
@@ -447,7 +452,12 @@ export interface FiltresArchiveComptable {
 export async function listerArchivesComptables(prisma: PrismaClient, filtres: FiltresArchiveComptable = {}) {
   const where: Prisma.ArchiveComptableWhereInput = {};
 
-  if (filtres.dateDebut || filtres.dateFin) {
+  if (filtres.anneeMois) {
+    const [annee, mois] = filtres.anneeMois.split("-").map(Number);
+    const debutMois = new Date(annee, mois - 1, 1);
+    const finMois = new Date(annee, mois, 0, 23, 59, 59, 999);
+    where.dateFacture = { gte: debutMois, lte: finMois };
+  } else if (filtres.dateDebut || filtres.dateFin) {
     where.dateFacture = {
       ...(filtres.dateDebut ? { gte: filtres.dateDebut } : {}),
       ...(filtres.dateFin ? { lte: filtres.dateFin } : {}),
@@ -474,6 +484,99 @@ export async function listerArchivesComptables(prisma: PrismaClient, filtres: Fi
     where,
     orderBy: [{ dateFacture: "desc" }, { createdAt: "desc" }],
   });
+}
+
+/**
+ * Liste des mois ("AAAA-MM") pour lesquels au moins une archive existe,
+ * avec son nombre de documents - alimente l'index annee/mois de l'onglet
+ * Archives. Regroupe en memoire (meme principe que
+ * depensesFournisseurs.ts:cleDePeriode) : le volume (quelques centaines a
+ * quelques milliers de lignes) reste modeste, pas besoin d'une requete SQL
+ * specifique au moteur de base utilise.
+ */
+export async function obtenirMoisDisponiblesArchives(prisma: PrismaClient) {
+  const archives = await prisma.archiveComptable.findMany({
+    where: { dateFacture: { not: null } },
+    select: { dateFacture: true },
+  });
+
+  const comptes = new Map<string, number>();
+  for (const a of archives) {
+    const d = a.dateFacture as Date;
+    const periode = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    comptes.set(periode, (comptes.get(periode) || 0) + 1);
+  }
+
+  const NOMS_MOIS = [
+    "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+    "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+  ];
+
+  return Array.from(comptes.entries())
+    .map(([periode, nombre]) => {
+      const [annee, mois] = periode.split("-").map(Number);
+      return { periode, libelle: `${NOMS_MOIS[mois - 1]} ${annee}`, nombre };
+    })
+    .sort((a, b) => b.periode.localeCompare(a.periode));
+}
+
+/**
+ * Detecte les doublons probables parmi TOUTES les archives (portage cote
+ * serveur de detecterIdsDoublonsArchives dans public/app.js, meme logique
+ * exacte pour rester coherent avec le filtre "doublons uniquement" existant
+ * cote client) - deux signaux, jamais devines : meme fournisseur + meme
+ * numero de facture (quasi certain), ou meme fournisseur + meme date + meme
+ * montant TTC (probable, mais peut produire un faux positif si le numero de
+ * facture differe reellement - voir le nettoyage de doublons de cette
+ * session, cas "Pum Plastiques"). Retourne une Map id -> raison lisible.
+ */
+export function detecterDoublonsArchives(archives: { id: string; fournisseurNom: string | null; numero: string | null; dateFacture: Date | null; montantTTC: number | null }[]) {
+  const groupes = new Map<string, string[]>();
+  const ajouter = (cle: string, id: string) => {
+    if (!groupes.has(cle)) groupes.set(cle, []);
+    (groupes.get(cle) as string[]).push(id);
+  };
+  for (const a of archives) {
+    const fournisseur = (a.fournisseurNom || "").trim().toLowerCase();
+    if (!fournisseur) continue;
+    if (a.numero && a.numero.trim()) {
+      ajouter(`numero:${fournisseur}:${a.numero.trim().toLowerCase()}`, a.id);
+    }
+    if (a.dateFacture && a.montantTTC != null) {
+      ajouter(`montant:${fournisseur}:${a.dateFacture.toISOString().slice(0, 10)}:${a.montantTTC}`, a.id);
+    }
+  }
+  const raisons = new Map<string, string>();
+  for (const liste of groupes.values()) {
+    if (liste.length > 1) {
+      for (const id of liste) {
+        if (!raisons.has(id)) raisons.set(id, "doublon_probable");
+      }
+    }
+  }
+  return raisons;
+}
+
+/**
+ * Espace "A verifier" : archives avec statut "a_verifier" (info manquante,
+ * voir modifierArchiveComptable) OU detectees comme doublon probable -
+ * demande explicite de l'utilisateur ("espace dedie aux doublons potentiels
+ * et aux informations manquantes").
+ */
+export async function listerArchivesAVerifier(prisma: PrismaClient) {
+  const toutes = await prisma.archiveComptable.findMany({
+    orderBy: [{ dateFacture: "desc" }, { createdAt: "desc" }],
+  });
+  const raisonsDoublons = detecterDoublonsArchives(toutes);
+
+  return toutes
+    .filter((a) => a.statut === "a_verifier" || raisonsDoublons.has(a.id))
+    .map((a) => ({
+      ...a,
+      raisonAVerifier: raisonsDoublons.has(a.id)
+        ? (a.statut === "a_verifier" ? "doublon_probable_et_incomplete" : "doublon_probable")
+        : "information_manquante",
+    }));
 }
 
 export async function obtenirArchiveComptable(prisma: PrismaClient, id: string) {

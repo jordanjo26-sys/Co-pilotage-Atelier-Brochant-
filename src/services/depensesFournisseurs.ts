@@ -31,7 +31,10 @@ export interface DepensePeriode {
   nombreSansMontantTTC: number; // idem pour le montant TTC
 }
 
-function cleDePeriode(date: Date, granularite: GranulariteDepense): string {
+// Exportee (plutot que privee au module) : reutilisee par suiviMensuel.ts
+// pour regrouper les mouvements bancaires par mois, meme principe exact que
+// pour les depenses fournisseurs ci-dessous.
+export function cleDePeriode(date: Date, granularite: GranulariteDepense): string {
   const annee = date.getFullYear();
   const mois = String(date.getMonth() + 1).padStart(2, "0");
   const jour = String(date.getDate()).padStart(2, "0");

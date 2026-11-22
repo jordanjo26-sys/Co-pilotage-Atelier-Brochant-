@@ -206,6 +206,75 @@ model MouvementBancaire {
   createdAt           DateTime  @default(now())
 }
 
+// Lien enrichi mouvement <-> facture(s) fournisseur (ArchiveComptable ou
+// DocumentFournisseur), avec montant affecte - necessaire pour un reglement
+// PARTIEL (le mouvement ne couvre qu'une partie de la facture) ou un
+// reglement regroupant plusieurs factures (meme principe que les lots CB/
+// cheques cote credit, mais avec un montant explicite par ligne plutot
+// qu'un simple id partage). Les champs mouvementBancaireId simples sur
+// ArchiveComptable/DocumentFournisseur restent inchanges et continuent de
+// marquer le cas simple (1 facture = 1 mouvement, montant exact) - cette
+// table est la source de verite uniquement pour les cas geres par cette
+// table (partiel, multi-facture, ou rapprochement manuel), jamais une
+// vraie relation Prisma vers MouvementBancaire (meme principe que
+// DocumentFournisseur.mouvementBancaireId), verifiee par requete
+// applicative.
+model RapprochementLigne {
+  id                  String   @id @default(cuid())
+  mouvementBancaireId String
+  cibleType           String // "archive_comptable" | "document_fournisseur"
+  cibleId             String
+  montantAffecte      Float
+  origine             String // "auto_exact" | "manuel"
+  auteur              String?
+  createdAt           DateTime  @default(now())
+  // Jamais de DELETE : une annulation renseigne ces deux champs plutot que
+  // de supprimer la ligne (historique integral demande explicitement).
+  annuleLe            DateTime?
+  annulePar           String?
+
+  @@index([mouvementBancaireId])
+  @@index([cibleType, cibleId])
+}
+
+// Historique de chaque action de rapprochement (auto ou manuelle), meme
+// principe que ProspectStatutChangement ci-dessous mais sur une entite
+// distincte - demande explicite de l'utilisateur ("garder un historique de
+// chaque rapprochement et de ses modifications").
+model RapprochementHistorique {
+  id                  String   @id @default(cuid())
+  mouvementBancaireId String
+  action              String // "rapproche_auto" | "rapproche_manuel" | "annule_manuel" | "ambigu"
+  ancienStatut        String?
+  nouveauStatut       String
+  detail              String? // JSON texte : cibles, montants
+  auteur              String?
+  createdAt           DateTime @default(now())
+
+  @@index([mouvementBancaireId])
+}
+
+// Validation mensuelle du rapprochement bancaire (section "Suivi mensuel") -
+// demande explicite de l'utilisateur : "Termine et valide" (coche verte) doit
+// etre un geste humain volontaire, jamais une simple consequence automatique
+// de "100% des mouvements sont rapproches". Garde une photographie des
+// compteurs au moment de la validation pour detecter un changement ulterieur
+// (ex. un nouveau releve du meme mois importe apres coup) sans jamais
+// ecraser silencieusement une validation deja donnee.
+model ValidationMoisComptable {
+  id                   String    @id @default(cuid())
+  periode              String    @unique // "AAAA-MM"
+  valide               Boolean   @default(true)
+  auteur               String?
+  createdAt            DateTime  @default(now())
+  nbMouvementsAuMoment Int
+  nbRapprochesAuMoment Int
+  // Jamais de DELETE : une invalidation (detection de changement) renseigne
+  // ces deux champs plutot que de supprimer la ligne.
+  invalideLe           DateTime?
+  invalideMotif        String?
+}
+
 // Ligne d'un recapitulatif de solde Stripe periodique (categorie deja
 // agregee par Stripe : starting_balance, activity_gross, activity_fee,
 // activity, payouts_gross, payouts_fee, payouts, ending_balance...).

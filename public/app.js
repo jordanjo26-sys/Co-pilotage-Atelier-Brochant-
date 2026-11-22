@@ -392,6 +392,18 @@ async function chargerImports() {
     .join("");
 }
 
+// Classe de bordure par statut - demande explicite de l'utilisateur :
+// encadrement vert + coche pour un rapprochement valide, orange pour une
+// correspondance incertaine ("a_verifier", desormais reellement persiste
+// par le moteur - voir rapprochementBancaire.ts). Les classes .badge-* elles-
+// memes restent inchangees (deja correctement colorees, partagees avec
+// d'autres modules) : seule la bordure de ligne est nouvelle.
+function classeLigneRapprochement(statut) {
+  if (statut === "rapproche") return "rapprochement-ligne-ok";
+  if (statut === "a_verifier") return "rapprochement-ligne-attention";
+  return "";
+}
+
 async function chargerMouvementsBancaires() {
   const res = await fetch("/api/mouvements-bancaires");
   const mouvements = await res.json();
@@ -399,15 +411,199 @@ async function chargerMouvementsBancaires() {
   tbody.innerHTML = mouvements
     .map(
       (m) => `
-    <tr>
+    <tr class="${classeLigneRapprochement(m.rapprochementStatut)}">
       <td>${fmtDate(m.date)}</td>
       <td>${echapper(m.libelle)}</td>
       <td>${m.debit > 0 ? fmtMontant(m.debit) : ""}</td>
       <td>${m.credit > 0 ? fmtMontant(m.credit) : ""}</td>
-      <td><span class="badge badge-${m.rapprochementStatut}">${echapper(m.rapprochementStatut.replace(/_/g, " "))}</span></td>
+      <td><span class="badge badge-${m.rapprochementStatut}">${m.rapprochementStatut === "rapproche" ? "✓ " : ""}${echapper(m.rapprochementStatut.replace(/_/g, " "))}</span></td>
+      <td><button type="button" class="ghost bouton-lien" onclick="basculerDetailMouvement('${m.id}', this)">Détail</button></td>
+    </tr>
+    <tr class="rapprochement-detail-ligne" data-detail-pour="${m.id}" hidden>
+      <td colspan="6"><div class="rapprochement-detail"></div></td>
     </tr>`
     )
     .join("");
+}
+
+/**
+ * Detail depliable d'un mouvement (facture(s) liee(s), historique, et selon
+ * son statut un outil de rattachement manuel ou un bouton d'annulation) -
+ * charge a la demande (pas de pre-chargement pour chaque ligne : la table
+ * peut compter plusieurs milliers de mouvements).
+ */
+async function basculerDetailMouvement(id, bouton) {
+  const ligneDetail = document.querySelector(`tr.rapprochement-detail-ligne[data-detail-pour="${id}"]`);
+  if (!ligneDetail) return;
+  if (!ligneDetail.hidden) {
+    ligneDetail.hidden = true;
+    bouton.textContent = "Détail";
+    return;
+  }
+  bouton.textContent = "Masquer";
+  ligneDetail.hidden = false;
+  await rafraichirDetailMouvement(id);
+}
+
+async function rafraichirDetailMouvement(id) {
+  const ligneDetail = document.querySelector(`tr.rapprochement-detail-ligne[data-detail-pour="${id}"]`);
+  const conteneur = ligneDetail?.querySelector(".rapprochement-detail");
+  if (!conteneur) return;
+  // chargerMouvementsBancaires (appelee juste avant par les actions
+  // valider/annuler ci-dessous) reconstruit toute la table, donc une
+  // ligne de detail precedemment ouverte revient fermee par defaut - on la
+  // rouvre ici pour que l'utilisateur voie immediatement le resultat de son
+  // action, sans avoir a recliquer sur "Detail".
+  ligneDetail.hidden = false;
+  const boutonDetail = document.querySelector(`tr[class] button[onclick*="basculerDetailMouvement('${id}'"]`);
+  if (boutonDetail) boutonDetail.textContent = "Masquer";
+  conteneur.innerHTML = `<p class="aide-inline">Chargement…</p>`;
+  try {
+    const res = await fetch(`/api/mouvements-bancaires/${id}/detail`);
+    const detail = await res.json();
+    if (!res.ok) throw new Error(detail.erreur || "Chargement impossible.");
+
+    let candidats = { archives: [], documents: [] };
+    if (detail.mouvement.rapprochementStatut !== "rapproche") {
+      const resCandidats = await fetch(`/api/mouvements-bancaires/${id}/candidats`);
+      if (resCandidats.ok) candidats = await resCandidats.json();
+    }
+
+    conteneur.innerHTML = construireDetailMouvementHtml(detail, candidats);
+    attacherActionsDetailMouvement(conteneur, id, detail);
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+
+function libelleCible(cible) {
+  if (!cible.detail) return `${cible.cibleType} ${cible.cibleId}`;
+  if (cible.cibleType === "archive_comptable") {
+    return `${echapper(cible.detail.fournisseurNom || "Fournisseur non identifié")} — ${echapper(cible.detail.fichierNom)}`;
+  }
+  return `${echapper(cible.detail.fournisseur?.nom || cible.detail.gmailExpediteur || "Fournisseur non identifié")} — ${echapper(cible.detail.fichierNom || cible.cibleId)}`;
+}
+
+function construireDetailMouvementHtml(detail, candidats) {
+  const { mouvement, cibles, historique } = detail;
+  const cibleLignes = cibles.length
+    ? cibles
+        .map(
+          (c) => `
+      <div class="rapprochement-detail-cible">
+        <span>${libelleCible(c)}</span>
+        <span class="badge badge-ok">${fmtMontant(c.montantAffecte)}</span>
+        <span class="aide-inline">${c.origine === "manuel" ? "rattaché manuellement" : "automatique"}</span>
+      </div>`
+        )
+        .join("")
+    : `<p class="aide-inline">Aucune facture rattachée pour le moment.</p>`;
+
+  const historiqueLignes = historique.length
+    ? `<ul class="rapprochement-historique">${historique
+        .map((h) => `<li>${fmtDate(h.createdAt)} — ${echapper(h.action.replace(/_/g, " "))}${h.auteur ? ` (${echapper(h.auteur)})` : ""}</li>`)
+        .join("")}</ul>`
+    : `<p class="aide-inline">Aucun historique pour le moment.</p>`;
+
+  let actionHtml = "";
+  if (mouvement.rapprochementStatut === "rapproche") {
+    actionHtml = `<button type="button" class="ghost" data-action="annuler">Annuler ce rapprochement</button>`;
+  } else {
+    const tousLesCandidats = [
+      ...candidats.archives.map((a) => ({ type: "archive_comptable", id: a.id, montant: a.montantTTC, libelle: `${a.fournisseurNom || "Fournisseur non identifié"} — ${a.fichierNom} (${fmtDate(a.dateFacture)})` })),
+      ...candidats.documents.map((d) => ({ type: "document_fournisseur", id: d.id, montant: d.montantTTC, libelle: `${d.fichierNom || d.id} (${fmtDate(d.date)})` })),
+    ];
+    actionHtml = `
+      <div class="rapprochement-picker">
+        <p class="aide-inline">Rattacher manuellement une ou plusieurs factures (montant modifiable pour un règlement partiel) :</p>
+        ${
+          tousLesCandidats.length === 0
+            ? `<p class="aide-inline">Aucune facture non rapprochée dans la fenêtre de dates habituelle.</p>`
+            : tousLesCandidats
+                .map(
+                  (c) => `
+          <label class="rapprochement-picker-ligne">
+            <input type="checkbox" data-cible-type="${c.type}" data-cible-id="${c.id}" />
+            ${echapper(c.libelle)}
+            <input type="number" step="0.01" min="0" class="rapprochement-picker-montant" value="${c.montant}" />
+          </label>`
+                )
+                .join("")
+        }
+        <button type="button" class="ghost" data-action="valider">Valider le rattachement</button>
+      </div>`;
+  }
+
+  return `
+    <div class="rapprochement-detail-section">
+      <h4>Factures rattachées</h4>
+      ${cibleLignes}
+    </div>
+    <div class="rapprochement-detail-section">
+      <h4>Historique</h4>
+      ${historiqueLignes}
+    </div>
+    <div class="rapprochement-detail-section">
+      ${actionHtml}
+    </div>`;
+}
+
+function attacherActionsDetailMouvement(conteneur, id, detail) {
+  const boutonAnnuler = conteneur.querySelector('[data-action="annuler"]');
+  if (boutonAnnuler) {
+    boutonAnnuler.addEventListener("click", async () => {
+      if (!confirm("Annuler ce rapprochement ? La ou les factures redeviendront disponibles pour un nouveau rattachement.")) return;
+      boutonAnnuler.disabled = true;
+      try {
+        const res = await fetch(`/api/mouvements-bancaires/${id}/annuler`, { method: "POST" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.erreur || "Annulation impossible.");
+        }
+        await chargerMouvementsBancaires();
+        await chargerSuiviMensuel();
+        await rafraichirDetailMouvement(id);
+      } catch (err) {
+        alert(err.message);
+        boutonAnnuler.disabled = false;
+      }
+    });
+  }
+
+  const boutonValider = conteneur.querySelector('[data-action="valider"]');
+  if (boutonValider) {
+    boutonValider.addEventListener("click", async () => {
+      const lignes = [...conteneur.querySelectorAll(".rapprochement-picker-ligne")];
+      const cibles = lignes
+        .filter((ligne) => ligne.querySelector("input[type=checkbox]").checked)
+        .map((ligne) => ({
+          type: ligne.querySelector("input[type=checkbox]").dataset.cibleType,
+          id: ligne.querySelector("input[type=checkbox]").dataset.cibleId,
+          montantAffecte: Number(ligne.querySelector(".rapprochement-picker-montant").value),
+        }));
+      if (cibles.length === 0) {
+        alert("Cochez au moins une facture à rattacher.");
+        return;
+      }
+      boutonValider.disabled = true;
+      try {
+        const res = await fetch(`/api/mouvements-bancaires/${id}/valider`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cibles }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.erreur || "Validation impossible.");
+        await chargerMouvementsBancaires();
+        await chargerSuiviMensuel();
+        await rafraichirDetailMouvement(id);
+      } catch (err) {
+        alert(err.message);
+        boutonValider.disabled = false;
+      }
+    });
+  }
+  void detail;
 }
 
 document.getElementById("btn-relancer-rapprochement").addEventListener("click", async (e) => {
@@ -423,17 +619,114 @@ document.getElementById("btn-relancer-rapprochement").addEventListener("click", 
       Payouts Stripe : ${data.nbRapproches} rapproché(s), ${data.nbAmbigus} ambigu(s), ${data.nbSansCorrespondance} sans correspondance.<br>
       Factures fournisseurs : ${data.nbRapprochesDocuments} rapprochée(s), ${data.nbAmbigusDocuments} ambiguë(s), ${data.nbSansCorrespondanceDocuments} sans correspondance.<br>
       Factures archivées hors Dext (EDF, Bouygues…) : ${data.nbRapprochesArchives} rapprochée(s), ${data.nbAmbigusArchives} ambiguë(s), ${data.nbSansCorrespondanceArchives} sans correspondance.<br>
+      Règlements multi-factures/partiels : ${data.nbRapprochesMultiFactures} rapproché(s), ${data.nbAmbigusMultiFactures} ambigu(s).<br>
       Règlements clients en carte (remises CB) : ${data.nbRapprochesRemisesCb} rapprochée(s), ${data.nbAmbigusRemisesCb} ambiguë(s), ${data.nbSansCorrespondanceRemisesCb} sans correspondance.<br>
       Règlements clients en chèque (remises chèques) : ${data.nbRapprochesRemisesCheques} rapprochée(s), ${data.nbAmbigusRemisesCheques} ambiguë(s), ${data.nbSansCorrespondanceRemisesCheques} sans correspondance.<br>
       Virements clients directs : ${data.nbRapprochesVirementsClients} rapproché(s), ${data.nbAmbigusVirementsClients} ambigu(s), ${data.nbSansCorrespondanceVirementsClients} sans correspondance.
     `;
     await chargerMouvementsBancaires();
+    await chargerSuiviMensuel();
   } catch (err) {
     resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
   } finally {
     bouton.disabled = false;
   }
 });
+
+// --- Suivi mensuel du rapprochement bancaire -------------------------------
+//
+// Nouvel onglet (demande explicite de l'utilisateur) : un mois passe en
+// "Termine et valide" uniquement par un geste manuel explicite (voir
+// suiviMensuel.ts), jamais deduit automatiquement d'un taux de
+// rapprochement de 100%.
+
+const LIBELLES_STATUT_MOIS = { en_cours: "En cours", a_verifier: "À vérifier", termine_valide: "Terminé et validé" };
+
+async function chargerSuiviMensuel() {
+  const conteneur = document.getElementById("suivi-mensuel-liste");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/suivi-mensuel");
+    const statuts = await res.json();
+    if (!res.ok) throw new Error(statuts.erreur || "Chargement impossible.");
+
+    definirBadge("suivi-mensuel", statuts.filter((s) => s.statut === "a_verifier").length);
+
+    conteneur.innerHTML = statuts.length
+      ? statuts.map((s) => construireCarteSuiviMensuel(s)).join("")
+      : `<p class="liste-vide">Aucun mouvement bancaire importé pour le moment.</p>`;
+
+    conteneur.querySelectorAll("[data-valider-periode]").forEach((bouton) => {
+      bouton.addEventListener("click", () => validerMoisDepuisUI(bouton.dataset.validerPeriode));
+    });
+    conteneur.querySelectorAll("[data-invalider-periode]").forEach((bouton) => {
+      bouton.addEventListener("click", () => invaliderMoisDepuisUI(bouton.dataset.invaliderPeriode));
+    });
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+
+function construireCarteSuiviMensuel(s) {
+  const libelleMois = libelleMoisAnnee(`${s.periode}-01`);
+  const coche = s.statut === "termine_valide" ? "✓ " : "";
+  const driftHtml =
+    s.driftDetecte
+      ? `<span class="suivi-mensuel-drift">⚠ Des mouvements ont changé depuis la validation.</span> <button type="button" class="ghost bouton-lien" data-invalider-periode="${s.periode}">Dé-valider ce mois</button>`
+      : "";
+  const boutonValider =
+    s.statut !== "termine_valide"
+      ? `<button type="button" class="ghost" data-valider-periode="${s.periode}">Je valide ce mois</button>`
+      : "";
+
+  return `
+    <div class="suivi-mensuel-carte">
+      <span class="suivi-mensuel-mois">${echapper(libelleMois)}</span>
+      <span class="suivi-mensuel-compteurs">${s.nbRapproches}/${s.nbMouvements} rapproché(s)${s.nbAVerifier > 0 ? `, ${s.nbAVerifier} à vérifier` : ""}</span>
+      <span class="badge suivi-mensuel-statut-${s.statut}">${coche}${echapper(LIBELLES_STATUT_MOIS[s.statut] || s.statut)}</span>
+      ${driftHtml}
+      ${boutonValider}
+    </div>`;
+}
+
+async function validerMoisDepuisUI(periode) {
+  // Avertissement renforce (jamais de blocage dur) si des mouvements
+  // restent "a verifier" - la decision finale reste toujours celle de
+  // l'utilisateur, jamais celle du systeme (demande explicite).
+  const statuts = await (await fetch("/api/suivi-mensuel")).json();
+  const mois = statuts.find((s) => s.periode === periode);
+  if (mois && mois.nbAVerifier > 0) {
+    if (!confirm(`${mois.nbAVerifier} mouvement(s) de ce mois restent "à vérifier". Valider quand même ce mois comme terminé ?`)) return;
+  } else if (!confirm("Valider ce mois comme terminé et contrôlé ?")) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/suivi-mensuel/${periode}/valider`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Validation impossible.");
+    }
+    await chargerSuiviMensuel();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+window.validerMoisDepuisUI = validerMoisDepuisUI;
+
+async function invaliderMoisDepuisUI(periode) {
+  if (!confirm("Dé-valider ce mois ? Il repassera en \"En cours\" jusqu'à une nouvelle validation.")) return;
+  try {
+    const res = await fetch(`/api/suivi-mensuel/${periode}/invalider`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Dé-validation impossible.");
+    }
+    await chargerSuiviMensuel();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+window.invaliderMoisDepuisUI = invaliderMoisDepuisUI;
 
 // Liste brute conservee en memoire : les filtres (date d'echeance, montant,
 // client, statut - voir afficherFacturesImpayeesFiltrees) s'appliquent cote
@@ -1551,6 +1844,47 @@ function voirDocument(url) {
   window.location.href = url;
 }
 window.voirDocument = voirDocument;
+
+// --- Visualiseur en page (Comptabilite uniquement) -------------------------
+//
+// Contrairement a voirDocument ci-dessus (navigation pleine page, conservee
+// telle quelle pour les autres modules), le module Comptabilite demande
+// explicitement de pouvoir visualiser chaque facture SANS quitter
+// l'application - une simple modale suffit ici car /api/archives-comptables
+// deja en Content-Disposition: inline (voir archiveComptableRoutes.ts) rend
+// un PDF nativement dans une iframe.
+function ouvrirApercuDocument(url, mimeType) {
+  const modal = document.getElementById("archive-v2-modal");
+  const corps = document.getElementById("archive-v2-modal-corps");
+  if (!modal || !corps) return voirDocument(url);
+  corps.innerHTML =
+    mimeType === "application/pdf"
+      ? `<iframe src="${echapper(url)}" title="Aperçu du document"></iframe>`
+      : `<img src="${echapper(url)}" alt="Aperçu du document" />`;
+  modal.hidden = false;
+}
+window.ouvrirApercuDocument = ouvrirApercuDocument;
+
+function fermerApercuDocument() {
+  const modal = document.getElementById("archive-v2-modal");
+  const corps = document.getElementById("archive-v2-modal-corps");
+  if (!modal) return;
+  modal.hidden = true;
+  if (corps) corps.innerHTML = "";
+}
+window.fermerApercuDocument = fermerApercuDocument;
+
+(function initialiserApercuDocumentModal() {
+  const modal = document.getElementById("archive-v2-modal");
+  if (!modal) return;
+  document.getElementById("archive-v2-modal-fermer")?.addEventListener("click", fermerApercuDocument);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) fermerApercuDocument();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) fermerApercuDocument();
+  });
+})();
 
 // --- Anomalies : liste de cartes avec selection multiple -------------------
 
@@ -3053,6 +3387,35 @@ function detecterIdsDoublonsArchives(archives) {
   return idsDoublons;
 }
 
+/**
+ * Markup d'une carte facture, partage entre les 3 sous-vues (Mois en cours,
+ * Archives, A verifier) - evite de dupliquer 3 fois le meme gabarit. La
+ * raison affichee en plus du badge "a verifier"/"doublon possible" habituel
+ * (idsDoublons) est optionnelle : fournie uniquement par la sous-vue
+ * "A verifier" (voir listerArchivesAVerifier cote serveur).
+ */
+function construireCarteArchiveComptable(a, { doublon = false } = {}) {
+  return `
+      <div class="fournisseur-carte" id="archive-comptable-${a.id}">
+        <div class="fournisseur-nom"><span class="fournisseur-nom-icone">📄</span>${echapper(a.fournisseurNom || "Fournisseur non identifié")}</div>
+        <div class="anomalie-meta">
+          ${echapper(a.fichierNom)}
+          ${a.dateFacture ? ` · ${fmtDate(a.dateFacture)}` : ""}
+          ${a.numero ? ` · n° ${echapper(a.numero)}` : ""}
+          ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
+          ${doublon ? ` · <span class="badge badge-palier-ambre">doublon possible</span>` : ""}
+          ${a.categorie ? ` · <span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
+        </div>
+        <div class="fournisseur-actions fournisseur-actions-ligne">
+          ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
+          ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="alerte-montant-manquant">TTC non renseigné</span>`}
+          <button type="button" class="ghost bouton-lien" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}')">Voir</button>
+          <button type="button" class="ghost bouton-lien" onclick="corrigerArchiveComptable('${a.id}')">Corriger</button>
+          <button type="button" class="ghost bouton-lien" onclick="supprimerArchiveComptable('${a.id}', this)">Supprimer</button>
+        </div>
+      </div>`;
+}
+
 function afficherArchivesComptablesFiltrees() {
   const conteneur = document.getElementById("liste-archives-comptables");
   if (!conteneur) return;
@@ -3116,29 +3479,7 @@ function afficherArchivesComptablesFiltrees() {
       ([mois, docs]) => `
     <div class="groupe-mois">
       <h3 class="groupe-mois-titre">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></h3>
-      ${docs
-        .map(
-          (a) => `
-      <div class="fournisseur-carte" id="archive-comptable-${a.id}">
-        <div class="fournisseur-nom"><span class="fournisseur-nom-icone">📄</span>${echapper(a.fournisseurNom || "Fournisseur non identifié")}</div>
-        <div class="anomalie-meta">
-          ${echapper(a.fichierNom)}
-          ${a.dateFacture ? ` · ${fmtDate(a.dateFacture)}` : ""}
-          ${a.numero ? ` · n° ${echapper(a.numero)}` : ""}
-          ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
-          ${idsDoublons.has(a.id) ? ` · <span class="badge badge-palier-ambre">doublon possible</span>` : ""}
-          ${a.categorie ? ` · <span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
-        </div>
-        <div class="fournisseur-actions fournisseur-actions-ligne">
-          ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
-          ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="alerte-montant-manquant">TTC non renseigné</span>`}
-          <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/archives-comptables/${a.id}/fichier')">Voir</button>
-          <button type="button" class="ghost bouton-lien" onclick="corrigerArchiveComptable('${a.id}')">Corriger</button>
-          <button type="button" class="ghost bouton-lien" onclick="supprimerArchiveComptable('${a.id}', this)">Supprimer</button>
-        </div>
-      </div>`
-        )
-        .join("")}
+      ${docs.map((a) => construireCarteArchiveComptable(a, { doublon: idsDoublons.has(a.id) })).join("")}
     </div>`
     )
     .join("");
@@ -3203,6 +3544,117 @@ async function chargerArchivesComptables() {
   if (boutonExporterCsv && !boutonExporterCsv.dataset.initialise) {
     boutonExporterCsv.addEventListener("click", exporterArchivesComptablesCsv);
     boutonExporterCsv.dataset.initialise = "1";
+  }
+}
+
+// --- Comptabilite : sous-vues Mois en cours / Archives / A verifier -------
+//
+// Restructuration demandee par l'utilisateur : le mois en cours par defaut,
+// un onglet Archives classe par annee/mois, un espace dedie "A verifier"
+// (doublons + infos manquantes) - voir le plan greedy-puzzling-quail.
+// basculerOnglet (plus haut) gere les onglets de PREMIER niveau ; ces
+// sous-onglets sont internes au panneau Comptabilite, geres separement.
+
+function basculerSousVueComptabilite(nom) {
+  document.querySelectorAll(".archive-v2-sousonglet").forEach((b) => {
+    const actif = b.dataset.sousvue === nom;
+    b.classList.toggle("actif", actif);
+    b.setAttribute("aria-selected", actif ? "true" : "false");
+  });
+  document.querySelectorAll(".archive-v2-sousvue").forEach((p) => {
+    p.hidden = p.dataset.sousvuePanneau !== nom;
+  });
+}
+window.basculerSousVueComptabilite = basculerSousVueComptabilite;
+
+document.querySelectorAll(".archive-v2-sousonglet").forEach((b) => {
+  b.addEventListener("click", () => basculerSousVueComptabilite(b.dataset.sousvue));
+});
+
+/**
+ * Vue par defaut du module : uniquement les factures dont la date de
+ * FACTURATION (dateFacture, pas la date d'import) tombe dans le mois en
+ * cours - demande explicite de l'utilisateur. Un mois qui se termine
+ * disparait de cette vue de lui-meme au changement de mois (nouvel appel
+ * avec un anneeMois different), sans aucun deplacement de fichier : il
+ * reste consultable via l'onglet Archives (meme donnees, filtre different).
+ */
+async function chargerArchivesMoisCourant() {
+  const conteneur = document.getElementById("archive-v2-mois-courant-liste");
+  const libelleEl = document.getElementById("archive-v2-mois-courant-libelle");
+  if (!conteneur) return;
+
+  const maintenant = new Date();
+  const anneeMois = `${maintenant.getFullYear()}-${String(maintenant.getMonth() + 1).padStart(2, "0")}`;
+  if (libelleEl) libelleEl.textContent = `Factures datées de ${libelleMoisAnnee(maintenant.toISOString())}.`;
+
+  try {
+    const res = await fetch(`/api/archives-comptables?anneeMois=${anneeMois}`);
+    const archives = await res.json();
+    if (!res.ok) throw new Error(archives.erreur || "Chargement impossible.");
+    const idsDoublons = detecterIdsDoublonsArchives(archives);
+    conteneur.innerHTML =
+      archives.length === 0
+        ? `<p class="liste-vide">Aucune facture datée du mois en cours pour le moment.</p>`
+        : archives.map((a) => construireCarteArchiveComptable(a, { doublon: idsDoublons.has(a.id) })).join("");
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+
+/**
+ * Index annee/mois de l'onglet Archives - cliquer sur un mois applique les
+ * filtres de date existants (dateDebut/dateFin) sur les donnees DEJA
+ * chargees par chargerArchivesComptables (recherche globale, voir
+ * ID_FILTRES_ARCHIVE_COMPTABLE) : pas de nouvel appel reseau necessaire.
+ */
+async function chargerArchivesAnnees() {
+  const conteneur = document.getElementById("archive-v2-annees");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/archives-comptables/mois-disponibles");
+    const mois = await res.json();
+    if (!res.ok) throw new Error(mois.erreur || "Chargement impossible.");
+    conteneur.innerHTML = mois
+      .map(
+        (m) =>
+          `<button type="button" class="archive-v2-mois-chip" data-anneemois="${echapper(m.periode)}">${echapper(m.libelle)}<span class="archive-v2-mois-chip-compte">${m.nombre}</span></button>`
+      )
+      .join("");
+    conteneur.querySelectorAll(".archive-v2-mois-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const [annee, moisNum] = chip.dataset.anneemois.split("-").map(Number);
+        const debut = `${chip.dataset.anneemois}-01`;
+        const dernierJour = new Date(annee, moisNum, 0).getDate();
+        document.getElementById("filtre-archive-date-debut").value = debut;
+        document.getElementById("filtre-archive-date-fin").value = `${chip.dataset.anneemois}-${String(dernierJour).padStart(2, "0")}`;
+        afficherArchivesComptablesFiltrees();
+      });
+    });
+  } catch {
+    conteneur.innerHTML = "";
+  }
+}
+
+/**
+ * Espace "A verifier" (doublons probables + informations manquantes) -
+ * demande explicite de l'utilisateur, espace dedie plutot qu'une simple
+ * case a cocher perdue dans les filtres de l'onglet Archives.
+ */
+async function chargerArchivesAVerifier() {
+  const conteneur = document.getElementById("archive-v2-a-verifier-liste");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/archives-comptables/a-verifier");
+    const archives = await res.json();
+    if (!res.ok) throw new Error(archives.erreur || "Chargement impossible.");
+    definirBadge("archive-a-verifier", archives.length);
+    conteneur.innerHTML =
+      archives.length === 0
+        ? `<p class="liste-vide">Rien à vérifier pour le moment.</p>`
+        : archives.map((a) => construireCarteArchiveComptable(a, { doublon: a.raisonAVerifier.startsWith("doublon") })).join("");
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
   }
 }
 
@@ -3373,6 +3825,12 @@ async function corrigerArchiveComptable(id) {
     const index = archivesComptablesBrutes.findIndex((a) => a.id === id);
     if (index !== -1) archivesComptablesBrutes[index] = data;
     afficherArchivesComptablesFiltrees();
+    // Une correction peut faire sortir/entrer l'archive de "Mois en cours"
+    // (date modifiee) ou de "A verifier" (champ complete) - les 2 autres
+    // sous-vues doivent refleter ca tout de suite, pas seulement au prochain
+    // rafraichissement periodique.
+    chargerArchivesMoisCourant();
+    chargerArchivesAVerifier();
   } catch (err) {
     alert(err.message);
   }
@@ -3390,6 +3848,8 @@ async function supprimerArchiveComptable(id, bouton) {
     }
     archivesComptablesBrutes = archivesComptablesBrutes.filter((a) => a.id !== id);
     afficherArchivesComptablesFiltrees();
+    chargerArchivesMoisCourant();
+    chargerArchivesAVerifier();
   } catch (err) {
     bouton.disabled = false;
     alert(err.message);
@@ -3506,7 +3966,7 @@ if (zoneDepotArchiveComptable) {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

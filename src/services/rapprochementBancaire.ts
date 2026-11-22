@@ -83,7 +83,10 @@ const FENETRE_JOURS_ARCHIVE_COMPTABLE = 20;
 // uniquement montant + fenetre de dates, comme les autres rapprochements
 // de ce fichier.
 const FENETRE_JOURS_VIREMENT_CLIENT = 5;
-const TOLERANCE_MONTANT = 0.01; // arrondi centime
+// Exporte (plutot que prive au module) : reutilise par validerRapprochementManuel
+// ci-dessous pour verifier qu'un reglement manuel ne depasse jamais le
+// montant reel du mouvement, avec la meme tolerance d'arrondi.
+export const TOLERANCE_MONTANT = 0.01; // arrondi centime
 
 export interface ResultatRapprochement {
   nbRapproches: number;
@@ -104,6 +107,15 @@ export interface ResultatRapprochement {
   nbRapprochesArchives: number;
   nbAmbigusArchives: number;
   nbSansCorrespondanceArchives: number;
+  // Reglements partiels/multi-factures (debit) : un mouvement qui regle
+  // plusieurs factures (ArchiveComptable et/ou DocumentFournisseur) a la
+  // fois, via un ensemble unique en somme exacte - voir
+  // rechercherSousEnsemblesExacts plus haut (meme principe que les remises
+  // CB/cheques cote credit). Jamais de montant partiel devine : un
+  // reglement reellement partiel (aucun sous-ensemble exact) n'est jamais
+  // compte ici, il reste disponible pour validerRapprochementManuel.
+  nbRapprochesMultiFactures: number;
+  nbAmbigusMultiFactures: number;
   // Rapprochement des remises carte bleue (MouvementBancaire "REMISE CB")
   // avec les encaissements clients en carte (Encaissement.mode = "Carte") -
   // voir plus bas, troisieme source de credits possibles cote clients.
@@ -161,6 +173,48 @@ export interface ResultatRapprochement {
 
 function differenceJours(a: Date, b: Date): number {
   return Math.abs(a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24);
+}
+
+/**
+ * Historique de chaque rapprochement et de ses modifications (demande
+ * explicite de l'utilisateur) - une ligne d'audit par action, jamais
+ * ecrasee ni supprimee (voir RapprochementHistorique dans schema.prisma).
+ */
+async function logRapprochementHistorique(
+  prisma: PrismaClient,
+  params: { mouvementBancaireId: string; action: string; ancienStatut: string | null; nouveauStatut: string; detail?: string; auteur?: string }
+) {
+  await prisma.rapprochementHistorique.create({
+    data: {
+      mouvementBancaireId: params.mouvementBancaireId,
+      action: params.action,
+      ancienStatut: params.ancienStatut,
+      nouveauStatut: params.nouveauStatut,
+      detail: params.detail ?? null,
+      auteur: params.auteur ?? null,
+    },
+  });
+}
+
+/**
+ * Persiste l'ambiguite d'un ou plusieurs mouvements candidats (jusqu'ici
+ * silencieusement perdue : seul un compteur en memoire existait, voir
+ * ResultatRapprochement.nbAmbigus*) - ferme le trou central identifie dans
+ * le plan de restructuration : sans cette ecriture, aucune interface ne
+ * peut jamais afficher "a confirmer" (orange), le statut n'existant qu'en
+ * commentaire de schema jusqu'ici, jamais reellement ecrit.
+ */
+async function marquerMouvementsAmbigus(prisma: PrismaClient, mouvementIds: string[], detail?: string) {
+  for (const id of mouvementIds) {
+    await prisma.mouvementBancaire.update({ where: { id }, data: { rapprochementStatut: "a_verifier" } });
+    await logRapprochementHistorique(prisma, {
+      mouvementBancaireId: id,
+      action: "ambigu",
+      ancienStatut: "non_rapproche",
+      nouveauStatut: "a_verifier",
+      detail,
+    });
+  }
 }
 
 /**
@@ -231,6 +285,8 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     nbRapprochesArchives: 0,
     nbAmbigusArchives: 0,
     nbSansCorrespondanceArchives: 0,
+    nbRapprochesMultiFactures: 0,
+    nbAmbigusMultiFactures: 0,
     nbRapprochesRemisesCb: 0,
     nbAmbigusRemisesCb: 0,
     nbSansCorrespondanceRemisesCb: 0,
@@ -277,6 +333,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
       resultat.nbRapproches++;
       resultat.details.push({ payoutRef: payout.payoutRef, resultat: "rapproche", mouvementId: mouvement.id });
     } else if (candidats.length > 1) {
+      await marquerMouvementsAmbigus(prisma, candidats.map((m) => m.id), `Payout ${payout.payoutRef} : ${candidats.length} mouvements candidats au meme montant.`);
       resultat.nbAmbigus++;
       resultat.details.push({ payoutRef: payout.payoutRef, resultat: "ambigu" });
     } else {
@@ -323,6 +380,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
       resultat.nbRapprochesFournisseurs++;
       resultat.detailsFournisseurs.push({ factureId: facture.id, reference: facture.reference, resultat: "rapproche", mouvementId: mouvement.id });
     } else if (candidats.length > 1) {
+      await marquerMouvementsAmbigus(prisma, candidats.map((m) => m.id), `Facture fournisseur ${facture.reference ?? facture.id} : ${candidats.length} mouvements candidats au meme montant.`);
       resultat.nbAmbigusFournisseurs++;
       resultat.detailsFournisseurs.push({ factureId: facture.id, reference: facture.reference, resultat: "ambigu" });
     } else {
@@ -373,6 +431,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
       resultat.nbRapprochesDocuments++;
       resultat.detailsDocuments.push({ documentId: document.id, fichierNom: document.fichierNom, resultat: "rapproche", mouvementId: mouvement.id });
     } else if (candidats.length > 1) {
+      await marquerMouvementsAmbigus(prisma, candidats.map((m) => m.id), `Document fournisseur ${document.fichierNom ?? document.id} : ${candidats.length} mouvements candidats au meme montant.`);
       resultat.nbAmbigusDocuments++;
       resultat.detailsDocuments.push({ documentId: document.id, fichierNom: document.fichierNom, resultat: "ambigu" });
     } else {
@@ -419,11 +478,93 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
       resultat.nbRapprochesArchives++;
       resultat.detailsArchives.push({ archiveId: archive.id, fichierNom: archive.fichierNom, resultat: "rapproche", mouvementId: mouvement.id });
     } else if (candidats.length > 1) {
+      await marquerMouvementsAmbigus(prisma, candidats.map((m) => m.id), `Archive comptable ${archive.fichierNom} : ${candidats.length} mouvements candidats au meme montant.`);
       resultat.nbAmbigusArchives++;
       resultat.detailsArchives.push({ archiveId: archive.id, fichierNom: archive.fichierNom, resultat: "ambigu" });
     } else {
       resultat.nbSansCorrespondanceArchives++;
       resultat.detailsArchives.push({ archiveId: archive.id, fichierNom: archive.fichierNom, resultat: "sans_correspondance" });
+    }
+  }
+
+  // --- Reglements partiels / multi-factures (debit) --------------------
+  // Demande explicite de l'utilisateur : un reglement bancaire peut couvrir
+  // plusieurs factures a la fois, ou regler une facture pour un montant qui
+  // ne correspond a aucune facture seule. Decision fixee (jamais de pari
+  // sur un montant inexact, section 14) : seul un ENSEMBLE UNIQUE de
+  // factures (ArchiveComptable et/ou DocumentFournisseur, pas encore
+  // rapprochees) dont la somme egale EXACTEMENT le mouvement est rapproche
+  // ici - reutilise rechercherSousEnsemblesExacts, deja utilise cote credit
+  // pour les remises CB/cheques. Un reglement reellement partiel (aucun
+  // sous-ensemble exact) n'est jamais devine : il reste disponible pour un
+  // rattachement manuel (voir validerRapprochementManuel plus bas).
+  const mouvementsDebitRestants = (
+    await prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } })
+  ).filter((m) => !dejaUtilises.has(m.id));
+
+  if (mouvementsDebitRestants.length > 0) {
+    const [archivesDisponibles, documentsDisponibles] = await Promise.all([
+      prisma.archiveComptable.findMany({ where: { montantTTC: { not: null }, dateFacture: { not: null }, mouvementBancaireId: null } }),
+      prisma.documentFournisseur.findMany({ where: { type: "facture", montantTTC: { not: null }, mouvementBancaireId: null } }),
+    ]);
+    type CibleMulti = { cibleType: "archive_comptable" | "document_fournisseur"; cibleId: string; montant: number; date: Date };
+    const facturesDisponibles: CibleMulti[] = [
+      ...archivesDisponibles.map((a) => ({ cibleType: "archive_comptable" as const, cibleId: a.id, montant: a.montantTTC as number, date: a.dateFacture as Date })),
+      ...documentsDisponibles
+        .filter((d) => d.date !== null || d.dateReceptionMail !== null)
+        .map((d) => ({ cibleType: "document_fournisseur" as const, cibleId: d.id, montant: d.montantTTC as number, date: (d.date ?? d.dateReceptionMail) as Date })),
+    ];
+    const facturesUtiliseesMulti = new Set<string>();
+
+    for (const mouvement of mouvementsDebitRestants) {
+      const candidats = facturesDisponibles.filter(
+        (f) => !facturesUtiliseesMulti.has(f.cibleId) && differenceJours(f.date, mouvement.date) <= FENETRE_JOURS_FACTURE_FOURNISSEUR
+      );
+      // Un seul candidat exact aurait deja ete rapproche par l'une des
+      // passes precedentes (chacune cherche deja une correspondance 1-a-1) -
+      // cette passe n'a d'interet qu'a partir de 2 candidats.
+      if (candidats.length < 2) continue;
+
+      const sousEnsembles = rechercherSousEnsemblesExacts(
+        candidats.map((f) => ({ item: f, montant: f.montant })),
+        Math.round(mouvement.debit * 100)
+      );
+      if (sousEnsembles === null || sousEnsembles.length === 0) continue;
+
+      if (sousEnsembles.length > 1) {
+        await marquerMouvementsAmbigus(
+          prisma,
+          [mouvement.id],
+          `Reglement multi-factures : plusieurs combinaisons de factures correspondent exactement au montant ${mouvement.debit}.`
+        );
+        resultat.nbAmbigusMultiFactures++;
+        continue;
+      }
+
+      const ensemble = sousEnsembles[0];
+      await prisma.$transaction([
+        ...ensemble.map((f) =>
+          f.cibleType === "archive_comptable"
+            ? prisma.archiveComptable.update({ where: { id: f.cibleId }, data: { mouvementBancaireId: mouvement.id } })
+            : prisma.documentFournisseur.update({ where: { id: f.cibleId }, data: { mouvementBancaireId: mouvement.id } })
+        ),
+        ...ensemble.map((f) =>
+          prisma.rapprochementLigne.create({
+            data: { mouvementBancaireId: mouvement.id, cibleType: f.cibleType, cibleId: f.cibleId, montantAffecte: f.montant, origine: "auto_exact" },
+          })
+        ),
+        prisma.mouvementBancaire.update({ where: { id: mouvement.id }, data: { rapprochementStatut: "rapproche" } }),
+      ]);
+      for (const f of ensemble) facturesUtiliseesMulti.add(f.cibleId);
+      dejaUtilises.add(mouvement.id);
+      await logRapprochementHistorique(prisma, {
+        mouvementBancaireId: mouvement.id,
+        action: "rapproche_auto",
+        ancienStatut: "non_rapproche",
+        nouveauStatut: "rapproche",
+        detail: `${ensemble.length} facture(s) : ${ensemble.map((f) => `${f.cibleType}:${f.cibleId}`).join(", ")}`,
+      });
+      resultat.nbRapprochesMultiFactures++;
     }
   }
 
@@ -499,6 +640,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
         resultat.nbRapprochesRemisesCb++;
         resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "rapproche", nbEncaissements: encaissements.length });
       } else if (issue === "ambigu") {
+        await marquerMouvementsAmbigus(prisma, [remise.id], "Remise carte bleue : plusieurs sous-ensembles d'encaissements correspondent exactement au montant.");
         resultat.nbAmbigusRemisesCb++;
         resultat.detailsRemisesCb.push({ mouvementId: remise.id, resultat: "ambigu" });
       } else {
@@ -547,6 +689,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
         resultat.nbRapprochesRemisesCheques++;
         resultat.detailsRemisesCheques.push({ mouvementId: remise.id, resultat: "rapproche", nbEncaissements: encaissements.length });
       } else if (issue === "ambigu") {
+        await marquerMouvementsAmbigus(prisma, [remise.id], "Remise cheques : plusieurs sous-ensembles d'encaissements correspondent exactement au montant.");
         resultat.nbAmbigusRemisesCheques++;
         resultat.detailsRemisesCheques.push({ mouvementId: remise.id, resultat: "ambigu" });
       } else {
@@ -596,6 +739,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
           encaissementId: encaissement.id,
         });
       } else if (candidats.length > 1) {
+        await marquerMouvementsAmbigus(prisma, [mouvement.id], `Virement client "${mouvement.libelle}" : ${candidats.length} encaissements candidats au meme montant.`);
         resultat.nbAmbigusVirementsClients++;
         resultat.detailsVirementsClients.push({ mouvementId: mouvement.id, libelle: mouvement.libelle, resultat: "ambigu" });
       } else {
@@ -614,6 +758,8 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     resultat.nbAmbigusDocuments > 0 ||
     resultat.nbRapprochesArchives > 0 ||
     resultat.nbAmbigusArchives > 0 ||
+    resultat.nbRapprochesMultiFactures > 0 ||
+    resultat.nbAmbigusMultiFactures > 0 ||
     resultat.nbRapprochesRemisesCb > 0 ||
     resultat.nbAmbigusRemisesCb > 0 ||
     resultat.nbRapprochesRemisesCheques > 0 ||
@@ -624,9 +770,207 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     await logEvenement(prisma, {
       evenement: "rapprochement_bancaire",
       action: "Rapprochement automatique payouts/factures fournisseurs <-> mouvements bancaires",
-      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Archives comptables hors Dext : ${resultat.nbRapprochesArchives} rapprochee(s), ${resultat.nbAmbigusArchives} ambigue(s), ${resultat.nbSansCorrespondanceArchives} sans correspondance. Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance. Remises cheques : ${resultat.nbRapprochesRemisesCheques} rapprochee(s), ${resultat.nbAmbigusRemisesCheques} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCheques} sans correspondance. Virements clients directs : ${resultat.nbRapprochesVirementsClients} rapproche(s), ${resultat.nbAmbigusVirementsClients} ambigu(s), ${resultat.nbSansCorrespondanceVirementsClients} sans correspondance.`,
+      resultat: `Payouts : ${resultat.nbRapproches} rapproche(s), ${resultat.nbAmbigus} ambigu(s), ${resultat.nbSansCorrespondance} sans correspondance. Factures fournisseurs : ${resultat.nbRapprochesFournisseurs} rapprochee(s), ${resultat.nbAmbigusFournisseurs} ambigue(s), ${resultat.nbSansCorrespondanceFournisseurs} sans correspondance. Documents fournisseurs : ${resultat.nbRapprochesDocuments} rapproche(s), ${resultat.nbAmbigusDocuments} ambigu(s), ${resultat.nbSansCorrespondanceDocuments} sans correspondance. Archives comptables hors Dext : ${resultat.nbRapprochesArchives} rapprochee(s), ${resultat.nbAmbigusArchives} ambigue(s), ${resultat.nbSansCorrespondanceArchives} sans correspondance. Reglements multi-factures : ${resultat.nbRapprochesMultiFactures} rapproche(s), ${resultat.nbAmbigusMultiFactures} ambigu(s). Remises carte bleue : ${resultat.nbRapprochesRemisesCb} rapprochee(s), ${resultat.nbAmbigusRemisesCb} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCb} sans correspondance. Remises cheques : ${resultat.nbRapprochesRemisesCheques} rapprochee(s), ${resultat.nbAmbigusRemisesCheques} ambigue(s), ${resultat.nbSansCorrespondanceRemisesCheques} sans correspondance. Virements clients directs : ${resultat.nbRapprochesVirementsClients} rapproche(s), ${resultat.nbAmbigusVirementsClients} ambigu(s), ${resultat.nbSansCorrespondanceVirementsClients} sans correspondance.`,
     });
   }
 
   return resultat;
+}
+
+// --- Validation/annulation manuelle, detail, candidats ---------------------
+//
+// Complements au moteur automatique ci-dessus (section "Rapprochement
+// bancaire" du plan de restructuration) : permettent a l'utilisateur de
+// traiter lui-meme un mouvement reste "a_verifier" (ambigu ou reglement
+// genuinement partiel) sans jamais deviner a sa place.
+
+function montantEffectifMouvement(mouvement: { debit: number; credit: number; montant: number }): number {
+  if (mouvement.debit > 0) return mouvement.debit;
+  if (mouvement.credit > 0) return mouvement.credit;
+  return Math.abs(mouvement.montant);
+}
+
+export interface CibleRapprochementManuel {
+  type: "archive_comptable" | "document_fournisseur";
+  id: string;
+  montantAffecte: number;
+}
+
+/**
+ * Rattache manuellement une ou plusieurs factures a un mouvement bancaire -
+ * gere aussi bien le reglement partiel (une seule facture, montant affecte
+ * inferieur a son propre montant) que le reglement multi-factures. Jamais
+ * de montant invente : la somme deja affectee (lignes actives existantes +
+ * nouvelles cibles) ne peut jamais depasser le montant reel du mouvement
+ * (tolerance d'arrondi TOLERANCE_MONTANT). Le mouvement ne repasse
+ * "rapproche" que lorsque la somme couvre entierement son montant ; sinon
+ * il reste "a_verifier" (reglement partiel assume, jamais cache).
+ */
+export async function validerRapprochementManuel(
+  prisma: PrismaClient,
+  mouvementId: string,
+  cibles: CibleRapprochementManuel[],
+  auteur?: string
+) {
+  if (cibles.length === 0) throw new Error("Aucune cible fournie.");
+
+  const mouvement = await prisma.mouvementBancaire.findUnique({ where: { id: mouvementId } });
+  if (!mouvement) throw new Error("Mouvement bancaire introuvable.");
+
+  const montantMouvement = montantEffectifMouvement(mouvement);
+  const lignesActives = await prisma.rapprochementLigne.findMany({ where: { mouvementBancaireId: mouvementId, annuleLe: null } });
+  const dejaAffecte = lignesActives.reduce((somme, l) => somme + l.montantAffecte, 0);
+  const nouveauTotal = dejaAffecte + cibles.reduce((somme, c) => somme + c.montantAffecte, 0);
+
+  if (nouveauTotal > montantMouvement + TOLERANCE_MONTANT) {
+    throw new Error(
+      `Le montant total affecté (${nouveauTotal.toFixed(2)} €) dépasserait le montant du mouvement (${montantMouvement.toFixed(2)} €).`
+    );
+  }
+
+  const couvertEntierement = nouveauTotal >= montantMouvement - TOLERANCE_MONTANT;
+  const nouveauStatut = couvertEntierement ? "rapproche" : "a_verifier";
+
+  await prisma.$transaction([
+    ...cibles.map((c) =>
+      prisma.rapprochementLigne.create({
+        data: { mouvementBancaireId: mouvementId, cibleType: c.type, cibleId: c.id, montantAffecte: c.montantAffecte, origine: "manuel", auteur },
+      })
+    ),
+    // Cas simple (une seule cible qui couvre exactement le mouvement) : pose
+    // aussi le champ scalaire mouvementBancaireId direct, pour que les
+    // passes automatiques ci-dessus (qui filtrent deja mouvementBancaireId:
+    // null) l'excluent naturellement d'un futur rapprochement. Un reglement
+    // partiel ou multi-factures reste uniquement trace via
+    // RapprochementLigne (le champ scalaire ne peut representer qu'un lien
+    // 1-pour-1).
+    ...(cibles.length === 1 && lignesActives.length === 0 && couvertEntierement
+      ? [
+          cibles[0].type === "archive_comptable"
+            ? prisma.archiveComptable.update({ where: { id: cibles[0].id }, data: { mouvementBancaireId: mouvementId } })
+            : prisma.documentFournisseur.update({ where: { id: cibles[0].id }, data: { mouvementBancaireId: mouvementId } }),
+        ]
+      : []),
+    prisma.mouvementBancaire.update({ where: { id: mouvementId }, data: { rapprochementStatut: nouveauStatut } }),
+  ]);
+
+  await logRapprochementHistorique(prisma, {
+    mouvementBancaireId: mouvementId,
+    action: "rapproche_manuel",
+    ancienStatut: mouvement.rapprochementStatut,
+    nouveauStatut,
+    detail: `${cibles.length} cible(s) ajoutée(s) manuellement, total affecté ${nouveauTotal.toFixed(2)} € sur ${montantMouvement.toFixed(2)} €.`,
+    auteur,
+  });
+
+  return { statut: nouveauStatut, montantAffecteTotal: nouveauTotal, montantMouvement };
+}
+
+/**
+ * Annulation controlee d'un rapprochement (manuel ou automatique) - jamais
+ * de DELETE (demande explicite : conserver l'historique integral) : les
+ * lignes RapprochementLigne actives sont soft-cancel (annuleLe/annulePar),
+ * et seuls les liens pointant PRECISEMENT vers ce mouvement sont retires
+ * (chaque updateMany est filtre sur mouvementBancaireId === mouvementId),
+ * jamais ceux d'un autre mouvement.
+ */
+export async function annulerRapprochementManuel(prisma: PrismaClient, mouvementId: string, auteur?: string) {
+  const mouvement = await prisma.mouvementBancaire.findUnique({ where: { id: mouvementId } });
+  if (!mouvement) throw new Error("Mouvement bancaire introuvable.");
+
+  const lignesActives = await prisma.rapprochementLigne.findMany({ where: { mouvementBancaireId: mouvementId, annuleLe: null } });
+
+  await prisma.$transaction([
+    ...lignesActives.map((l) =>
+      prisma.rapprochementLigne.update({ where: { id: l.id }, data: { annuleLe: new Date(), annulePar: auteur ?? null } })
+    ),
+    prisma.payout.updateMany({ where: { mouvementBancaireId: mouvementId }, data: { mouvementBancaireId: null } }),
+    prisma.archiveComptable.updateMany({ where: { mouvementBancaireId: mouvementId }, data: { mouvementBancaireId: null } }),
+    prisma.documentFournisseur.updateMany({ where: { mouvementBancaireId: mouvementId }, data: { mouvementBancaireId: null } }),
+    prisma.encaissement.updateMany({ where: { mouvementBancaireId: mouvementId }, data: { mouvementBancaireId: null } }),
+    prisma.mouvementBancaire.update({ where: { id: mouvementId }, data: { rapprochementStatut: "non_rapproche" } }),
+  ]);
+
+  await logRapprochementHistorique(prisma, {
+    mouvementBancaireId: mouvementId,
+    action: "annule_manuel",
+    ancienStatut: mouvement.rapprochementStatut,
+    nouveauStatut: "non_rapproche",
+    auteur,
+  });
+}
+
+/**
+ * Detail complet d'un mouvement : facture(s) liee(s) (via RapprochementLigne
+ * pour un reglement partiel/multi-factures, ou via le champ scalaire
+ * mouvementBancaireId pour le cas simple 1-pour-1 des passes automatiques
+ * "classiques"), payouts/encaissements lies, et historique - alimente
+ * l'interface de detail/validation manuelle.
+ */
+export async function obtenirDetailMouvement(prisma: PrismaClient, mouvementId: string) {
+  const mouvement = await prisma.mouvementBancaire.findUnique({ where: { id: mouvementId } });
+  if (!mouvement) throw new Error("Mouvement bancaire introuvable.");
+
+  const [lignes, historique] = await Promise.all([
+    prisma.rapprochementLigne.findMany({ where: { mouvementBancaireId: mouvementId, annuleLe: null }, orderBy: { createdAt: "asc" } }),
+    prisma.rapprochementHistorique.findMany({ where: { mouvementBancaireId: mouvementId }, orderBy: { createdAt: "asc" } }),
+  ]);
+
+  const archiveIds = lignes.filter((l) => l.cibleType === "archive_comptable").map((l) => l.cibleId);
+  const documentIds = lignes.filter((l) => l.cibleType === "document_fournisseur").map((l) => l.cibleId);
+
+  const [archivesLiees, documentsLiees, archivesSimples, documentsSimples, payouts, encaissements] = await Promise.all([
+    archiveIds.length > 0 ? prisma.archiveComptable.findMany({ where: { id: { in: archiveIds } } }) : Promise.resolve([]),
+    documentIds.length > 0 ? prisma.documentFournisseur.findMany({ where: { id: { in: documentIds } } }) : Promise.resolve([]),
+    prisma.archiveComptable.findMany({ where: { mouvementBancaireId: mouvementId } }),
+    prisma.documentFournisseur.findMany({ where: { mouvementBancaireId: mouvementId } }),
+    prisma.payout.findMany({ where: { mouvementBancaireId: mouvementId } }),
+    prisma.encaissement.findMany({ where: { mouvementBancaireId: mouvementId } }),
+  ]);
+
+  const cibles = [
+    ...lignes.map((l) => ({
+      origine: l.origine,
+      cibleType: l.cibleType,
+      cibleId: l.cibleId,
+      montantAffecte: l.montantAffecte,
+      detail: l.cibleType === "archive_comptable" ? archivesLiees.find((a) => a.id === l.cibleId) : documentsLiees.find((d) => d.id === l.cibleId),
+    })),
+    // Cas simple (sans RapprochementLigne, lien pose uniquement via le champ
+    // scalaire par l'une des passes automatiques "classiques" ci-dessus).
+    ...archivesSimples
+      .filter((a) => !archiveIds.includes(a.id))
+      .map((a) => ({ origine: "auto_exact", cibleType: "archive_comptable" as const, cibleId: a.id, montantAffecte: a.montantTTC ?? 0, detail: a })),
+    ...documentsSimples
+      .filter((d) => !documentIds.includes(d.id))
+      .map((d) => ({ origine: "auto_exact", cibleType: "document_fournisseur" as const, cibleId: d.id, montantAffecte: d.montantTTC ?? 0, detail: d })),
+  ];
+
+  return { mouvement, cibles, payouts, encaissements, historique };
+}
+
+/**
+ * Factures (ArchiveComptable/DocumentFournisseur) pas encore rapprochees,
+ * dans la meme fenetre de dates que les passes automatiques debit - alimente
+ * l'outil de rattachement manuel (hand-pick) sans dupliquer cette logique de
+ * fenetre cote client.
+ */
+export async function obtenirCandidatsMouvement(prisma: PrismaClient, mouvementId: string) {
+  const mouvement = await prisma.mouvementBancaire.findUnique({ where: { id: mouvementId } });
+  if (!mouvement) throw new Error("Mouvement bancaire introuvable.");
+
+  const [archives, documents] = await Promise.all([
+    prisma.archiveComptable.findMany({ where: { montantTTC: { not: null }, dateFacture: { not: null }, mouvementBancaireId: null } }),
+    prisma.documentFournisseur.findMany({ where: { type: "facture", montantTTC: { not: null }, mouvementBancaireId: null } }),
+  ]);
+
+  const dansLaFenetre = (date: Date) => differenceJours(date, mouvement.date) <= FENETRE_JOURS_FACTURE_FOURNISSEUR;
+
+  return {
+    archives: archives.filter((a) => dansLaFenetre(a.dateFacture as Date)),
+    documents: documents.filter((d) => {
+      const date = d.date ?? d.dateReceptionMail;
+      return date !== null && dansLaFenetre(date);
+    }),
+  };
 }

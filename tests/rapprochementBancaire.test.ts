@@ -394,7 +394,11 @@ test("rapprochement bancaire : remises carte bleue (REMISE CB) <-> encaissements
     assert.equal(resultat.detailsRemisesCb.find((x) => x.mouvementId === r.id)?.resultat, "ambigu");
 
     const rMaj = await prisma.mouvementBancaire.findUnique({ where: { id: r.id } });
-    assert.equal(rMaj?.rapprochementStatut, "non_rapproche");
+    // Restructuration Comptabilite (Phase 3) : une ambiguite est desormais
+    // persistee ("a_verifier"), plutot que silencieusement perdue - c'est
+    // precisement ce qui permet a l'interface d'afficher "a confirmer"
+    // (bordure orange) pour ce mouvement.
+    assert.equal(rMaj?.rapprochementStatut, "a_verifier");
   });
 
   await t.test("aucun jour a la bonne somme -> sans correspondance", async () => {
@@ -607,14 +611,19 @@ test("rapprochement bancaire : virements clients directs (VIR INST/EVI, un seul 
   await t.test("une REMISE CB n'est jamais traitee par cette passe (lot, pas un virement individuel)", async () => {
     const f = await facture();
     await encaissementVirement(f.id, new Date("2026-04-01"), 200);
+    // Montant volontairement distinct de tout autre montant de ce fichier
+    // (ex. le payout "200" du tout premier test, ambigu et donc jamais
+    // consomme) : un montant deja utilise ailleurs dans ce fichier peut
+    // coincidentally matcher un mouvement cree bien plus tot et encore non
+    // resolu, ce qui n'a rien a voir avec ce que ce test verifie.
     const m = await prisma.mouvementBancaire.create({
       data: {
         date: new Date("2026-04-02"),
         libelle: "REMISE CB 999",
         debit: 0,
-        credit: 200,
-        montant: 200,
-        montantBrut: 200,
+        credit: 234.07,
+        montant: 234.07,
+        montantBrut: 234.07,
         hashLigne: ref("hash-remise-exclue"),
       },
     });
