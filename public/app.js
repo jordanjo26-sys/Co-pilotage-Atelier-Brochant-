@@ -3396,23 +3396,28 @@ function detecterIdsDoublonsArchives(archives) {
  */
 function construireCarteArchiveComptable(a, { doublon = false } = {}) {
   return `
-      <div class="fournisseur-carte" id="archive-comptable-${a.id}">
-        <div class="fournisseur-nom"><span class="fournisseur-nom-icone">📄</span>${echapper(a.fournisseurNom || "Fournisseur non identifié")}</div>
-        <div class="anomalie-meta">
-          ${echapper(a.fichierNom)}
-          ${a.dateFacture ? ` · ${fmtDate(a.dateFacture)}` : ""}
-          ${a.numero ? ` · n° ${echapper(a.numero)}` : ""}
-          ${a.statut === "a_verifier" ? ` · <span class="badge badge-palier-ambre">à vérifier</span>` : ""}
-          ${doublon ? ` · <span class="badge badge-palier-ambre">doublon possible</span>` : ""}
-          ${a.categorie ? ` · <span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
-          · <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${a.rapproche ? "✓ rapproché" : "non rapproché"}</span>
+      <div class="archive-v2-carte" id="archive-comptable-${a.id}">
+        <div class="archive-v2-carte-entete">
+          <span>📄</span>
+          <span class="archive-v2-carte-fournisseur">${echapper(a.fournisseurNom || "Fournisseur non identifié")}</span>
         </div>
-        <div class="fournisseur-actions fournisseur-actions-ligne">
+        <div class="archive-v2-carte-fichier">${echapper(a.fichierNom)}</div>
+        <div class="archive-v2-carte-meta">
+          ${a.dateFacture ? `<span>${fmtDate(a.dateFacture)}</span>` : ""}
+          ${a.numero ? `<span>n° ${echapper(a.numero)}</span>` : ""}
+          ${a.categorie ? `<span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
+          ${a.statut === "a_verifier" ? `<span class="badge badge-palier-ambre">à vérifier</span>` : ""}
+          ${doublon ? `<span class="badge badge-palier-ambre">doublon possible</span>` : ""}
+          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${a.rapproche ? "✓ rapproché" : "non rapproché"}</span>
+        </div>
+        <div class="archive-v2-carte-montants">
           ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
           ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="alerte-montant-manquant">TTC non renseigné</span>`}
-          <button type="button" class="ghost bouton-lien" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}')">Voir</button>
-          <button type="button" class="ghost bouton-lien" onclick="corrigerArchiveComptable('${a.id}')">Corriger</button>
-          <button type="button" class="ghost bouton-lien" onclick="supprimerArchiveComptable('${a.id}', this)">Supprimer</button>
+        </div>
+        <div class="archive-v2-carte-actions">
+          <button type="button" class="archive-v2-bouton-voir" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}')">👁 Voir</button>
+          <button type="button" class="archive-v2-bouton-corriger" onclick="ouvrirCorrectionArchive('${a.id}')">✏️ Corriger</button>
+          <button type="button" class="archive-v2-bouton-supprimer" onclick="supprimerArchiveComptable('${a.id}', this)">🗑 Supprimer</button>
         </div>
       </div>`;
 }
@@ -3778,69 +3783,116 @@ async function reextraireArchivesComptables(bouton) {
   }
 }
 
-async function corrigerArchiveComptable(id) {
+// --- Formulaire de correction d'une facture (modale) -----------------------
+//
+// Remplace l'ancienne chaine de prompt() natifs (demande explicite : "une
+// fenêtre de correction parfaitement utilisable sur smartphone" - un prompt()
+// natif a la chaine reste utilisable mais n'est pas un vrai formulaire).
+// Memes champs, meme endpoint PATCH, meme validation qu'avant - uniquement
+// l'interface change.
+let archiveEnCoursDeCorrectionId = null;
+
+function ouvrirCorrectionArchive(id) {
   const archive = archivesComptablesBrutes.find((a) => a.id === id);
   if (!archive) return;
+  archiveEnCoursDeCorrectionId = id;
 
-  const fournisseurNom = prompt("Nom du fournisseur :", archive.fournisseurNom || "");
-  if (fournisseurNom === null) return;
-  const numero = prompt("Numéro de facture (laissez vide si absent) :", archive.numero || "");
-  if (numero === null) return;
-  const dateSaisie = prompt("Date de la facture (AAAA-MM-JJ, laissez vide si inconnue) :", archive.dateFacture ? archive.dateFacture.slice(0, 10) : "");
-  if (dateSaisie === null) return;
-  if (dateSaisie.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(dateSaisie.trim())) {
-    alert("Date invalide : utilisez le format AAAA-MM-JJ (ex. 2026-03-15).");
-    return;
-  }
-  const htSaisi = prompt("Montant HT en euros (laissez vide si inconnu) :", archive.montantHT != null ? String(archive.montantHT).replace(".", ",") : "");
-  if (htSaisi === null) return;
-  const ttcSaisi = prompt("Montant TTC en euros (laissez vide si inconnu) :", archive.montantTTC != null ? String(archive.montantTTC).replace(".", ",") : "");
-  if (ttcSaisi === null) return;
-  const montantHT = htSaisi.trim() === "" ? null : Number(htSaisi.replace(",", "."));
-  const montantTTC = ttcSaisi.trim() === "" ? null : Number(ttcSaisi.replace(",", "."));
-  if ((montantHT != null && (!Number.isFinite(montantHT) || montantHT <= 0)) || (montantTTC != null && (!Number.isFinite(montantTTC) || montantTTC <= 0))) {
-    alert("Montant invalide : indiquez un nombre positif (ex. 123,45).");
-    return;
-  }
-  const categorieSaisie = prompt(
-    `Catégorie (laissez vide si inconnue) :\n${categoriesFactureDisponibles.join(", ")}`,
-    archive.categorie || ""
-  );
-  if (categorieSaisie === null) return;
-  if (categorieSaisie.trim() && !categoriesFactureDisponibles.includes(categorieSaisie.trim())) {
-    alert(`Catégorie invalide : choisissez-en une parmi : ${categoriesFactureDisponibles.join(", ")}`);
-    return;
-  }
+  document.getElementById("archive-v2-correction-fournisseur").value = archive.fournisseurNom || "";
+  document.getElementById("archive-v2-correction-numero").value = archive.numero || "";
+  document.getElementById("archive-v2-correction-date").value = archive.dateFacture ? archive.dateFacture.slice(0, 10) : "";
+  document.getElementById("archive-v2-correction-ht").value = archive.montantHT != null ? archive.montantHT : "";
+  document.getElementById("archive-v2-correction-ttc").value = archive.montantTTC != null ? archive.montantTTC : "";
 
-  try {
-    const res = await fetch(`/api/archives-comptables/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fournisseurNom: fournisseurNom.trim() === "" ? null : fournisseurNom.trim(),
-        numero: numero.trim() === "" ? null : numero.trim(),
-        dateFacture: dateSaisie.trim() === "" ? null : dateSaisie.trim(),
-        montantHT,
-        montantTTC,
-        categorie: categorieSaisie.trim() === "" ? null : categorieSaisie.trim(),
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.erreur || "Enregistrement impossible.");
-    const index = archivesComptablesBrutes.findIndex((a) => a.id === id);
-    if (index !== -1) archivesComptablesBrutes[index] = data;
-    afficherArchivesComptablesFiltrees();
-    // Une correction peut faire sortir/entrer l'archive de "Mois en cours"
-    // (date modifiee) ou de "A verifier" (champ complete) - les 2 autres
-    // sous-vues doivent refleter ca tout de suite, pas seulement au prochain
-    // rafraichissement periodique.
-    chargerArchivesMoisCourant();
-    chargerArchivesAVerifier();
-  } catch (err) {
-    alert(err.message);
+  const selectCategorie = document.getElementById("archive-v2-correction-categorie");
+  if (selectCategorie.options.length <= 1 && categoriesFactureDisponibles.length > 0) {
+    selectCategorie.innerHTML =
+      `<option value="">— Aucune —</option>` + categoriesFactureDisponibles.map((c) => `<option value="${echapper(c)}">${echapper(c)}</option>`).join("");
   }
+  selectCategorie.value = archive.categorie || "";
+
+  const erreurDiv = document.getElementById("archive-v2-correction-erreur");
+  erreurDiv.hidden = true;
+  erreurDiv.textContent = "";
+
+  document.getElementById("archive-v2-correction-modal").hidden = false;
 }
-window.corrigerArchiveComptable = corrigerArchiveComptable;
+window.ouvrirCorrectionArchive = ouvrirCorrectionArchive;
+
+function fermerCorrectionArchive() {
+  const modal = document.getElementById("archive-v2-correction-modal");
+  if (modal) modal.hidden = true;
+  archiveEnCoursDeCorrectionId = null;
+}
+
+(function initialiserCorrectionArchiveModal() {
+  const modal = document.getElementById("archive-v2-correction-modal");
+  const form = document.getElementById("archive-v2-correction-form");
+  if (!modal || !form) return;
+
+  document.getElementById("archive-v2-correction-annuler")?.addEventListener("click", fermerCorrectionArchive);
+  document.getElementById("archive-v2-correction-fermer")?.addEventListener("click", fermerCorrectionArchive);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) fermerCorrectionArchive();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) fermerCorrectionArchive();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!archiveEnCoursDeCorrectionId) return;
+    const erreurDiv = document.getElementById("archive-v2-correction-erreur");
+    erreurDiv.hidden = true;
+
+    const fournisseurNom = document.getElementById("archive-v2-correction-fournisseur").value.trim();
+    const numero = document.getElementById("archive-v2-correction-numero").value.trim();
+    const dateSaisie = document.getElementById("archive-v2-correction-date").value; // input type=date : deja AAAA-MM-JJ ou vide
+    const htBrut = document.getElementById("archive-v2-correction-ht").value;
+    const ttcBrut = document.getElementById("archive-v2-correction-ttc").value;
+    const categorie = document.getElementById("archive-v2-correction-categorie").value;
+
+    const montantHT = htBrut === "" ? null : Number(htBrut);
+    const montantTTC = ttcBrut === "" ? null : Number(ttcBrut);
+    if ((montantHT != null && (!Number.isFinite(montantHT) || montantHT <= 0)) || (montantTTC != null && (!Number.isFinite(montantTTC) || montantTTC <= 0))) {
+      erreurDiv.textContent = "Montant invalide : indiquez un nombre positif.";
+      erreurDiv.hidden = false;
+      return;
+    }
+
+    const boutonValider = form.querySelector('button[type="submit"]');
+    boutonValider.disabled = true;
+    try {
+      const res = await fetch(`/api/archives-comptables/${archiveEnCoursDeCorrectionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fournisseurNom: fournisseurNom === "" ? null : fournisseurNom,
+          numero: numero === "" ? null : numero,
+          dateFacture: dateSaisie === "" ? null : dateSaisie,
+          montantHT,
+          montantTTC,
+          categorie: categorie === "" ? null : categorie,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.erreur || "Enregistrement impossible.");
+      const index = archivesComptablesBrutes.findIndex((a) => a.id === archiveEnCoursDeCorrectionId);
+      if (index !== -1) archivesComptablesBrutes[index] = data;
+      afficherArchivesComptablesFiltrees();
+      // Une correction peut faire sortir/entrer l'archive de "Factures en
+      // cours" (date modifiee) ou de "A verifier" (champ complete) - les 2
+      // autres sous-vues doivent refleter ca tout de suite.
+      chargerArchivesMoisCourant();
+      chargerArchivesAVerifier();
+      fermerCorrectionArchive();
+    } catch (err) {
+      erreurDiv.textContent = err.message;
+      erreurDiv.hidden = false;
+    } finally {
+      boutonValider.disabled = false;
+    }
+  });
+})();
 
 async function supprimerArchiveComptable(id, bouton) {
   if (!confirm("Supprimer définitivement cette archive ?")) return;

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=38" />
+  <link rel="stylesheet" href="/styles.css?v=39" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -461,7 +461,7 @@
 
       <section class="carte accent-brun">
         <div class="archive-v2-sousonglets" role="tablist" aria-label="Vue des factures d'achat">
-          <button type="button" class="archive-v2-sousonglet actif" data-sousvue="mois-courant" role="tab" aria-selected="true">Mois en cours</button>
+          <button type="button" class="archive-v2-sousonglet actif" data-sousvue="mois-courant" role="tab" aria-selected="true">Factures en cours</button>
           <button type="button" class="archive-v2-sousonglet" data-sousvue="archives" role="tab" aria-selected="false">Archives</button>
           <button type="button" class="archive-v2-sousonglet" data-sousvue="a-verifier" role="tab" aria-selected="false">À vérifier <span class="onglet-badge" data-badge="archive-a-verifier" hidden>0</span></button>
         </div>
@@ -474,24 +474,28 @@
 
         <!-- Archives : recherche par filtre de dates (au choix de l'utilisateur) + recherche globale sur toutes les periodes. -->
         <div class="archive-v2-sousvue" data-sousvue-panneau="archives" hidden>
-          <div class="barre-filtres">
-            <label class="aide-inline">Aller à un mois <select id="archive-v2-mois-select"><option value="">— choisir —</option></select></label>
-            <label class="aide-inline">Du <input type="date" id="filtre-archive-date-debut" /></label>
-            <label class="aide-inline">au <input type="date" id="filtre-archive-date-fin" /></label>
-            <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
-            <input type="number" id="filtre-archive-montant-min" step="0.01" min="0" placeholder="Montant min." />
-            <input type="number" id="filtre-archive-montant-max" step="0.01" min="0" placeholder="Montant max." />
-            <select id="filtre-archive-categorie">
-              <option value="">Toutes catégories</option>
-            </select>
-            <label class="aide-inline"><input type="checkbox" id="filtre-archive-doublons-uniquement" /> Doublons uniquement</label>
-          </div>
-          <div class="ligne-boutons" style="margin-bottom: 10px;">
-            <button type="button" class="ghost" id="btn-reinitialiser-filtres-archive">Réinitialiser les filtres</button>
-            <button type="button" class="ghost" id="btn-reextraire-archives">Relancer l'extraction sur les archives "à vérifier"</button>
-            <button type="button" class="ghost" id="btn-exporter-archives-csv">Exporter en CSV</button>
-            <span class="aide-inline" id="compte-archives-filtrees" style="margin-left: auto;"></span>
-          </div>
+          <details class="archive-v2-filtres-avances">
+            <summary>Filtres avancés <span class="aide-inline" id="compte-archives-filtrees"></span></summary>
+            <div class="archive-v2-filtres-avances-contenu">
+              <div class="barre-filtres">
+                <label class="aide-inline">Aller à un mois <select id="archive-v2-mois-select"><option value="">— choisir —</option></select></label>
+                <label class="aide-inline">Du <input type="date" id="filtre-archive-date-debut" /></label>
+                <label class="aide-inline">au <input type="date" id="filtre-archive-date-fin" /></label>
+                <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
+                <input type="number" id="filtre-archive-montant-min" step="0.01" min="0" placeholder="Montant min." />
+                <input type="number" id="filtre-archive-montant-max" step="0.01" min="0" placeholder="Montant max." />
+                <select id="filtre-archive-categorie">
+                  <option value="">Toutes catégories</option>
+                </select>
+                <label class="aide-inline"><input type="checkbox" id="filtre-archive-doublons-uniquement" /> Doublons uniquement</label>
+              </div>
+              <div class="ligne-boutons" style="margin-bottom: 10px;">
+                <button type="button" class="ghost" id="btn-reinitialiser-filtres-archive">Réinitialiser les filtres</button>
+                <button type="button" class="ghost" id="btn-reextraire-archives">Relancer l'extraction sur les archives "à vérifier"</button>
+                <button type="button" class="ghost" id="btn-exporter-archives-csv">Exporter en CSV</button>
+              </div>
+            </div>
+          </details>
           <div id="resultat-reextraction-archives"></div>
           <div id="liste-archives-comptables"></div>
         </div>
@@ -513,9 +517,46 @@
     </div>
   </div>
 
+  <!-- Formulaire de correction d'une facture (remplace la chaine de prompt() natifs - demande explicite : "fenêtre de correction parfaitement utilisable sur smartphone"). -->
+  <div id="archive-v2-correction-modal" class="archive-v2-modal" hidden>
+    <div class="archive-v2-modal-contenu archive-v2-modal-contenu-formulaire">
+      <button type="button" class="ghost archive-v2-modal-fermer" id="archive-v2-correction-fermer" aria-label="Fermer le formulaire">✕ Fermer</button>
+      <form id="archive-v2-correction-form" class="archive-v2-correction-form">
+        <h3>Corriger la facture</h3>
+        <label>Fournisseur
+          <input type="text" id="archive-v2-correction-fournisseur" placeholder="Nom du fournisseur" />
+        </label>
+        <label>Numéro de facture
+          <input type="text" id="archive-v2-correction-numero" placeholder="Laissez vide si absent" />
+        </label>
+        <label>Date de la facture
+          <input type="date" id="archive-v2-correction-date" />
+        </label>
+        <div class="archive-v2-correction-form-ligne">
+          <label>Montant HT (€)
+            <input type="number" step="0.01" min="0" id="archive-v2-correction-ht" placeholder="Laissez vide si inconnu" />
+          </label>
+          <label>Montant TTC (€)
+            <input type="number" step="0.01" min="0" id="archive-v2-correction-ttc" placeholder="Laissez vide si inconnu" />
+          </label>
+        </div>
+        <label>Catégorie
+          <select id="archive-v2-correction-categorie">
+            <option value="">— Aucune —</option>
+          </select>
+        </label>
+        <div id="archive-v2-correction-erreur" class="archive-v2-correction-erreur" hidden></div>
+        <div class="ligne-boutons archive-v2-correction-form-actions">
+          <button type="button" class="ghost" id="archive-v2-correction-annuler">Annuler</button>
+          <button type="submit" class="archive-v2-bouton-corriger">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=64"></script>
+  <script src="/app.js?v=65"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

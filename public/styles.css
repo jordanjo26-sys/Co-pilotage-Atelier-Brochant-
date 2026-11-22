@@ -670,6 +670,164 @@ button:disabled { opacity: 0.4; cursor: default; }
 #archive-v2-modal-corps { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; }
 #archive-v2-modal-corps iframe { width: 100%; height: 100%; border: none; }
 #archive-v2-modal-corps img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* ---------- Comptabilite : refonte visuelle des cartes facture ----------
+   Demande explicite de l'utilisateur (refonte premium, mobile-first) :
+   carte individuelle blanche a coins arrondis avec ombre legere, separation
+   claire entre factures, fournisseur en gras, nom de fichier sur sa propre
+   ligne (jamais de debordement horizontal), 3 actions regroupees sur une
+   meme ligne meme sur mobile. Prefixe isole "archive-v2-*" : ne touche
+   jamais .fournisseur-carte (toujours utilisee telle quelle par l'onglet
+   Fournisseurs). */
+.archive-v2-carte {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.archive-v2-carte-entete {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.archive-v2-carte-fournisseur {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.archive-v2-carte-fichier {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-top: 3px;
+  /* Jamais de debordement horizontal, meme pour un nom de fichier tres long. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.archive-v2-carte-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.archive-v2-carte-montants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.archive-v2-carte-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.archive-v2-carte-actions button {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  /* Touche confortable au doigt, jamais de texte coupe meme sur un tres
+     petit ecran (iPhone SE ~375px) : 3 boutons egaux sur une seule ligne. */
+  white-space: nowrap;
+}
+.archive-v2-bouton-voir,
+.archive-v2-bouton-corriger {
+  background: var(--brand-blue);
+  color: #fff;
+}
+.archive-v2-bouton-voir:hover,
+.archive-v2-bouton-corriger:hover { filter: brightness(1.08); }
+.archive-v2-bouton-supprimer {
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+.archive-v2-bouton-supprimer:hover { background: var(--critical); color: #fff; }
+
+/* ---------- Comptabilite : filtres avances repliables ---------- */
+.archive-v2-filtres-avances {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--surface-2);
+}
+.archive-v2-filtres-avances summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  list-style: none;
+}
+.archive-v2-filtres-avances summary::-webkit-details-marker { display: none; }
+.archive-v2-filtres-avances summary::after {
+  content: "▾";
+  color: var(--ink-muted);
+  margin-left: 8px;
+}
+.archive-v2-filtres-avances[open] summary::after { content: "▴"; }
+.archive-v2-filtres-avances-contenu { margin-top: 10px; }
+
+/* ---------- Comptabilite : formulaire de correction (remplace les prompt() natifs) ---------- */
+.archive-v2-modal-contenu-formulaire { height: auto; max-height: 90vh; width: min(480px, 100%); }
+.archive-v2-correction-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 20px 20px;
+  overflow-y: auto;
+}
+.archive-v2-correction-form h3 { margin: 0 0 4px; font-size: 15px; }
+.archive-v2-correction-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.archive-v2-correction-form input,
+.archive-v2-correction-form select {
+  font-size: 16px; /* jamais en-dessous de 16px : Safari iOS zoome automatiquement sur un champ de saisie plus petit */
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+}
+.archive-v2-correction-form-ligne { display: flex; gap: 10px; }
+.archive-v2-correction-form-ligne label { flex: 1; }
+.archive-v2-correction-erreur { color: var(--critical); font-size: 12.5px; font-weight: 600; }
+.archive-v2-correction-form-actions { justify-content: flex-end; margin-top: 4px; }
+.archive-v2-correction-form-actions button {
+  min-height: 40px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+}
+.archive-v2-correction-form-actions .archive-v2-bouton-corriger { background: var(--brand-blue); color: #fff; }
+
+@media (max-width: 480px) {
+  .archive-v2-correction-form-ligne { flex-direction: column; }
+}
 .fournisseur-actions { margin-top: 6px; }
 .fournisseur-actions-ligne { display: flex; gap: 8px; flex-wrap: wrap; }
 .fournisseur-documents { margin-top: 8px; font-size: 12.5px; }
