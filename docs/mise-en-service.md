@@ -167,6 +167,39 @@ Vérifier simplement qu'elles sont toujours actives dans le compte Dext.
    export CSV Stripe à la main**. Le dépôt manuel reste possible en
    complément si besoin (les deux voies ne se dupliquent jamais).
 
+## 5 bis. OVHcloud (factures) — à configurer
+
+Les factures OVHcloud (hébergement, domaine...) n'arrivent jamais par
+e-mail dans la boîte surveillée : OVHcloud propose une API officielle en
+libre-service pour les récupérer automatiquement (contrairement à
+EDF/Bouygues Telecom, qui n'en ont pas pour un compte pro standard).
+
+1. Déterminer la **zone** de votre compte OVH (celle où vous vous
+   connectez habituellement) : Europe, États-Unis ou Amérique du Nord.
+2. Aller sur la page de création de jeton correspondante :
+   - Europe : [eu.api.ovh.com/createToken/](https://eu.api.ovh.com/createToken/?GET=/me&GET=/me/bill&GET=/me/bill/*)
+   - États-Unis : [api.us.ovhcloud.com/createToken/](https://api.us.ovhcloud.com/createToken/?GET=/me&GET=/me/bill&GET=/me/bill/*)
+   - Amérique du Nord : [ca.api.ovh.com/createToken/](https://ca.api.ovh.com/createToken/?GET=/me&GET=/me/bill&GET=/me/bill/*)
+3. Se connecter avec votre compte OVH habituel. Les droits d'accès
+   doivent couvrir **GET** sur `/me`, `/me/bill` et `/me/bill/*`
+   uniquement (lecture seule, moindre privilège — comme pour Stripe).
+4. Noter immédiatement les trois valeurs affichées (non récupérables
+   ensuite) et les ajouter comme secrets GitHub (même écran que les
+   précédents) :
+
+   | Nom du secret | Valeur |
+   |---|---|
+   | `OVH_ENDPOINT` | `ovh-eu` (Europe), `ovh-us` (États-Unis) ou `ovh-ca` (Amérique du Nord) selon la zone choisie à l'étape 1 |
+   | `OVH_APPLICATION_KEY` | La clé d'application affichée |
+   | `OVH_APPLICATION_SECRET` | Le secret d'application affiché |
+   | `OVH_CONSUMER_KEY` | La clé de consommation affichée |
+
+5. Redéployer : `GET /api/ovh/status` indique alors si la connexion
+   fonctionne. La récupération automatique des factures n'est pas encore
+   câblée à ce stade (voir `src/services/ovhFacturation.ts`) — une étape
+   de vérification des données réelles renvoyées par OVH précède la mise
+   en place de l'archivage automatique.
+
 ## 6. Synec — à configurer (sans API, automatisation par navigateur)
 
 Synec n'offre aucune API : la récupération automatique des factures non

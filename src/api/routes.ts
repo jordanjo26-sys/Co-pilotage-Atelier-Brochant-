@@ -48,6 +48,7 @@ import {
 import { obtenirStatutMoisBancaire, validerMoisComptable, invaliderMoisComptable } from "../services/suiviMensuel";
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
 import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec, CHEMIN_CAPTURE_ECHEC } from "../services/synecSync";
+import { ovhEstConfigure, verifierConnexionOvh, obtenirFacturesBrutesOvh } from "../services/ovhFacturation";
 import { existsSync } from "fs";
 import fs from "node:fs/promises";
 import { getGmailClient } from "../services/googleAuth";
@@ -305,6 +306,26 @@ export function buildRouter(prisma: PrismaClient): Router {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="paiements-${new Date().toISOString().slice(0, 10)}.pdf"`);
     res.send(pdf);
+  });
+
+  // --- OVHcloud (factures) -------------------------------------------
+  // Etape 1 uniquement (voir l'en-tete de ovhFacturation.ts) : statut de
+  // connexion + diagnostic brut, pas encore de creation automatique
+  // d'ArchiveComptable tant que la forme exacte des champs renvoyes par
+  // /me/bill/{id} n'a pas ete verifiee sur le vrai compte de l'utilisateur.
+  router.get("/ovh/status", async (_req, res) => {
+    const verification = await verifierConnexionOvh();
+    res.json(verification.ok ? { connecte: true } : { connecte: false, motif: verification.motif });
+  });
+
+  router.get("/ovh/factures-brutes", async (req, res) => {
+    if (!ovhEstConfigure()) return res.status(400).json({ erreur: "OVH non configure (OVH_APPLICATION_KEY/OVH_APPLICATION_SECRET/OVH_CONSUMER_KEY)." });
+    try {
+      const limite = req.query.limite ? Number(req.query.limite) : 3;
+      res.json(await obtenirFacturesBrutesOvh(limite));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
   });
 
   // Diagnostic ponctuel (demande explicite de l'utilisateur, plusieurs
