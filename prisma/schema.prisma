@@ -897,4 +897,15 @@ model ArchiveComptable {
   // cette passe dediee. Pas une vraie relation Prisma, juste un identifiant
   // pose par rapprochementBancaire.ts, verifie par requete applicative.
   mouvementBancaireId String?
+  // Provenance reelle de la ligne (ecran unifie "Factures fournisseurs", V2) :
+  // "dext_copie" (copie automatique d'un DocumentFournisseur envoye a Dext,
+  // voir archiverFactureEnvoyeeDext) | "zip_manuel" (import ZIP/fichiers
+  // manuel) | "ovh_api" (synchronisation OVHcloud). NULL = ligne anterieure a
+  // ce marqueur, provenance non reclassee avec certitude (voir la migration
+  // 20261122160000_archive_comptable_origine). Seule "dext_copie" est exclue
+  // de la liste unifiee : deja representee par son DocumentFournisseur.
+  origine               String?
+  // Identifiant du DocumentFournisseur source quand origine="dext_copie".
+  // Pas une vraie relation Prisma (meme principe que mouvementBancaireId).
+  documentFournisseurId String?
 }

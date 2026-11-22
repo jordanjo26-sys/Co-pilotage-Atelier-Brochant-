@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=43" />
+  <link rel="stylesheet" href="/styles.css?v=44" />
 </head>
 <body>
   <!-- Coquille V2 (refonte UX/UI, novembre 2026, maquette fournie) : sidebar
@@ -165,6 +165,69 @@
 
     <!-- ===== Factures ===== -->
     <div class="onglet-panneau" data-panneau="factures" hidden>
+      <section class="carte">
+        <div class="cab-page-entete">
+          <h1>Factures fournisseurs</h1>
+          <p class="aide">Toutes les factures fournisseurs — reçues par e-mail/Dext ou archivées (OVHcloud, import manuel) — réunies dans un seul écran.</p>
+        </div>
+
+        <div class="grille-cockpit" id="ff-kpis"></div>
+
+        <div class="cab-segments" id="ff-segments" role="tablist" aria-label="Filtrer par statut">
+          <button type="button" class="cab-segment actif" data-statut="" role="tab" aria-selected="true">Toutes <span id="ff-compte-toutes">(0)</span></button>
+          <button type="button" class="cab-segment" data-statut="a_traiter" role="tab" aria-selected="false">À traiter <span id="ff-compte-a_traiter">(0)</span></button>
+          <button type="button" class="cab-segment" data-statut="validee" role="tab" aria-selected="false">Validées <span id="ff-compte-validee">(0)</span></button>
+          <button type="button" class="cab-segment" data-statut="a_corriger" role="tab" aria-selected="false">À corriger <span id="ff-compte-a_corriger">(0)</span></button>
+        </div>
+
+        <div class="cab-toolbar">
+          <label class="cab-toolbar-recherche">
+            <input type="search" id="ff-recherche" placeholder="Rechercher (fournisseur, n°, montant)..." />
+          </label>
+          <input type="month" id="ff-filtre-mois" title="Filtrer par mois" />
+          <select id="ff-filtre-fournisseur"><option value="">Tous les fournisseurs</option></select>
+        </div>
+
+        <div class="table-scroll">
+          <table id="ff-table">
+            <thead>
+              <tr><th>Date</th><th>Fournisseur</th><th>N° de facture</th><th>Montant TTC</th><th>Statut</th></tr>
+            </thead>
+            <tbody id="ff-tbody"></tbody>
+          </table>
+        </div>
+        <div id="ff-etat-vide" class="cab-etat" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
+          <span class="cab-etat-titre">Aucune facture</span>
+          <span class="cab-etat-texte">Aucune facture ne correspond aux filtres actuels.</span>
+        </div>
+
+        <div class="cab-pagination" id="ff-pagination" hidden>
+          <span id="ff-pagination-info"></span>
+          <div class="cab-pagination-pages" id="ff-pagination-pages"></div>
+        </div>
+      </section>
+
+      <div class="cab-overlay" id="ff-detail-overlay" hidden></div>
+      <aside class="cab-detail-panneau" id="ff-detail-panneau" hidden aria-label="Détail de la facture">
+        <div class="cab-detail-entete">
+          <h3 id="ff-detail-titre">—</h3>
+          <span class="cab-statut-point" id="ff-detail-statut"></span>
+          <button type="button" class="cab-detail-fermer" id="ff-detail-fermer" aria-label="Fermer le détail">✕</button>
+        </div>
+        <div class="cab-detail-onglets">
+          <button type="button" class="cab-detail-onglet actif" data-detail-onglet="details">Détails</button>
+          <button type="button" class="cab-detail-onglet" data-detail-onglet="document">Document</button>
+          <button type="button" class="cab-detail-onglet" data-detail-onglet="historique">Historique</button>
+        </div>
+        <div class="cab-detail-corps">
+          <div data-detail-panneau="details" id="ff-detail-details"></div>
+          <div data-detail-panneau="document" id="ff-detail-document" hidden></div>
+          <div data-detail-panneau="historique" id="ff-detail-historique" hidden></div>
+        </div>
+        <div class="cab-detail-pied" id="ff-detail-actions"></div>
+      </aside>
+
       <section class="carte accent-critique carte-graphique-ca">
         <div class="graphique-entete">
           <h2>Factures impayées</h2>
@@ -733,7 +796,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=71"></script>
+  <script src="/app.js?v=72"></script>
   <script src="/navigation.js?v=1"></script>
   <script src="/morgane.js?v=3"></script>
 </body>

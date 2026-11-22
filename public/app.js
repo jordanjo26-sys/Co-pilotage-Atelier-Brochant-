@@ -2556,6 +2556,329 @@ function afficherFacturesDextEnvoyeesFiltrees() {
     .join("");
 }
 
+// --- Ecran unifie "Factures fournisseurs" (V2 - maquette fournie) ----------
+//
+// Reunit DocumentFournisseur (Gmail/Dext) et ArchiveComptable (hors Dext :
+// OVHcloud, import manuel) en une seule liste (voir
+// src/services/facturesFournisseursUnifiees.ts pour la fusion cote serveur -
+// jamais de doublon pour une facture deja envoyee a Dext). Les sections
+// existantes plus bas (Scanner, Factures fournisseurs reçues, Factures
+// envoyees a Dext) restent inchangees : cet ecran est la vue d'ensemble,
+// pas un remplacement de leurs outils d'action specifiques.
+
+const COULEURS_AVATAR_FOURNISSEUR = [
+  "var(--brand-blue)", "var(--brand-teal)", "var(--brand-violet)", "var(--good)",
+  "var(--warning)", "var(--critical)", "var(--brand-pink)", "var(--brand-cyan)", "var(--brand-brown)",
+];
+function couleurAvatarFournisseur(nom) {
+  const texte = nom || "?";
+  let hash = 0;
+  for (let i = 0; i < texte.length; i++) hash = (hash * 31 + texte.charCodeAt(i)) >>> 0;
+  return COULEURS_AVATAR_FOURNISSEUR[hash % COULEURS_AVATAR_FOURNISSEUR.length];
+}
+function initialesFournisseur(nom) {
+  if (!nom) return "?";
+  return nom.trim().charAt(0).toUpperCase();
+}
+
+const ffEtat = { page: 1, parPage: 25, statut: "", recherche: "", fournisseurNom: "", anneeMois: "", detailId: null, detailOnglet: "details" };
+let ffFournisseursChoixCharges = false;
+
+const LIBELLES_STATUT_FACTURE_UNIFIEE = { a_traiter: "À traiter", validee: "Validée", a_corriger: "À corriger" };
+
+function ffRenduStatutPoint(statut, detail) {
+  return `<span class="cab-statut-point cab-statut-${statut}">${echapper(detail || LIBELLES_STATUT_FACTURE_UNIFIEE[statut] || statut)}</span>`;
+}
+
+async function chargerFiltreFournisseurFacturesUnifiees() {
+  if (ffFournisseursChoixCharges) return;
+  const select = document.getElementById("ff-filtre-fournisseur");
+  if (!select) return;
+  try {
+    const res = await fetch("/api/fournisseurs");
+    const fournisseurs = await res.json();
+    select.innerHTML =
+      `<option value="">Tous les fournisseurs</option>` +
+      fournisseurs.map((f) => `<option value="${echapper(f.nom)}">${echapper(f.nom)}</option>`).join("");
+    ffFournisseursChoixCharges = true;
+  } catch {
+    // Reste sur "Tous les fournisseurs" si l'appel echoue - jamais bloquant.
+  }
+}
+
+async function chargerFacturesFournisseursUnifiees() {
+  const params = new URLSearchParams();
+  if (ffEtat.statut) params.set("statut", ffEtat.statut);
+  if (ffEtat.recherche) params.set("recherche", ffEtat.recherche);
+  if (ffEtat.fournisseurNom) params.set("fournisseurNom", ffEtat.fournisseurNom);
+  if (ffEtat.anneeMois) params.set("anneeMois", ffEtat.anneeMois);
+  params.set("page", String(ffEtat.page));
+  params.set("parPage", String(ffEtat.parPage));
+
+  const res = await fetch(`/api/factures-fournisseurs?${params.toString()}`);
+  const resultat = await res.json();
+
+  const kpis = document.getElementById("ff-kpis");
+  if (kpis) {
+    kpis.innerHTML = `
+      <div class="tuile tuile-imports"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${resultat.compteurs.aTraiter}</div><div class="label">À traiter</div></div>
+      <div class="tuile" style="--tuile-couleur: var(--good);"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${resultat.compteurs.validees}</div><div class="label">Validées</div></div>
+      <div class="tuile" style="--tuile-couleur: var(--warning);"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${resultat.compteurs.aCorriger}</div><div class="label">À corriger</div></div>
+      <div class="tuile" style="--tuile-couleur: var(--brand-violet);"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${fmtMontant(resultat.montantTotalTTC)}</div><div class="label">Montant total</div></div>`;
+  }
+
+  document.getElementById("ff-compte-toutes").textContent = `(${resultat.compteurs.toutes})`;
+  document.getElementById("ff-compte-a_traiter").textContent = `(${resultat.compteurs.aTraiter})`;
+  document.getElementById("ff-compte-validee").textContent = `(${resultat.compteurs.validees})`;
+  document.getElementById("ff-compte-a_corriger").textContent = `(${resultat.compteurs.aCorriger})`;
+
+  const tbody = document.getElementById("ff-tbody");
+  const etatVide = document.getElementById("ff-etat-vide");
+  if (resultat.factures.length === 0) {
+    tbody.innerHTML = "";
+    etatVide.hidden = false;
+  } else {
+    etatVide.hidden = true;
+    tbody.innerHTML = resultat.factures
+      .map(
+        (f) => `
+      <tr class="cab-ligne-cliquable${ffEtat.detailId === f.id ? " cab-ligne-selectionnee" : ""}" onclick="ffOuvrirDetail('${f.id}')">
+        <td>${fmtDate(f.date)}</td>
+        <td><span class="cab-ligne-fournisseur"><span class="cab-avatar-cercle" style="background:${couleurAvatarFournisseur(f.fournisseurNom)}">${echapper(initialesFournisseur(f.fournisseurNom))}</span>${echapper(f.fournisseurNom || "Fournisseur inconnu")}</span></td>
+        <td>${echapper(f.numero || "—")}</td>
+        <td class="num">${f.montantTTC != null ? fmtMontant(f.montantTTC) : "—"}</td>
+        <td>${ffRenduStatutPoint(f.statut, f.statutDetail)}</td>
+      </tr>`
+      )
+      .join("");
+  }
+
+  const pagination = document.getElementById("ff-pagination");
+  const nbPages = Math.max(1, Math.ceil(resultat.total / resultat.parPage));
+  if (resultat.total === 0) {
+    pagination.hidden = true;
+  } else {
+    pagination.hidden = false;
+    const debut = (resultat.page - 1) * resultat.parPage + 1;
+    const fin = Math.min(resultat.page * resultat.parPage, resultat.total);
+    document.getElementById("ff-pagination-info").textContent = `${debut}–${fin} sur ${resultat.total}`;
+    const pagesHtml = [];
+    pagesHtml.push(`<button type="button" ${resultat.page <= 1 ? "disabled" : ""} onclick="ffChangerPage(${resultat.page - 1})">‹</button>`);
+    for (let p = 1; p <= nbPages; p++) {
+      pagesHtml.push(`<button type="button" class="${p === resultat.page ? "actif" : ""}" onclick="ffChangerPage(${p})">${p}</button>`);
+    }
+    pagesHtml.push(`<button type="button" ${resultat.page >= nbPages ? "disabled" : ""} onclick="ffChangerPage(${resultat.page + 1})">›</button>`);
+    document.getElementById("ff-pagination-pages").innerHTML = pagesHtml.join("");
+  }
+
+  await chargerFiltreFournisseurFacturesUnifiees();
+}
+window.ffChangerPage = (page) => {
+  ffEtat.page = page;
+  chargerFacturesFournisseursUnifiees();
+};
+
+function ffInitialiserControles() {
+  const segments = document.getElementById("ff-segments");
+  if (segments && !segments.dataset.initialise) {
+    segments.querySelectorAll(".cab-segment").forEach((bouton) => {
+      bouton.addEventListener("click", () => {
+        segments.querySelectorAll(".cab-segment").forEach((b) => {
+          b.classList.toggle("actif", b === bouton);
+          b.setAttribute("aria-selected", b === bouton ? "true" : "false");
+        });
+        ffEtat.statut = bouton.dataset.statut;
+        ffEtat.page = 1;
+        chargerFacturesFournisseursUnifiees();
+      });
+    });
+    segments.dataset.initialise = "1";
+  }
+
+  const recherche = document.getElementById("ff-recherche");
+  if (recherche && !recherche.dataset.initialise) {
+    let minuteur;
+    recherche.addEventListener("input", () => {
+      clearTimeout(minuteur);
+      minuteur = setTimeout(() => {
+        ffEtat.recherche = recherche.value.trim();
+        ffEtat.page = 1;
+        chargerFacturesFournisseursUnifiees();
+      }, 300);
+    });
+    recherche.dataset.initialise = "1";
+  }
+
+  const filtreMois = document.getElementById("ff-filtre-mois");
+  if (filtreMois && !filtreMois.dataset.initialise) {
+    filtreMois.addEventListener("change", () => {
+      ffEtat.anneeMois = filtreMois.value;
+      ffEtat.page = 1;
+      chargerFacturesFournisseursUnifiees();
+    });
+    filtreMois.dataset.initialise = "1";
+  }
+
+  const filtreFournisseur = document.getElementById("ff-filtre-fournisseur");
+  if (filtreFournisseur && !filtreFournisseur.dataset.initialise) {
+    filtreFournisseur.addEventListener("change", () => {
+      ffEtat.fournisseurNom = filtreFournisseur.value;
+      ffEtat.page = 1;
+      chargerFacturesFournisseursUnifiees();
+    });
+    filtreFournisseur.dataset.initialise = "1";
+  }
+
+  const fermer = document.getElementById("ff-detail-fermer");
+  if (fermer && !fermer.dataset.initialise) {
+    fermer.addEventListener("click", ffFermerDetail);
+    fermer.dataset.initialise = "1";
+  }
+  const overlay = document.getElementById("ff-detail-overlay");
+  if (overlay && !overlay.dataset.initialise) {
+    overlay.addEventListener("click", ffFermerDetail);
+    overlay.dataset.initialise = "1";
+  }
+  document.querySelectorAll(".cab-detail-onglet").forEach((bouton) => {
+    if (bouton.dataset.initialise) return;
+    bouton.addEventListener("click", () => ffBasculerOngletDetail(bouton.dataset.detailOnglet));
+    bouton.dataset.initialise = "1";
+  });
+}
+
+function ffBasculerOngletDetail(nom) {
+  ffEtat.detailOnglet = nom;
+  document.querySelectorAll(".cab-detail-onglet").forEach((b) => b.classList.toggle("actif", b.dataset.detailOnglet === nom));
+  document.querySelectorAll("[data-detail-panneau]").forEach((p) => {
+    p.hidden = p.dataset.detailPanneau !== nom;
+  });
+  if (nom === "document") ffChargerDocumentDetail();
+}
+
+let ffDetailCourant = null;
+
+async function ffOuvrirDetail(id) {
+  ffEtat.detailId = id;
+  const panneau = document.getElementById("ff-detail-panneau");
+  const overlay = document.getElementById("ff-detail-overlay");
+  panneau.hidden = false;
+  overlay.hidden = false;
+  requestAnimationFrame(() => panneau.classList.add("ouvert"));
+  ffBasculerOngletDetail("details");
+
+  document.getElementById("ff-detail-titre").textContent = "Chargement…";
+  document.getElementById("ff-detail-statut").innerHTML = "";
+  document.getElementById("ff-detail-details").innerHTML = "";
+  document.getElementById("ff-detail-document").innerHTML = "";
+  document.getElementById("ff-detail-actions").innerHTML = "";
+
+  try {
+    const res = await fetch(`/api/factures-fournisseurs/${encodeURIComponent(id)}/detail`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Facture introuvable.");
+    const detail = await res.json();
+    ffDetailCourant = detail;
+    ffRenduDetail(detail);
+  } catch (err) {
+    document.getElementById("ff-detail-titre").textContent = "Erreur";
+    document.getElementById("ff-detail-details").innerHTML = `<p class="liste-vide">${echapper(err.message)}</p>`;
+  }
+}
+window.ffOuvrirDetail = ffOuvrirDetail;
+
+function ffFermerDetail() {
+  const panneau = document.getElementById("ff-detail-panneau");
+  const overlay = document.getElementById("ff-detail-overlay");
+  panneau.classList.remove("ouvert");
+  overlay.hidden = true;
+  ffEtat.detailId = null;
+  ffDetailCourant = null;
+  setTimeout(() => {
+    if (!panneau.classList.contains("ouvert")) panneau.hidden = true;
+  }, 200);
+}
+
+function ffRenduDetail(detail) {
+  document.getElementById("ff-detail-titre").textContent = detail.numero || detail.fichierNom || "Facture";
+  const statutSpan = document.getElementById("ff-detail-statut");
+  statutSpan.className = `cab-statut-point cab-statut-${detail.statut}`;
+  statutSpan.textContent = detail.statutDetail || LIBELLES_STATUT_FACTURE_UNIFIEE[detail.statut] || detail.statut;
+
+  const lignes = [
+    ["Fournisseur", echapper(detail.fournisseurNom || "—")],
+    ["Date de facture", echapper(fmtDate(detail.date))],
+    ["Montant HT", detail.montantHT != null ? echapper(fmtMontant(detail.montantHT)) : "—"],
+  ];
+  document.getElementById("ff-detail-details").innerHTML = `
+    ${lignes.map(([label, valeur]) => `<div class="cab-detail-ligne"><span>${label}</span><span>${valeur}</span></div>`).join("")}
+    <div class="cab-detail-ligne cab-detail-ligne-forte"><span>Montant TTC</span><span>${detail.montantTTC != null ? echapper(fmtMontant(detail.montantTTC)) : "—"}</span></div>
+    ${detail.rapprochementStatut === "rapproche" ? `<div class="cab-detail-ligne"><span>Rapprochement bancaire</span><span><span class="badge badge-rapproche">Rapprochée</span></span></div>` : ""}
+    ${detail.categorie ? `<div class="cab-detail-ligne"><span>Catégorie</span><span>${echapper(detail.categorie)}</span></div>` : ""}
+    ${
+      detail.statut === "a_corriger"
+        ? `<div class="cab-encart-ia"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.4L20 10l-6.2 1.6L12 18l-1.8-6.4L4 10l6.2-1.6z"/></svg><div><strong>À vérifier :</strong><ul><li>Informations manquantes ou incertaines, à corriger manuellement.</li></ul></div></div>`
+        : ""
+    }
+    ${
+      detail.statut === "a_traiter" && detail.source === "document_fournisseur"
+        ? `<div class="cab-encart-ia"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.4L20 10l-6.2 1.6L12 18l-1.8-6.4L4 10l6.2-1.6z"/></svg><div><strong>À vérifier :</strong><ul><li>Facture reconnue, en attente d'envoi à Dext.</li></ul></div></div>`
+        : ""
+    }`;
+
+  document.getElementById("ff-detail-historique").innerHTML = detail.historique.length
+    ? `<ul class="rapprochement-historique">${detail.historique.map((h) => `<li>${echapper(fmtDate(h.date))} — ${echapper(h.libelle)}</li>`).join("")}</ul>`
+    : `<p class="liste-vide">Aucun historique disponible.</p>`;
+
+  const actions = document.getElementById("ff-detail-actions");
+  actions.innerHTML = "";
+  if (detail.statut === "a_traiter" && detail.source === "document_fournisseur") {
+    actions.innerHTML = `<button type="button" id="ff-detail-btn-valider">✓ Envoyer à Dext</button><button type="button" class="ghost" onclick="ffBasculerOngletDetail('document')">Voir le document</button>`;
+    document.getElementById("ff-detail-btn-valider").addEventListener("click", () => ffValiderDocument(detail.sourceId));
+  } else if (detail.statut === "a_corriger" && detail.source === "archive_comptable") {
+    actions.innerHTML = `<button type="button" id="ff-detail-btn-corriger">✏ Corriger</button><button type="button" class="ghost" onclick="ffBasculerOngletDetail('document')">Voir le document</button>`;
+    document.getElementById("ff-detail-btn-corriger").addEventListener("click", () => {
+      if (typeof ouvrirCorrectionArchive === "function") ouvrirCorrectionArchive(detail.sourceId);
+    });
+  } else {
+    actions.innerHTML = `<button type="button" class="ghost" onclick="ffBasculerOngletDetail('document')">Voir le document</button>`;
+  }
+
+  if (ffEtat.detailOnglet === "document") ffChargerDocumentDetail();
+}
+
+function ffChargerDocumentDetail() {
+  if (!ffDetailCourant) return;
+  const conteneur = document.getElementById("ff-detail-document");
+  const url =
+    ffDetailCourant.source === "document_fournisseur"
+      ? `/api/documents-fournisseurs/${ffDetailCourant.sourceId}/document`
+      : `/api/archives-comptables/${ffDetailCourant.sourceId}/fichier`;
+  const mime = ffDetailCourant.mimeType === "application/pdf" ? "application/pdf" : "image";
+  conteneur.innerHTML =
+    mime === "application/pdf"
+      ? `<iframe src="${echapper(url)}" title="Document" style="width:100%;height:360px;border:1px solid var(--line);border-radius:10px;"></iframe>`
+      : `<img src="${echapper(url)}" alt="Document" style="max-width:100%;border-radius:10px;border:1px solid var(--line);" />`;
+}
+
+async function ffValiderDocument(documentId) {
+  const bouton = document.getElementById("ff-detail-btn-valider");
+  if (bouton) {
+    bouton.disabled = true;
+    bouton.textContent = "Envoi…";
+  }
+  try {
+    const res = await fetch(`/api/documents-fournisseurs/${documentId}/envoyer`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Envoi impossible.");
+    await Promise.all([chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees()]);
+    ffFermerDetail();
+  } catch (err) {
+    if (bouton) {
+      bouton.disabled = false;
+      bouton.textContent = "✓ Envoyer à Dext";
+    }
+    alert(err.message);
+  }
+}
+
 async function chargerFacturesDextEnvoyees() {
   const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=envoye");
   facturesDextEnvoyeesBrutes = await res.json();
@@ -4042,6 +4365,8 @@ function fermerCorrectionArchive() {
       // autres sous-vues doivent refleter ca tout de suite.
       chargerArchivesMoisCourant();
       chargerArchivesAVerifier();
+      chargerFacturesFournisseursUnifiees();
+      if (typeof ffFermerDetail === "function") ffFermerDetail();
       fermerCorrectionArchive();
     } catch (err) {
       erreurDiv.textContent = err.message;
@@ -4181,7 +4506,8 @@ if (zoneDepotArchiveComptable) {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
+  ffInitialiserControles();
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

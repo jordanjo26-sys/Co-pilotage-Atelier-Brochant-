@@ -1645,6 +1645,7 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .cab-encart-ia li { padding: 1px 0; }
 
 /* ---------- Pagination ---------- */
+.cab-pagination[hidden] { display: none; }
 .cab-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; color: var(--ink-muted); }
 .cab-pagination select { font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); }
 .cab-pagination-pages { display: flex; align-items: center; gap: 4px; }
@@ -1653,6 +1654,7 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .cab-pagination-pages button:disabled { opacity: .4; }
 
 /* ---------- Etats vide / chargement / erreur (generiques) ---------- */
+.cab-etat[hidden] { display: none; }
 .cab-etat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px 16px; text-align: center; color: var(--ink-muted); }
 .cab-etat svg { width: 36px; height: 36px; opacity: .5; }
 .cab-etat-titre { font-size: 13.5px; font-weight: 700; color: var(--ink-2); }

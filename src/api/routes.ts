@@ -49,6 +49,12 @@ import { obtenirStatutMoisBancaire, validerMoisComptable, invaliderMoisComptable
 import { synchroniserStripe, stripeEstConnecte, derniereSynchroStripe, verifierConnexionStripe } from "../services/stripeSync";
 import { synchroniserSynec, synecEstConfigure, derniereSynchroSynec, verifierConnexionSynec, CHEMIN_CAPTURE_ECHEC } from "../services/synecSync";
 import { ovhEstConfigure, verifierConnexionOvh, obtenirFacturesBrutesOvh, synchroniserOvh, derniereSynchroOvh } from "../services/ovhFacturation";
+import {
+  listerFacturesFournisseursUnifiees,
+  obtenirDetailFactureFournisseurUnifiee,
+  FactureFournisseurUnifieeError,
+  StatutFactureUnifiee,
+} from "../services/facturesFournisseursUnifiees";
 import { existsSync } from "fs";
 import fs from "node:fs/promises";
 import { getGmailClient } from "../services/googleAuth";
@@ -1038,6 +1044,38 @@ export function buildRouter(prisma: PrismaClient): Router {
       take: 500,
     });
     res.json(documents);
+  });
+
+  // Ecran unifie "Factures fournisseurs" (V2) : fusionne DocumentFournisseur
+  // (Gmail/Dext) et ArchiveComptable (hors Dext) en une seule liste - voir
+  // facturesFournisseursUnifiees.ts pour le detail de la fusion et des
+  // exclusions (jamais de doublon pour une facture deja envoyee a Dext).
+  router.get("/factures-fournisseurs", async (req, res) => {
+    const statutsValides: StatutFactureUnifiee[] = ["a_traiter", "validee", "a_corriger"];
+    const statut = typeof req.query.statut === "string" && statutsValides.includes(req.query.statut as StatutFactureUnifiee)
+      ? (req.query.statut as StatutFactureUnifiee)
+      : undefined;
+    const resultat = await listerFacturesFournisseursUnifiees(prisma, {
+      recherche: typeof req.query.recherche === "string" ? req.query.recherche : undefined,
+      fournisseurNom: typeof req.query.fournisseurNom === "string" ? req.query.fournisseurNom : undefined,
+      anneeMois: typeof req.query.anneeMois === "string" ? req.query.anneeMois : undefined,
+      statut,
+      page: req.query.page ? Number(req.query.page) : undefined,
+      parPage: req.query.parPage ? Number(req.query.parPage) : undefined,
+    });
+    res.json(resultat);
+  });
+
+  router.get("/factures-fournisseurs/:id/detail", async (req, res) => {
+    try {
+      const detail = await obtenirDetailFactureFournisseurUnifiee(prisma, req.params.id);
+      res.json(detail);
+    } catch (err) {
+      if (err instanceof FactureFournisseurUnifieeError) {
+        return res.status(404).json({ erreur: err.message });
+      }
+      res.status(500).json({ erreur: (err as Error).message });
+    }
   });
 
   // Previsualisation d'une facture fournisseur reconnue mais pas encore

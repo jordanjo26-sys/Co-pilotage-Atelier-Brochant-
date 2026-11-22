@@ -40,6 +40,11 @@ export interface FactureEnvoyeeDext {
   dateFacture: Date | null;
   montantHT: number | null;
   montantTTC: number | null;
+  // Identifiant du DocumentFournisseur source - permet a l'ecran unifie
+  // "Factures fournisseurs" (V2) d'exclure cette copie (origine="dext_copie",
+  // voir la migration 20261122160000_archive_comptable_origine) puisqu'elle
+  // est deja representee par son DocumentFournisseur d'origine.
+  documentFournisseurId: string;
 }
 
 /**
@@ -72,6 +77,8 @@ export async function archiverFactureEnvoyeeDext(prisma: PrismaClient, facture: 
       statut: complet ? "complete" : "a_verifier",
       classifiePar: null,
       categorie: null,
+      origine: "dext_copie",
+      documentFournisseurId: facture.documentFournisseurId,
     },
   });
 }
@@ -344,6 +351,7 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
       statut: complet ? "complete" : "a_verifier",
       classifiePar,
       categorie,
+      origine: "zip_manuel",
     },
   });
 
@@ -388,6 +396,7 @@ export async function enregistrerArchiveComptableExterne(prisma: PrismaClient, c
       montantTTC: champs.montantTTC,
       statut: "complete",
       classifiePar: champs.classifiePar,
+      origine: "ovh_api",
     },
   });
 }

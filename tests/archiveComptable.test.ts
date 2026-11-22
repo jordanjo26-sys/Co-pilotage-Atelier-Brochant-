@@ -386,6 +386,7 @@ test("Module Comptabilité — archive de factures", async (t) => {
       dateFacture: new Date("2026-06-01"),
       montantHT: 100,
       montantTTC: 120,
+      documentFournisseurId: "doc-fournisseur-test-1",
     });
 
     const archive = await prisma.archiveComptable.findFirst({ where: { fichierNom: "facture-edf-envoyee.pdf" } });
@@ -399,6 +400,11 @@ test("Module Comptabilité — archive de factures", async (t) => {
     // n'est relancee, seuls les champs deja connus sont enregistres.
     assert.equal(archive?.categorie, null);
     assert.equal(archive?.classifiePar, null);
+    // origine="dext_copie" + documentFournisseurId : permet a l'ecran unifie
+    // "Factures fournisseurs" (V2) d'exclure cette copie, deja representee
+    // par son DocumentFournisseur d'origine (voir facturesFournisseursUnifiees.ts).
+    assert.equal(archive?.origine, "dext_copie");
+    assert.equal(archive?.documentFournisseurId, "doc-fournisseur-test-1");
     await fs.access(archive!.cheminFichier);
 
     await prisma.archiveComptable.delete({ where: { id: archive!.id } });
@@ -414,6 +420,7 @@ test("Module Comptabilité — archive de factures", async (t) => {
       dateFacture: null,
       montantHT: 50,
       montantTTC: 60,
+      documentFournisseurId: "doc-fournisseur-test-2",
     });
 
     const archive = await prisma.archiveComptable.findFirst({ where: { fichierNom: "facture-sans-fournisseur.pdf" } });
