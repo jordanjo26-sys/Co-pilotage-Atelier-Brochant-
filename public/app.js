@@ -2,6 +2,27 @@ const fmtMontant = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", cu
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "—");
 const echapper = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+// Fiche mobile generique (finition mobile V2) : remplace une ligne de tableau
+// par une carte compacte - fournisseur/tiers, montant, puis une ligne meta
+// (date + statut). Reutilisee par tous les ecrans de factures/mouvements
+// pour ne jamais reconstruire ce rendu plusieurs fois independamment.
+function construireCarteLigne({ titre, avatarTexte, avatarCouleur, montant, metaGauche, statutHtml, onclick }) {
+  return `
+    <div class="cab-carte-ligne${onclick ? " cab-ligne-cliquable" : ""}"${onclick ? ` onclick="${onclick}"` : ""}>
+      <div class="cab-carte-ligne-entete">
+        <span class="cab-carte-ligne-titre">
+          ${avatarTexte ? `<span class="cab-avatar-cercle" style="background:${avatarCouleur || "var(--ink-muted)"}">${echapper(avatarTexte)}</span>` : ""}
+          <span class="texte">${titre}</span>
+        </span>
+        ${montant != null ? `<span class="cab-carte-ligne-montant">${montant}</span>` : ""}
+      </div>
+      <div class="cab-carte-ligne-meta">
+        <span>${metaGauche || ""}</span>
+        <span class="cab-carte-ligne-meta-droite">${statutHtml || ""}</span>
+      </div>
+    </div>`;
+}
+
 const ICONES_TUILE = {
   ca: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
   impayes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>',
@@ -145,6 +166,19 @@ try {
   } else if (ongletDepuisHash && document.getElementById(ongletDepuisHash)?.closest(".onglet-panneau")) {
     const cible = document.getElementById(ongletDepuisHash);
     basculerOnglet(cible.closest(".onglet-panneau").dataset.panneau);
+    // Si la cible vit dans un sous-onglet de panneau (finition mobile V2 :
+    // Factures/Tresorerie/Marketing decoupes en sous-vues), bascule aussi
+    // sur le bon sous-onglet avant de defiler - sinon la cible resterait
+    // cachee (hidden) meme apres avoir change d'onglet de premier niveau.
+    const sousPanneau = cible.closest("[data-souspanneau-contenu]");
+    if (sousPanneau) {
+      const nav = sousPanneau.closest(".onglet-panneau")?.querySelector(".cab-sousnav");
+      if (nav) {
+        initialiserSousNav(nav.dataset.sousnav);
+        const bouton = nav.querySelector(`.cab-segment[data-souspanneau="${sousPanneau.dataset.souspanneauContenu}"]`);
+        if (bouton) bouton.click();
+      }
+    }
     requestAnimationFrame(() => cible.scrollIntoView({ behavior: "smooth", block: "start" }));
   } else {
     const dernierOnglet = localStorage.getItem(CLE_ONGLET_ACTIF);
@@ -390,6 +424,22 @@ async function chargerImports() {
     </tr>`
     )
     .join("");
+
+  const cartes = document.getElementById("imports-cartes");
+  if (cartes) {
+    cartes.innerHTML = imports.length
+      ? imports
+          .map((i) =>
+            construireCarteLigne({
+              titre: echapper(i.fichierNom),
+              metaGauche: `${echapper(fmtDate(i.dateImport))} · ${echapper(i.typeDetecte)}`,
+              statutHtml: `<span class="badge badge-${i.statut}">${echapper(i.statut)}</span>`,
+            }) +
+            `<p class="aide-inline" style="margin:-4px 0 0;">${i.nbNouveaux} nouveau(x) · ${i.nbDoublons} doublon(s) · ${i.nbErreurs} erreur(s)</p>`
+          )
+          .join("")
+      : `<p class="liste-vide">Aucun import pour le moment.</p>`;
+  }
 }
 
 // Classe de bordure par statut - demande explicite de l'utilisateur :
@@ -445,6 +495,117 @@ function appliquerFiltreMouvementsBancaires() {
         )
         .join("")
     : `<tr><td colspan="6" class="liste-vide">Aucun mouvement pour ce filtre.</td></tr>`;
+
+  const cartes = document.getElementById("mouvements-cartes");
+  if (cartes) {
+    cartes.innerHTML = mouvements.length
+      ? mouvements
+          .map(
+            (m) => `
+      <div class="cab-carte-ligne">
+        <div class="cab-carte-ligne-entete">
+          <span class="cab-carte-ligne-titre"><span class="texte">${echapper(m.libelle)}</span></span>
+          <span class="cab-carte-ligne-montant">${m.debit > 0 ? "-" + fmtMontant(m.debit) : m.credit > 0 ? "+" + fmtMontant(m.credit) : ""}</span>
+        </div>
+        <div class="cab-carte-ligne-meta">
+          <span>${echapper(fmtDate(m.date))}</span>
+          <span class="badge badge-${m.rapprochementStatut}">${m.rapprochementStatut === "rapproche" ? "✓ " : ""}${echapper(m.rapprochementStatut.replace(/_/g, " "))}</span>
+        </div>
+        <button type="button" class="ghost" onclick="basculerDetailMouvementCarte('${m.id}', this)">Détail</button>
+        <div class="cab-carte-detail" hidden></div>
+      </div>`
+          )
+          .join("")
+      : `<p class="liste-vide">Aucun mouvement pour ce filtre.</p>`;
+  }
+}
+
+/** Equivalent mobile de basculerDetailMouvement/rafraichirDetailMouvement -
+ * meme construireDetailMouvementHtml (pure, sans etat), mais conteneur et
+ * gestionnaires d'action propres : jamais de selecteur global partage avec
+ * la table desktop (qui reste, elle, entierement inchangee). */
+async function basculerDetailMouvementCarte(id, bouton) {
+  const carte = bouton.closest(".cab-carte-ligne");
+  const conteneur = carte?.querySelector(".cab-carte-detail");
+  if (!conteneur) return;
+  if (!conteneur.hidden) {
+    conteneur.hidden = true;
+    bouton.textContent = "Détail";
+    return;
+  }
+  bouton.textContent = "Masquer";
+  conteneur.hidden = false;
+  conteneur.innerHTML = `<p class="aide-inline">Chargement…</p>`;
+  try {
+    const res = await fetch(`/api/mouvements-bancaires/${id}/detail`);
+    const detail = await res.json();
+    if (!res.ok) throw new Error(detail.erreur || "Chargement impossible.");
+    let candidats = { archives: [], documents: [] };
+    if (detail.mouvement.rapprochementStatut !== "rapproche") {
+      const resCandidats = await fetch(`/api/mouvements-bancaires/${id}/candidats`);
+      if (resCandidats.ok) candidats = await resCandidats.json();
+    }
+    conteneur.innerHTML = construireDetailMouvementHtml(detail, candidats);
+    attacherActionsDetailMouvementCarte(conteneur, id);
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+window.basculerDetailMouvementCarte = basculerDetailMouvementCarte;
+
+function attacherActionsDetailMouvementCarte(conteneur, id) {
+  const boutonAnnuler = conteneur.querySelector('[data-action="annuler"]');
+  if (boutonAnnuler) {
+    boutonAnnuler.addEventListener("click", async () => {
+      if (!confirm("Annuler ce rapprochement ? La ou les factures redeviendront disponibles pour un nouveau rattachement.")) return;
+      boutonAnnuler.disabled = true;
+      try {
+        const res = await fetch(`/api/mouvements-bancaires/${id}/annuler`, { method: "POST" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.erreur || "Annulation impossible.");
+        }
+        await chargerMouvementsBancaires();
+        await chargerSuiviMensuel();
+      } catch (err) {
+        alert(err.message);
+        boutonAnnuler.disabled = false;
+      }
+    });
+  }
+
+  const boutonValider = conteneur.querySelector('[data-action="valider"]');
+  if (boutonValider) {
+    boutonValider.addEventListener("click", async () => {
+      const lignes = [...conteneur.querySelectorAll(".rapprochement-picker-ligne")];
+      const cibles = lignes
+        .filter((ligne) => ligne.querySelector("input[type=checkbox]").checked)
+        .map((ligne) => ({
+          type: ligne.querySelector("input[type=checkbox]").dataset.cibleType,
+          id: ligne.querySelector("input[type=checkbox]").dataset.cibleId,
+          montantAffecte: Number(ligne.querySelector(".rapprochement-picker-montant").value),
+        }));
+      if (cibles.length === 0) {
+        alert("Cochez au moins une facture à rattacher.");
+        return;
+      }
+      boutonValider.disabled = true;
+      try {
+        const res = await fetch(`/api/mouvements-bancaires/${id}/valider`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cibles }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.erreur || "Validation impossible.");
+        await chargerMouvementsBancaires();
+        await chargerSuiviMensuel();
+      } catch (err) {
+        alert(err.message);
+        boutonValider.disabled = false;
+      }
+    });
+  }
 }
 
 document.getElementById("filtre-mois-mouvements")?.addEventListener("change", appliquerFiltreMouvementsBancaires);
@@ -841,6 +1002,24 @@ function afficherFacturesImpayeesFiltrees() {
     </tr>`
       )
       .join("") || `<tr><td colspan="5" class="liste-vide">Aucune facture impayée.</td></tr>`;
+
+  const cartes = document.getElementById("tf-cartes");
+  if (cartes) {
+    cartes.innerHTML = facturesAffichees.length
+      ? facturesAffichees
+          .map((f) =>
+            construireCarteLigne({
+              titre: echapper(f.clientNom),
+              avatarTexte: initialesFournisseur(f.clientNom),
+              avatarCouleur: couleurAvatarFournisseur(f.clientNom),
+              montant: echapper(fmtMontant(f.montantTTC)),
+              metaGauche: `${echapper(fmtDate(f.dateEmission))}${f.reference ? ` · ${echapper(f.reference)}` : ""}`,
+              statutHtml: `<span class="cab-statut-point cab-statut-${f.statut}">${echapper(LIBELLE_STATUT_FACTURE[f.statut] || f.statut)}</span>`,
+            })
+          )
+          .join("")
+      : `<p class="liste-vide">Aucune facture impayée.</p>`;
+  }
 
   const compteEl = document.getElementById("compte-factures-filtrees");
   compteEl.textContent =
@@ -2556,6 +2735,52 @@ function afficherFacturesDextEnvoyeesFiltrees() {
     .join("");
 }
 
+// --- Sous-navigation generique interne a un panneau (finition mobile V2) ---
+//
+// Decoupe une longue page (ex. Factures, Tresorerie, Marketing & Visibilite)
+// en vues focalisees plutot qu'une pile de sections - demande explicite de
+// l'utilisateur ("pages trop longues difficiles a parcourir"). Ne charge/ne
+// recharge jamais de donnees elle-meme : bascule uniquement l'affichage de
+// blocs deja presents dans le DOM (chaque chargerX() continue de tourner au
+// demarrage, exactement comme avant). Memorise le dernier sous-onglet choisi
+// par groupe (meme principe que CLE_ONGLET_ACTIF pour les onglets de premier
+// niveau).
+function initialiserSousNav(nom) {
+  const nav = document.querySelector(`.cab-sousnav[data-sousnav="${nom}"]`);
+  if (!nav || nav.dataset.initialise) return;
+  const panneauParent = nav.closest(".onglet-panneau");
+
+  const activer = (sousNomCible) => {
+    nav.querySelectorAll(".cab-segment").forEach((b) => {
+      const actif = b.dataset.souspanneau === sousNomCible;
+      b.classList.toggle("actif", actif);
+      b.setAttribute("aria-selected", actif ? "true" : "false");
+    });
+    panneauParent.querySelectorAll("[data-souspanneau-contenu]").forEach((c) => {
+      c.hidden = c.dataset.souspanneauContenu !== sousNomCible;
+    });
+    try {
+      localStorage.setItem(`copilote_sousnav_${nom}`, sousNomCible);
+    } catch {
+      // stockage indisponible (navigation privee...) : le choix reste valable pour la session en cours seulement
+    }
+  };
+
+  nav.querySelectorAll(".cab-segment").forEach((bouton) => {
+    bouton.addEventListener("click", () => activer(bouton.dataset.souspanneau));
+  });
+
+  let dernier = null;
+  try {
+    dernier = localStorage.getItem(`copilote_sousnav_${nom}`);
+  } catch {
+    // ignore
+  }
+  if (dernier && nav.querySelector(`.cab-segment[data-souspanneau="${dernier}"]`)) activer(dernier);
+
+  nav.dataset.initialise = "1";
+}
+
 // --- Ecran unifie "Factures fournisseurs" (V2 - maquette fournie) ----------
 //
 // Reunit DocumentFournisseur (Gmail/Dext) et ArchiveComptable (hors Dext :
@@ -2633,9 +2858,11 @@ async function chargerFacturesFournisseursUnifiees() {
   document.getElementById("ff-compte-a_corriger").textContent = `(${resultat.compteurs.aCorriger})`;
 
   const tbody = document.getElementById("ff-tbody");
+  const cartes = document.getElementById("ff-cartes");
   const etatVide = document.getElementById("ff-etat-vide");
   if (resultat.factures.length === 0) {
     tbody.innerHTML = "";
+    cartes.innerHTML = "";
     etatVide.hidden = false;
   } else {
     etatVide.hidden = true;
@@ -2649,6 +2876,19 @@ async function chargerFacturesFournisseursUnifiees() {
         <td class="num">${f.montantTTC != null ? fmtMontant(f.montantTTC) : "—"}</td>
         <td>${ffRenduStatutPoint(f.statut, f.statutDetail)}</td>
       </tr>`
+      )
+      .join("");
+    cartes.innerHTML = resultat.factures
+      .map((f) =>
+        construireCarteLigne({
+          titre: echapper(f.fournisseurNom || "Fournisseur inconnu"),
+          avatarTexte: initialesFournisseur(f.fournisseurNom),
+          avatarCouleur: couleurAvatarFournisseur(f.fournisseurNom),
+          montant: f.montantTTC != null ? echapper(fmtMontant(f.montantTTC)) : "—",
+          metaGauche: `${echapper(fmtDate(f.date))}${f.numero ? ` · ${echapper(f.numero)}` : ""}`,
+          statutHtml: ffRenduStatutPoint(f.statut, f.statutDetail),
+          onclick: `ffOuvrirDetail('${f.id}')`,
+        })
       )
       .join("");
   }
@@ -4507,6 +4747,9 @@ if (zoneDepotArchiveComptable) {
 
 async function rafraichirTout() {
   ffInitialiserControles();
+  initialiserSousNav("factures");
+  initialiserSousNav("tresorerie");
+  initialiserSousNav("marketing");
   await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
 }
 

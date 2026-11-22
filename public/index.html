@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=44" />
+  <link rel="stylesheet" href="/styles.css?v=45" />
 </head>
 <body>
   <!-- Coquille V2 (refonte UX/UI, novembre 2026, maquette fournie) : sidebar
@@ -169,6 +169,17 @@
 
     <!-- ===== Factures ===== -->
     <div class="onglet-panneau" data-panneau="factures" hidden>
+      <div class="cab-page-entete">
+        <h1>Factures</h1>
+        <p class="aide">Factures fournisseurs, historique Dext et suivi des impayés clients.</p>
+      </div>
+      <div class="cab-segments cab-sousnav" data-sousnav="factures" role="tablist" aria-label="Section des factures">
+        <button type="button" class="cab-segment actif" data-souspanneau="fournisseurs" role="tab" aria-selected="true">Fournisseurs</button>
+        <button type="button" class="cab-segment" data-souspanneau="dext" role="tab" aria-selected="false">Envoyées à Dext</button>
+        <button type="button" class="cab-segment" data-souspanneau="clients" role="tab" aria-selected="false">Impayées clients</button>
+      </div>
+
+      <div data-souspanneau-contenu="fournisseurs">
       <section class="carte">
         <div class="cab-page-entete">
           <h1>Factures fournisseurs</h1>
@@ -192,7 +203,7 @@
           <select id="ff-filtre-fournisseur"><option value="">Tous les fournisseurs</option></select>
         </div>
 
-        <div class="table-scroll">
+        <div class="table-scroll cab-desktop-seul">
           <table id="ff-table">
             <thead>
               <tr><th>Date</th><th>Fournisseur</th><th>N° de facture</th><th>Montant TTC</th><th>Statut</th></tr>
@@ -200,6 +211,7 @@
             <tbody id="ff-tbody"></tbody>
           </table>
         </div>
+        <div id="ff-cartes" class="cab-cartes-liste cab-mobile-seul"></div>
         <div id="ff-etat-vide" class="cab-etat" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
           <span class="cab-etat-titre">Aucune facture</span>
@@ -231,47 +243,6 @@
         </div>
         <div class="cab-detail-pied" id="ff-detail-actions"></div>
       </aside>
-
-      <section class="carte accent-critique carte-graphique-ca">
-        <div class="graphique-entete">
-          <h2>Factures impayées</h2>
-          <div id="resume-factures-impayees" class="grille-cockpit-compacte"></div>
-        </div>
-        <div id="graphique-impayes" class="graphique-ca"></div>
-        <p class="aide">Montant restant dû, regroupé par mois d'émission (12 derniers mois) — Synec ne transmet pas de date d'échéance.</p>
-
-        <div class="barre-filtres">
-          <label class="aide-inline">Émise du <input type="date" id="filtre-facture-date-debut" /></label>
-          <label class="aide-inline">au <input type="date" id="filtre-facture-date-fin" /></label>
-          <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" placeholder="Montant min." />
-          <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" placeholder="Montant max." />
-          <input id="filtre-facture-client" placeholder="Rechercher un client…" />
-          <select id="filtre-facture-statut">
-            <option value="">Impayées et partiellement payées</option>
-            <option value="impayee">Impayées seulement</option>
-            <option value="partiellement_payee">Partiellement payées seulement</option>
-          </select>
-        </div>
-        <div class="ligne-boutons" style="margin-bottom: 10px;">
-          <button type="button" class="ghost" id="btn-reinitialiser-filtres-factures">Réinitialiser les filtres</button>
-          <a class="ghost bouton-lien" href="/api/factures/export-pdf">Exporter en PDF</a>
-          <span class="aide-inline" id="compte-factures-filtrees" style="margin-left: auto;"></span>
-        </div>
-        <div class="table-scroll">
-          <table id="table-factures">
-            <thead>
-              <tr><th>Référence</th><th>Client</th><th>Émission</th><th>Montant TTC</th><th>Statut</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="carte accent-ambre">
-        <h2>Relances à envoyer</h2>
-        <p class="aide">Factures ayant atteint un nouveau palier de retard (rappel, relance, mise en demeure). L'envoi reste toujours un geste volontaire, facture par facture — rien n'est envoyé automatiquement.</p>
-        <div id="liste-relances"></div>
-      </section>
 
       <section class="carte accent-violet">
         <h2>Scanner un document papier</h2>
@@ -328,15 +299,6 @@
         <div id="liste-factures-fournisseurs"></div>
       </section>
 
-      <section class="carte accent-teal">
-        <h2>Factures envoyées à Dext</h2>
-        <p class="aide">Historique jour par jour de ce que Morgane a déjà transmis à Dext, pour vérifier en un coup d'œil ce qui est parti.</p>
-        <div class="barre-filtres">
-          <input id="filtre-dext-fournisseur" placeholder="Rechercher un fournisseur ou un fichier…" />
-        </div>
-        <div id="liste-factures-dext-envoyees"></div>
-      </section>
-
       <section class="carte accent-violet">
         <h2>Bilan de santé</h2>
         <p class="aide">Synthèse de l'activité : chiffre d'affaires, impayés par ancienneté, documents fournisseurs en attente, points de vigilance.</p>
@@ -346,6 +308,62 @@
         </div>
         <pre id="contenu-bilan" class="bloc-texte" hidden></pre>
       </section>
+      </div>
+
+      <div data-souspanneau-contenu="dext" hidden>
+      <section class="carte accent-teal">
+        <h2>Factures envoyées à Dext</h2>
+        <p class="aide">Historique jour par jour de ce que Morgane a déjà transmis à Dext, pour vérifier en un coup d'œil ce qui est parti.</p>
+        <div class="barre-filtres">
+          <input id="filtre-dext-fournisseur" placeholder="Rechercher un fournisseur ou un fichier…" />
+        </div>
+        <div id="liste-factures-dext-envoyees"></div>
+      </section>
+      </div>
+
+      <div data-souspanneau-contenu="clients" hidden>
+      <section class="carte accent-critique carte-graphique-ca">
+        <div class="graphique-entete">
+          <h2>Factures impayées</h2>
+          <div id="resume-factures-impayees" class="grille-cockpit-compacte"></div>
+        </div>
+        <div id="graphique-impayes" class="graphique-ca"></div>
+        <p class="aide">Montant restant dû, regroupé par mois d'émission (12 derniers mois) — Synec ne transmet pas de date d'échéance.</p>
+
+        <div class="barre-filtres">
+          <label class="aide-inline">Émise du <input type="date" id="filtre-facture-date-debut" /></label>
+          <label class="aide-inline">au <input type="date" id="filtre-facture-date-fin" /></label>
+          <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" placeholder="Montant min." />
+          <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" placeholder="Montant max." />
+          <input id="filtre-facture-client" placeholder="Rechercher un client…" />
+          <select id="filtre-facture-statut">
+            <option value="">Impayées et partiellement payées</option>
+            <option value="impayee">Impayées seulement</option>
+            <option value="partiellement_payee">Partiellement payées seulement</option>
+          </select>
+        </div>
+        <div class="ligne-boutons" style="margin-bottom: 10px;">
+          <button type="button" class="ghost" id="btn-reinitialiser-filtres-factures">Réinitialiser les filtres</button>
+          <a class="ghost bouton-lien" href="/api/factures/export-pdf">Exporter en PDF</a>
+          <span class="aide-inline" id="compte-factures-filtrees" style="margin-left: auto;"></span>
+        </div>
+        <div class="table-scroll cab-desktop-seul">
+          <table id="table-factures">
+            <thead>
+              <tr><th>Référence</th><th>Client</th><th>Émission</th><th>Montant TTC</th><th>Statut</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="tf-cartes" class="cab-cartes-liste cab-mobile-seul"></div>
+      </section>
+
+      <section class="carte accent-ambre">
+        <h2>Relances à envoyer</h2>
+        <p class="aide">Factures ayant atteint un nouveau palier de retard (rappel, relance, mise en demeure). L'envoi reste toujours un geste volontaire, facture par facture — rien n'est envoyé automatiquement.</p>
+        <div id="liste-relances"></div>
+      </section>
+      </div>
     </div>
 
     <!-- ===== Fournisseurs ===== -->
@@ -403,6 +421,13 @@
         <h1>Trésorerie</h1>
         <p class="aide">Connexions bancaires, imports de relevés et rapprochement automatique des mouvements.</p>
       </div>
+      <div class="cab-segments cab-sousnav" data-sousnav="tresorerie" role="tablist" aria-label="Section de la trésorerie">
+        <button type="button" class="cab-segment actif" data-souspanneau="connexions" role="tab" aria-selected="true">Connexions</button>
+        <button type="button" class="cab-segment" data-souspanneau="imports" role="tab" aria-selected="false">Imports</button>
+        <button type="button" class="cab-segment" data-souspanneau="mouvements" role="tab" aria-selected="false">Mouvements bancaires</button>
+      </div>
+
+      <div data-souspanneau-contenu="connexions">
       <section class="carte accent-teal">
         <h2>Stripe</h2>
         <p class="aide">Récupération automatique des payouts et paiements par API (en ligne et Tap to Pay) — remplace le dépôt manuel d'export CSV Stripe une fois connecté.</p>
@@ -420,7 +445,9 @@
         <p class="aide">Récupération automatique des factures OVHcloud (hébergement, domaine…) par API officielle, dans l'espace Comptabilité — remplace le téléchargement manuel une fois connecté. Seules les nouvelles factures à partir de la connexion sont importées, jamais l'historique.</p>
         <div id="ovh-statut"></div>
       </section>
+      </div>
 
+      <div data-souspanneau-contenu="imports" hidden>
       <section class="carte accent-bleu">
         <h2>Déposer un fichier</h2>
         <p class="aide">
@@ -436,7 +463,7 @@
 
       <section class="carte accent-neutre">
         <h2>Derniers imports</h2>
-        <div class="table-scroll">
+        <div class="table-scroll cab-desktop-seul">
           <table id="table-imports">
             <thead>
               <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
@@ -444,8 +471,11 @@
             <tbody></tbody>
           </table>
         </div>
+        <div id="imports-cartes" class="cab-cartes-liste cab-mobile-seul"></div>
       </section>
+      </div>
 
+      <div data-souspanneau-contenu="mouvements" hidden>
       <section class="carte accent-teal">
         <h2>Mouvements bancaires</h2>
         <p class="aide">
@@ -461,7 +491,7 @@
           <label><input type="checkbox" id="filtre-non-rapproches-mouvements" /> Uniquement non rapprochés/à vérifier</label>
           <button type="button" class="ghost" id="btn-reinitialiser-filtre-mouvements">Réinitialiser</button>
         </div>
-        <div class="table-scroll">
+        <div class="table-scroll cab-desktop-seul">
           <table id="table-mouvements-bancaires">
             <thead>
               <tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Rapprochement</th><th>Actions</th></tr>
@@ -469,7 +499,9 @@
             <tbody></tbody>
           </table>
         </div>
+        <div id="mouvements-cartes" class="cab-cartes-liste cab-mobile-seul"></div>
       </section>
+      </div>
     </div>
 
     <!-- ===== Suivi mensuel (etat du rapprochement bancaire, mois par mois) ===== -->
@@ -534,18 +566,29 @@
         <h1>Marketing &amp; Visibilité</h1>
         <p class="aide">Réseaux sociaux, fiche Google Business et présence PagesJaunes/Solocal.</p>
       </div>
+      <div class="cab-segments cab-sousnav" data-sousnav="marketing" role="tablist" aria-label="Section marketing">
+        <button type="button" class="cab-segment actif" data-souspanneau="reseaux" role="tab" aria-selected="true">Réseaux sociaux</button>
+        <button type="button" class="cab-segment" data-souspanneau="google-business" role="tab" aria-selected="false">Google Business</button>
+        <button type="button" class="cab-segment" data-souspanneau="pagesjaunes" role="tab" aria-selected="false">PagesJaunes</button>
+      </div>
+
+      <div data-souspanneau-contenu="reseaux">
       <section class="carte accent-ambre" id="section-reseaux-sociaux">
         <h2>Réseaux sociaux (Facebook / Instagram)</h2>
         <p class="aide">Module en construction, phase fondations : connexion + publication avec photo après votre validation — rien ne part automatiquement. Génération d'images par IA et récupération automatique de photos pas encore disponibles.</p>
         <div id="reseaux-sociaux-statut"></div>
       </section>
+      </div>
 
+      <div data-souspanneau-contenu="google-business" hidden>
       <section class="carte accent-violet" id="section-google-business">
         <h2>Google Business Profile (page Google Maps)</h2>
         <p class="aide">Module en construction, phase fondations : vérifie uniquement que la connexion fonctionne. Réponse aux avis, publication d'actualités, mise à jour des infos et statistiques pas encore disponibles.</p>
         <div id="google-business-statut"></div>
       </section>
+      </div>
 
+      <div data-souspanneau-contenu="pagesjaunes" hidden>
       <section class="carte accent-teal" id="section-pagesjaunes">
         <h2>PagesJaunes / Solocal Manager — A.B Atelier Brochant (Lagny-sur-Marne)</h2>
         <p class="aide">Solocal Manager n'a pas d'API et son SSO bloque les connexions automatisées (vérifié) : pas de publication automatique ici, et il n'y en aura pas. Morgane rédige — actualités/offres, mise à jour des infos de la fiche, réponses aux avis (montre-lui l'avis en conversation, elle ne peut pas les lire elle-même) — tu acceptes ci-dessous, tu colles toi-même dans Solocal Manager, puis tu marques « Publiée » pour suivre ton objectif (Solocal recommande au moins 4 actualités/événements/promotions par mois).</p>
@@ -563,7 +606,9 @@
         <div id="resultat-actualite-pagesjaunes"></div>
         <div id="liste-propositions-pagesjaunes" style="margin-top:14px"></div>
       </section>
+      </div>
 
+      <div data-souspanneau-contenu="reseaux">
       <section class="carte accent-bleu">
         <h2>Réseaux sociaux — publier une photo</h2>
         <p class="aide">Dépose une photo et un texte ici (ou laisse Morgane te le proposer en conversation) : la publication part dans la liste ci-dessous, en attente de ta validation.</p>
@@ -583,6 +628,7 @@
         <p class="aide">Publications proposées (par toi ci-dessus ou par Morgane après discussion). Rien n'est publié sur Facebook/Instagram tant que tu n'acceptes pas ici.</p>
         <div id="liste-propositions-reseaux-sociaux"></div>
       </section>
+      </div>
     </div>
 
     <!-- ===== Réalisations ===== -->
@@ -832,7 +878,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=72"></script>
+  <script src="/app.js?v=73"></script>
   <script src="/navigation.js?v=1"></script>
   <script src="/morgane.js?v=3"></script>
 </body>

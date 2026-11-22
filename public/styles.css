@@ -1430,7 +1430,7 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 
 /* ---------- Coquille : sidebar desktop + contenu ---------- */
 .cab-shell { display: flex; align-items: stretch; min-height: 100vh; }
-.cab-contenu-shell { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-bottom: 60px; }
+.cab-contenu-shell { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
 @media (min-width: 960px) {
   .cab-contenu-shell { padding-bottom: 0; }
 }
@@ -1579,11 +1579,46 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 .cab-statut-point { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
 .cab-statut-point::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-muted); flex: none; }
 .cab-statut-a_traiter::before, .cab-statut-non_rapproche::before { background: var(--brand-blue); }
-.cab-statut-validee::before, .cab-statut-rapproche::before { background: var(--good); }
-.cab-statut-a_corriger::before, .cab-statut-a_verifier::before { background: var(--warning); }
+.cab-statut-validee::before, .cab-statut-rapproche::before, .cab-statut-payee::before { background: var(--good); }
+.cab-statut-a_corriger::before, .cab-statut-a_verifier::before, .cab-statut-partiellement_payee::before { background: var(--warning); }
+.cab-statut-impayee::before { background: var(--critical); }
 
 tr.cab-ligne-selectionnee { background: var(--brand-blue-soft); }
 tr.cab-ligne-cliquable { cursor: pointer; }
+
+/* ---------- Finition mobile (novembre 2026) : utilitaires desktop/mobile ----------
+   A poser sur un conteneur (jamais directement sur <table>/<tbody>, qui ont besoin
+   de leur propre display) pour basculer entre une table desktop et une liste de
+   fiches mobile construites a partir des MEMES donnees, sans dupliquer le
+   chargement ni la logique metier - seul le rendu choisi differe selon la largeur. */
+.cab-desktop-seul { display: none; }
+.cab-mobile-seul { display: block; }
+@media (min-width: 720px) {
+  .cab-desktop-seul { display: block; }
+  .cab-mobile-seul { display: none; }
+}
+
+/* ---------- Liste de fiches mobile (remplace un tableau illisible en dessous de 720px) ---------- */
+.cab-cartes-liste { display: flex; flex-direction: column; gap: 10px; }
+.cab-carte-ligne {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; box-shadow: var(--shadow);
+}
+.cab-carte-ligne.cab-ligne-cliquable { cursor: pointer; }
+.cab-carte-ligne.cab-ligne-cliquable:active { opacity: 0.82; }
+.cab-carte-ligne-entete { display: flex; align-items: center; gap: 8px; }
+.cab-carte-ligne-titre { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; font-weight: 700; color: var(--ink); font-size: 14px; }
+.cab-carte-ligne-titre .texte { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cab-carte-ligne-montant { font-weight: 800; color: var(--ink); font-size: 15px; white-space: nowrap; flex: none; }
+.cab-carte-ligne-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink-muted); flex-wrap: wrap; }
+.cab-carte-ligne-meta-droite { margin-left: auto; }
+
+/* ---------- Sous-navigation interne a un panneau (ex. Factures/Tresorerie/Marketing
+   decoupes en vues focalisees plutot qu'une longue page) - reutilise exactement le
+   style .cab-segments/.cab-segment deja construit pour les statuts, car c'est le
+   meme besoin visuel (groupe de choix exclusifs avec etat actif). ---------- */
+.cab-sousnav { margin-bottom: 4px; }
 
 /* ---------- Panneau de detail lateral (ecran flagship) ---------- */
 .cab-overlay { position: fixed; inset: 0; background: rgba(10,16,30,0.45); z-index: 39; }
@@ -1598,7 +1633,16 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 }
 .cab-detail-panneau.ouvert { transform: translateX(0); }
 .cab-detail-panneau[hidden] { display: none; }
-@media (max-width: 640px) { .cab-detail-panneau { width: 100vw; } }
+@media (max-width: 640px) {
+  .cab-detail-panneau { width: 100vw; }
+  .cab-detail-entete { padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
+  .cab-detail-pied { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  /* Sur mobile, la navigation en plein ecran (comme une page qui s'empile)
+     appelle une fleche de retour avant le titre plutot qu'une croix apres -
+     meme bouton/gestionnaire d'evenement, seul l'icone et sa position
+     (ordre flex) changent, aucune logique JS dupliquee. */
+  .cab-detail-fermer { order: -1; }
+}
 
 .cab-detail-entete { display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid var(--line); flex: none; }
 .cab-detail-entete h3 { font-size: 15px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -1607,6 +1651,12 @@ tr.cab-ligne-cliquable { cursor: pointer; }
   cursor: pointer; padding: 0; min-height: auto; width: 28px; height: 28px; flex: none;
 }
 .cab-detail-fermer:hover { color: var(--ink); background: none; opacity: 1; }
+.cab-detail-fermer-mobile { display: none; }
+@media (max-width: 640px) {
+  .cab-detail-fermer { font-size: 22px; }
+  .cab-detail-fermer-desktop { display: none; }
+  .cab-detail-fermer-mobile { display: inline; }
+}
 
 .cab-detail-onglets { display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none; }
 .cab-detail-onglet {
