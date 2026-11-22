@@ -19,6 +19,7 @@ import {
   listerExtensionsAppel,
   obtenirSnippetConversion,
   listerPerformanceAnnonces,
+  obtenirForceAnnoncesCampagne,
   verifierPolitiqueAnnonces,
   verifierPolitiqueAssets,
   rechercherAudiences,
@@ -320,6 +321,18 @@ const OUTILS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "obtenir_force_annonces_ads",
+    description:
+      "Retourne le 'Ad Strength' (force de l'annonce : EXCELLENT/GOOD/AVERAGE/POOR/...) de CHAQUE annonce d'une campagne, avec le nombre de titres/descriptions actuellement utilises (sur le maximum Google Ads de 15 titres et 4 descriptions) ET leur texte exact. A VERIFIER PROACTIVEMENT quand l'utilisateur mentionne une annonce 'moyenne'/'pas optimisee', ou periodiquement sur les campagnes actives - ne pas attendre que l'utilisateur la decouvre lui-meme dans Google Ads. Si le nombre de titres/descriptions est inferieur au maximum, c'est generalement la cause directe d'un score AVERAGE ou POOR : propose a l'utilisateur d'ajouter le texte manquant (voir proposer_action_ads, type modifier_annonce) - mais JAMAIS en inventant des arguments marketing non confirmes sur l'activite du client ; utilise les titres/descriptions existants de cette reponse comme base ou demande les faits manquants a l'utilisateur. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        campagneId: { type: "string", description: "Identifiant Google Ads de la campagne (campaign.id, voir obtenir_campagnes_ads)." },
+      },
+      required: ["campagneId"],
+    },
+  },
+  {
     name: "auditer_referencement_site",
     description:
       "Analyse une page web en lecture seule : balises SEO (titre, meta description, canonical, viewport), presence de donnees structurees (schema.org/JSON-LD), presence REELLE de robots.txt/sitemap.xml/llms.txt (distingue un vrai fichier du HTML de secours d'une application monopage), robots IA explicitement bloques dans robots.txt (GPTBot, ClaudeBot, PerplexityBot...), et surtout renduCoteClientUniquement : indique si le contenu de la page n'existe QUE via JavaScript execute par le navigateur - critique car la plupart des robots IA (contrairement a Googlebot) n'executent PAS le JavaScript, donc un site 'renduCoteClientUniquement=true' peut etre invisible pour ChatGPT/Perplexity/Claude meme s'il est correct pour Google. N'ACCEDE PAS au code du site (herberge ailleurs, souvent sur une plateforme tierce comme Emergent) : analyse uniquement ce qui est publiquement expose, comme un robot le verrait. Lecture seule - ne modifie jamais rien.",
@@ -399,7 +412,7 @@ const OUTILS: Anthropic.Tool[] = [
   {
     name: "proposer_action_ads",
     description:
-      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, ajout d'un GROUPE D'ANNONCES supplementaire a une campagne existante, modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), ajustement des encheres par appareil, suppression definitive d'une campagne, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui. IMPORTANT, limite structurelle : creer_campagne ne cree qu'UN SEUL groupe d'annonces (un jeu de titres/descriptions/mots-cles/URL) - pour une campagne a PLUSIEURS groupes (ex. plusieurs sous-metiers avec chacun sa page), cree la campagne avec le premier groupe via creer_campagne, puis ajoute chaque groupe supplementaire via ajouter_groupe_annonces (un appel par groupe). Pour ajouter_groupe_annonces : l'annonce du nouveau groupe est toujours creee EN PAUSE, meme si la campagne qui l'accueille est deja active - a activer manuellement apres verification. Pour supprimer_campagne : operation IRREVERSIBLE (contrairement a pause_campagne) - la campagne ne peut plus etre reactivee ni modifiee ensuite. Assure-toi que l'utilisateur comprend bien ce caractere definitif avant de deposer cette proposition, et prefere pause_campagne si un doute existe sur son intention reelle.",
+      "Enregistre une proposition d'action Google Ads (pause/reactivation d'une campagne OU d'un mot-cle precis, ajout de mots-cles exclus OU positifs, ajout d'un GROUPE D'ANNONCES supplementaire a une campagne existante, ajout de titres/descriptions a une ANNONCE EXISTANTE pour ameliorer son Ad Strength (modifier_annonce), modification du budget d'une campagne existante, exclusion d'une action de conversion du comptage, creation d'une action de conversion WEB (clic a appeler ou formulaire), ajustement des encheres par appareil, suppression definitive d'une campagne, OU creation complete d'une nouvelle campagne Search), APRES que l'utilisateur ait clairement donne son accord dans la conversation sur cette action precise. Pour modifier_annonce : verifie TOUJOURS obtenir_force_annonces_ads en premier pour voir les titres/descriptions deja approuves sur l'annonce - ne JAMAIS inventer de nouveau texte marketing sur l'activite/les offres reelles du client sans fait fourni par l'utilisateur ou deja present dans l'annonce existante ; si l'information manque, demande-la avant de proposer. N'execute RIEN directement : la proposition est deposee sur l'ecran de validation dedie de l'application (onglet Google Ads), ou l'utilisateur doit explicitement l'accepter avant qu'elle ne soit appliquee. Ne jamais appeler cet outil sans accord explicite et recent de l'utilisateur. Pour creer_campagne : une campagne complete est toujours creee EN PAUSE (securite demandee par l'utilisateur) - elle ne depensera rien tant qu'il ne l'active pas lui-meme dans Google Ads apres verification ; dis-le lui. IMPORTANT, limite structurelle : creer_campagne ne cree qu'UN SEUL groupe d'annonces (un jeu de titres/descriptions/mots-cles/URL) - pour une campagne a PLUSIEURS groupes (ex. plusieurs sous-metiers avec chacun sa page), cree la campagne avec le premier groupe via creer_campagne, puis ajoute chaque groupe supplementaire via ajouter_groupe_annonces (un appel par groupe). Pour ajouter_groupe_annonces : l'annonce du nouveau groupe est toujours creee EN PAUSE, meme si la campagne qui l'accueille est deja active - a activer manuellement apres verification. Pour supprimer_campagne : operation IRREVERSIBLE (contrairement a pause_campagne) - la campagne ne peut plus etre reactivee ni modifiee ensuite. Assure-toi que l'utilisateur comprend bien ce caractere definitif avant de deposer cette proposition, et prefere pause_campagne si un doute existe sur son intention reelle.",
     input_schema: {
       type: "object",
       properties: {
@@ -424,8 +437,14 @@ const OUTILS: Anthropic.Tool[] = [
             "supprimer_campagne",
             "ajuster_encheres_appareil",
             "ajouter_groupe_annonces",
+            "modifier_annonce",
           ],
           description: "Action proposee.",
+        },
+        adId: {
+          type: "string",
+          description:
+            "Identifiant de l'annonce existante (ad_group_ad.ad.id, voir obtenir_force_annonces_ads). REQUIS pour modifier_annonce - les nouveaux titres/descriptions sont AJOUTES a ceux deja existants sur cette annonce (jamais de remplacement).",
         },
         nomGroupe: {
           type: "string",
@@ -476,12 +495,14 @@ const OUTILS: Anthropic.Tool[] = [
         titres: {
           type: "array",
           items: { type: "string" },
-          description: "Entre 3 et 15 titres d'annonce (30 caracteres max chacun, contrainte Google Ads). Pour creer_campagne, ajouter_annonce_test et ajouter_groupe_annonces.",
+          description:
+            "Entre 3 et 15 titres d'annonce (30 caracteres max chacun, contrainte Google Ads). Pour creer_campagne, ajouter_annonce_test et ajouter_groupe_annonces. Pour modifier_annonce : UNIQUEMENT les NOUVEAUX titres a ajouter (pas besoin de repeter les titres existants) - le total (existants + nouveaux) ne doit pas depasser 15, verifie obtenir_force_annonces_ads avant de proposer pour connaitre le nombre deja present.",
         },
         descriptions: {
           type: "array",
           items: { type: "string" },
-          description: "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Pour creer_campagne, ajouter_annonce_test et ajouter_groupe_annonces.",
+          description:
+            "Entre 2 et 4 descriptions d'annonce (90 caracteres max chacune, contrainte Google Ads). Pour creer_campagne, ajouter_annonce_test et ajouter_groupe_annonces. Pour modifier_annonce : UNIQUEMENT les NOUVELLES descriptions a ajouter - le total (existantes + nouvelles) ne doit pas depasser 4.",
         },
         motsCles: {
           type: "array",
@@ -1084,6 +1105,16 @@ async function executerOutil(
       }
     }
 
+    case "obtenir_force_annonces_ads": {
+      const campagneId = typeof params.campagneId === "string" ? params.campagneId : "";
+      if (!campagneId) return { erreur: "campagneId manquant" };
+      try {
+        return { annonces: await obtenirForceAnnoncesCampagne(prisma, campagneId) };
+      } catch (err) {
+        return { erreur: messageErreurGoogleAds(err) };
+      }
+    }
+
     case "auditer_referencement_site": {
       const url = typeof params.url === "string" ? params.url : "";
       if (!url) return { erreur: "url manquante" };
@@ -1192,6 +1223,7 @@ async function executerOutil(
         horaires,
         audiences,
         ajustementsAppareil,
+        adId,
       } = params as Record<string, unknown>;
       const typesValides: TypePropositionAds[] = [
         "pause_campagne",
@@ -1212,6 +1244,7 @@ async function executerOutil(
         "supprimer_campagne",
         "ajuster_encheres_appareil",
         "ajouter_groupe_annonces",
+        "modifier_annonce",
       ];
       if (typeof type !== "string" || !(typesValides as string[]).includes(type)) {
         return { erreur: `type invalide (attendu : ${typesValides.join(", ")})` };
@@ -1306,6 +1339,7 @@ async function executerOutil(
           horaires: toHoraires(horaires),
           audiences: toTableauString(audiences),
           ajustementsAppareil: toAjustementsAppareil(ajustementsAppareil),
+          adId: typeof adId === "string" ? adId : undefined,
         });
         return {
           ok: true,
@@ -1830,6 +1864,19 @@ EN PAUSE comme toute creation. Une fois les deux annonces actives, \
 compare leur performance avec obtenir_performance_annonces_ads (jamais \
 avant d'avoir assez de donnees - quelques clics ne suffisent pas a \
 conclure).
+  Ad Strength d'une annonce existante (modifier_annonce) : verifie \
+obtenir_force_annonces_ads pour voir le score (POOR/AVERAGE/GOOD/ \
+EXCELLENT) et le nombre de titres/descriptions deja utilises sur chaque \
+annonce. En-dessous du maximum (15 titres, 4 descriptions), signale-le \
+proactivement a l'utilisateur meme s'il ne demande pas explicitement un \
+diagnostic - c'est une cause frequente et facile a corriger d'un score \
+AVERAGE/POOR. Pour completer : adId (voir obtenir_force_annonces_ads) et \
+titres/descriptions contenant UNIQUEMENT les nouveaux textes a ajouter \
+(ils s'additionnent aux existants, jamais de remplacement). Ne JAMAIS \
+inventer un angle marketing, une offre ou un argument sur l'activite \
+reelle du client : reutilise les formulations deja presentes sur \
+l'annonce existante, ou demande les faits precis a l'utilisateur avant \
+de proposer un nouveau titre/description.
   Ajustement d'enchere par appareil (ajustementsAppareil, REQUIS pour \
 ajuster_encheres_appareil) : appareil (MOBILE/TABLET/DESKTOP) + \
 pourcentage (-90 a +900, ex. -20 pour reduire les encheres de 20% sur cet \

@@ -23,6 +23,7 @@ import {
   ajusterEncheresAppareil,
   AjustementAppareilAds,
   ajouterGroupeAnnonces,
+  ajouterContenuAnnonce,
 } from "./googleAds";
 import { logEvenement } from "./journalService";
 
@@ -53,7 +54,8 @@ export type TypePropositionAds =
   | "ajouter_annonce_test"
   | "supprimer_campagne"
   | "ajuster_encheres_appareil"
-  | "ajouter_groupe_annonces";
+  | "ajouter_groupe_annonces"
+  | "modifier_annonce";
 
 export interface PropositionAdsEntree {
   type: TypePropositionAds;
@@ -67,6 +69,7 @@ export interface PropositionAdsEntree {
   motsCles?: string[];
   motsClesExclus?: string[];
   groupeId?: string; // requis en entree pour pause_mot_cle/reactiver_mot_cle/ajouter_mots_cles_positifs/ajouter_annonce_test ; rempli apres coup pour ajouter_groupe_annonces
+  adId?: string; // ad_group_ad.ad.id de l'annonce existante a completer, requis pour modifier_annonce
   nomGroupe?: string; // nom du nouveau groupe d'annonces, requis pour ajouter_groupe_annonces
   criterionId?: string; // requis pour pause_mot_cle/reactiver_mot_cle
   motCleTexte?: string; // requis pour pause_mot_cle/reactiver_mot_cle (affichage)
@@ -173,6 +176,12 @@ export async function creerPropositionAds(prisma: PrismaClient, entree: Proposit
     if (nbTitres < 3 || nbTitres > 15) throw new Error(`titres : ${nbTitres} fourni(s), il en faut entre 3 et 15.`);
     const nbDescriptions = entree.descriptions?.length ?? 0;
     if (nbDescriptions < 2 || nbDescriptions > 4) throw new Error(`descriptions : ${nbDescriptions} fournie(s), il en faut entre 2 et 4.`);
+  }
+  if (entree.type === "modifier_annonce") {
+    if (!entree.adId) throw new Error("adId manquant (requis pour modifier_annonce).");
+    const nbTitres = entree.titres?.length ?? 0;
+    const nbDescriptions = entree.descriptions?.length ?? 0;
+    if (nbTitres === 0 && nbDescriptions === 0) throw new Error("Au moins un nouveau titre ou une nouvelle description est requis pour modifier_annonce.");
   }
   if (entree.type === "ajouter_groupe_annonces") {
     if (!entree.campagneId) throw new Error("campagneId manquant (requis pour ajouter_groupe_annonces - la campagne doit deja exister).");
@@ -329,6 +338,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
         groupeIdCree = resultat.groupeId;
         break;
       }
+      case "modifier_annonce":
+        await ajouterContenuAnnonce(prisma, proposition.adId ?? "", proposition.titres, proposition.descriptions);
+        break;
       default:
         throw new Error(`Type de proposition inconnu : "${proposition.type}".`);
     }
@@ -376,7 +388,9 @@ export async function appliquerPropositionAds(prisma: PrismaClient, id: string) 
                                     ? `Enchere(s) ajustee(s) par appareil sur "${proposition.campagneNom}" : ${((proposition.ajustementsAppareil as unknown as AjustementAppareilAds[] | null) ?? []).map((a) => `${a.appareil} ${a.pourcentage > 0 ? "+" : ""}${a.pourcentage}%`).join(", ")}.`
                                     : proposition.type === "ajouter_groupe_annonces"
                                       ? `Groupe d'annonces "${proposition.nomGroupe}" (id ${groupeIdCree}) ajoute a "${proposition.campagneNom}", annonce creee EN PAUSE - a activer manuellement apres verification.`
-                                      : "Applique avec succes sur Google Ads.",
+                                      : proposition.type === "modifier_annonce"
+                                        ? `Annonce (id ${proposition.adId}) completee avec ${proposition.titres.length} nouveau(x) titre(s) et ${proposition.descriptions.length} nouvelle(s) description(s).`
+                                        : "Applique avec succes sur Google Ads.",
     });
     return miseAJour;
   } catch (err) {

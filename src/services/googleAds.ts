@@ -1053,6 +1053,8 @@ export interface ForceAnnonceAds {
   adId: string;
   statut: string;
   forceAnnonce: string; // POOR | AVERAGE | GOOD | EXCELLENT | PENDING | NO_ADS | UNKNOWN
+  titres: string[];
+  descriptions: string[];
   nombreTitres: number;
   nombreDescriptions: number;
   nombreTitresEpingles: number;
@@ -1102,12 +1104,56 @@ export async function obtenirForceAnnoncesCampagne(prisma: PrismaClient, campagn
       adId: String(ligne.ad_group_ad?.ad?.id ?? ""),
       statut: String(ligne.ad_group_ad?.status ?? ""),
       forceAnnonce: decoderEnum(enums.AdStrength as unknown as Record<string, string | number>, ligne.ad_group_ad?.ad_strength),
+      titres: titres.map((h) => h.text ?? ""),
+      descriptions: descriptions.map((d) => d.text ?? ""),
       nombreTitres: titres.length,
       nombreDescriptions: descriptions.length,
       nombreTitresEpingles: titres.filter(estEpingle).length,
       nombreDescriptionsEpinglees: descriptions.filter(estEpingle).length,
     };
   });
+}
+
+/**
+ * Ajoute de nouveaux titres/descriptions a une annonce responsive EXISTANTE
+ * (contrairement a ajouterAnnonceTest, qui cree une annonce separee) - sert
+ * a ameliorer le "Ad Strength" d'une annonce deja en ligne. N'est JAMAIS
+ * appelee directement par Morgane : uniquement par googleAdsActions.ts, lors
+ * de l'application d'une PropositionAds deja validee par l'utilisateur.
+ */
+export async function ajouterContenuAnnonce(prisma: PrismaClient, adId: string, nouveauxTitres: string[], nouvellesDescriptions: string[]): Promise<void> {
+  const customer = await obtenirClientAds(prisma);
+  if (!customer) {
+    throw new Error("Google Ads non configure ou aucune boite Google connectee.");
+  }
+  if (!/^\d+$/.test(adId)) throw new Error(`adId invalide : "${adId}" (attendu : uniquement des chiffres).`);
+
+  const lignes = await customer.query(`
+    SELECT ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions
+    FROM ad_group_ad
+    WHERE ad_group_ad.ad.id = ${adId}
+  `);
+  const ligne = lignes[0];
+  if (!ligne) throw new Error(`Annonce introuvable (adId ${adId}).`);
+
+  const titresExistants: string[] = (ligne.ad_group_ad?.ad?.responsive_search_ad?.headlines ?? []).map((h) => h.text ?? "");
+  const descriptionsExistantes: string[] = (ligne.ad_group_ad?.ad?.responsive_search_ad?.descriptions ?? []).map((d) => d.text ?? "");
+
+  const titres = [...titresExistants, ...nouveauxTitres];
+  const descriptions = [...descriptionsExistantes, ...nouvellesDescriptions];
+  if (titres.length > 15) throw new Error(`Trop de titres : ${titresExistants.length} existant(s) + ${nouveauxTitres.length} nouveau(x) = ${titres.length} (maximum Google Ads : 15).`);
+  if (descriptions.length > 4) throw new Error(`Trop de descriptions : ${descriptionsExistantes.length} existante(s) + ${nouvellesDescriptions.length} nouvelle(s) = ${descriptions.length} (maximum Google Ads : 4).`);
+
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID!.replace(/-/g, "");
+  await customer.ads.update([
+    {
+      resource_name: ResourceNames.ad(customerId, adId),
+      responsive_search_ad: {
+        headlines: titres.map((texte) => ({ text: texte })),
+        descriptions: descriptions.map((texte) => ({ text: texte })),
+      },
+    },
+  ]);
 }
 
 export interface ParametresCreationCampagne {
