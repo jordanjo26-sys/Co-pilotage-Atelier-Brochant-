@@ -195,10 +195,13 @@ EDF/Bouygues Telecom, qui n'en ont pas pour un compte pro standard).
    | `OVH_CONSUMER_KEY` | La clé de consommation affichée |
 
 5. Redéployer : `GET /api/ovh/status` indique alors si la connexion
-   fonctionne. La récupération automatique des factures n'est pas encore
-   câblée à ce stade (voir `src/services/ovhFacturation.ts`) — une étape
-   de vérification des données réelles renvoyées par OVH précède la mise
-   en place de l'archivage automatique.
+   fonctionne. Une fois connecté, la synchronisation automatique démarre
+   (une fois par jour, réglable via `OVH_POLL_INTERVAL_MS`) et importe
+   chaque nouvelle facture dans l'espace Comptabilité (montants HT/TTC et
+   date lus directement depuis l'API, jamais devinés). Seules les
+   factures émises APRÈS la première connexion sont importées, jamais
+   l'historique antérieur (demande explicite de l'utilisateur) — un
+   repère est posé au moment de la première synchronisation.
 
 ## 6. Synec — à configurer (sans API, automatisation par navigateur)
 

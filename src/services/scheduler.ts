@@ -4,6 +4,7 @@ import { envoyerRecapQuotidien } from "./dailyRecap";
 import { envoyerAnalyseQuotidienneAds } from "./googleAdsRecap";
 import { envoyerAnalysePagesJaunes } from "./pagesJaunesRecap";
 import { synchroniserStripe, stripeEstConnecte } from "./stripeSync";
+import { synchroniserOvh, ovhEstConfigure } from "./ovhFacturation";
 import { synchroniserSynec, synecEstConfigure } from "./synecSync";
 import { logEvenement } from "./journalService";
 import { detecterReponses, executerEnvoisAutomatiques } from "./prospection/campagnes";
@@ -33,6 +34,10 @@ const JOUR_DIGEST_REALISATIONS_PAR_DEFAUT = 1; // lundi
 // toutes les 5 minutes comme les e-mails : un intervalle plus espace suffit
 // largement et menage l'API Stripe.
 const INTERVALLE_STRIPE_PAR_DEFAUT_MS = 60 * 60 * 1000; // 1 heure
+// Les factures OVHcloud (hebergement/domaine) arrivent au rythme des
+// renouvellements, jamais en continu - un intervalle large (1 jour) suffit
+// largement et menage l'API OVH, meme principe que Stripe/Synec ci-dessus.
+const INTERVALLE_OVH_PAR_DEFAUT_MS = 24 * 60 * 60 * 1000; // 1 jour
 // Les factures Synec changent au rythme de l'activite de l'atelier, jamais
 // en continu : un intervalle large suffit et evite de solliciter un
 // navigateur headless complet trop souvent (bien plus couteux qu'un simple
@@ -322,6 +327,32 @@ export function demarrerSurveillanceStripe(prisma: PrismaClient): void {
       await logEvenement(prisma, {
         evenement: "stripe_sync_planifiee_erreur",
         action: "Synchronisation automatique Stripe",
+        resultat: `Echec : ${(err as Error).message}`,
+      }).catch(() => {});
+    }
+  }, intervalle);
+}
+
+/**
+ * Synchronise automatiquement les factures OVHcloud (remplace le telechargement
+ * manuel une fois OVH_APPLICATION_KEY/OVH_APPLICATION_SECRET/OVH_CONSUMER_KEY
+ * configures - demande explicite de l'utilisateur, voir ovhFacturation.ts).
+ * Meme principe de tolerance aux pannes que demarrerSurveillanceStripe.
+ */
+export function demarrerSurveillanceOvh(prisma: PrismaClient): void {
+  if (!ovhEstConfigure()) return; // rien a synchroniser sans cle API
+
+  const intervalle = Number(process.env.OVH_POLL_INTERVAL_MS) || INTERVALLE_OVH_PAR_DEFAUT_MS;
+
+  setInterval(async () => {
+    try {
+      await synchroniserOvh(prisma);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Synchronisation OVH planifiee en echec :", (err as Error).message);
+      await logEvenement(prisma, {
+        evenement: "ovh_sync_planifiee_erreur",
+        action: "Synchronisation automatique OVHcloud",
         resultat: `Echec : ${(err as Error).message}`,
       }).catch(() => {});
     }

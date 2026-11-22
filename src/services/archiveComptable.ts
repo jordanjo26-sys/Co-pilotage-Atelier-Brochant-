@@ -350,6 +350,48 @@ async function traiterUnFichier(prisma: PrismaClient, fichier: FichierExtrait): 
   return complet;
 }
 
+export interface ChampsArchiveExterne {
+  fichierNom: string;
+  donnees: Buffer;
+  mimeType: string;
+  fournisseurNom: string;
+  numero: string;
+  dateFacture: Date;
+  montantHT: number;
+  montantTTC: number;
+  classifiePar: string; // ex. "ovh_api" - jamais "ia" (transparence sur la source reelle)
+}
+
+/**
+ * Enregistre une archive dont TOUS les champs sont deja certains, fournis
+ * par une source structuree (ex. l'API officielle OVHcloud - voir
+ * ovhFacturation.ts), jamais par extraction/OCR. Statut "complete" direct :
+ * contrairement a traiterUnFichier, il n'y a ici aucune incertitude a lever
+ * ("a_verifier" existe pour les cas ou un champ est manquant/devine, pas
+ * pour une donnee structuree lue telle quelle a la source).
+ */
+export async function enregistrerArchiveComptableExterne(prisma: PrismaClient, champs: ChampsArchiveExterne) {
+  await fs.mkdir(DOSSIER_ARCHIVES, { recursive: true });
+  const extension = path.extname(champs.fichierNom) || (champs.mimeType === "application/pdf" ? ".pdf" : ".jpg");
+  const cheminFichier = path.join(DOSSIER_ARCHIVES, `${crypto.randomUUID()}${extension}`);
+  await fs.writeFile(cheminFichier, champs.donnees);
+
+  return prisma.archiveComptable.create({
+    data: {
+      fichierNom: path.basename(champs.fichierNom),
+      cheminFichier,
+      mimeType: champs.mimeType,
+      fournisseurNom: champs.fournisseurNom,
+      numero: champs.numero,
+      dateFacture: champs.dateFacture,
+      montantHT: champs.montantHT,
+      montantTTC: champs.montantTTC,
+      statut: "complete",
+      classifiePar: champs.classifiePar,
+    },
+  });
+}
+
 export interface ResultatReextractionArchives {
   total: number;
 }

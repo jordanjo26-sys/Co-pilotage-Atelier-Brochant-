@@ -19,6 +19,7 @@ import {
   demarrerAnalyseHebdomadairePagesJaunes,
   demarrerSurveillanceStripe,
   demarrerSurveillanceSynec,
+  demarrerSurveillanceOvh,
   demarrerDetectionReponsesProspection,
   demarrerEnvoiAutomatiqueCampagnes,
   demarrerRecuperationMessagesSecours,
@@ -82,6 +83,7 @@ if (process.env.PLANIFICATEURS_DESACTIVES !== "true") {
   demarrerAnalyseHebdomadairePagesJaunes(prisma);
   demarrerSurveillanceStripe(prisma);
   demarrerSurveillanceSynec(prisma);
+  demarrerSurveillanceOvh(prisma);
   demarrerDetectionReponsesProspection(prisma);
   demarrerEnvoiAutomatiqueCampagnes(prisma);
   demarrerRecuperationMessagesSecours(prisma);

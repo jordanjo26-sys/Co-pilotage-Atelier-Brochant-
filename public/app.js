@@ -1144,6 +1144,44 @@ async function chargerStatutSynec() {
   });
 }
 
+// --- OVHcloud (API officielle, factures dans l'espace Comptabilité) --------
+
+async function chargerStatutOvh() {
+  const res = await fetch("/api/ovh/status");
+  const data = await res.json();
+  const div = document.getElementById("ovh-statut");
+
+  if (!data.connecte) {
+    div.innerHTML = `<p class="statut-dot off">${data.motif ? echapper(data.motif) : "Non connecté — clés API à ajouter (voir docs/mise-en-service.md)."}</p>`;
+    return;
+  }
+
+  div.innerHTML = `
+    <p class="gmail-connecte"><span class="statut-dot">Connecté</span><br/>Dernière synchronisation : ${data.derniereSynchro ? fmtDate(data.derniereSynchro) : "jamais"}</p>
+    <button type="button" id="btn-sync-ovh" class="ghost">Synchroniser maintenant</button>
+    <div id="resultat-sync-ovh"></div>
+  `;
+
+  document.getElementById("btn-sync-ovh").addEventListener("click", async () => {
+    const resultatDiv = document.getElementById("resultat-sync-ovh");
+    resultatDiv.textContent = "Synchronisation en cours…";
+    try {
+      const r = await fetch("/api/ovh/sync", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) {
+        resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(d.erreur)}`;
+        return;
+      }
+      resultatDiv.innerHTML =
+        `${d.facturesNouvelles} facture(s) nouvelle(s) sur ${d.facturesExaminees} examinée(s), ${d.erreurs.length} erreur(s).` +
+        (d.erreurs.length > 0 ? `<br/><span class="anomalie-meta">${d.erreurs.map(echapper).join("<br/>")}</span>` : "");
+      await rafraichirTout();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
 // --- Google Ads (import manuel, en attendant l'acces API) ------------------
 
 async function chargerStatutGoogleAds() {
@@ -4109,7 +4147,7 @@ if (zoneDepotArchiveComptable) {
 }
 
 async function rafraichirTout() {
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {

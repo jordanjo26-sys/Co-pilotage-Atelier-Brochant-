@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import { PrismaClient } from "@prisma/client";
+import { logEvenement } from "./journalService";
+import { enregistrerArchiveComptableExterne } from "./archiveComptable";
 
 /**
  * Connexion directe a l'API officielle OVHcloud (demande explicite de
@@ -129,4 +132,103 @@ export async function obtenirFacturesBrutesOvh(limite = 3): Promise<{ identifian
   const idsFactures = await appelOvh<string[]>("GET", "/me/bill");
   const details = await Promise.all(idsFactures.slice(0, limite).map((id) => appelOvh<unknown>("GET", `/me/bill/${encodeURIComponent(id)}`)));
   return { identifiants: idsFactures, details };
+}
+
+// Forme reelle confirmee sur le compte de l'utilisateur (voir obtenirFacturesBrutesOvh,
+// appele avant d'ecrire ce qui suit - jamais devinee) : prix en objets
+// {value, text, currencyCode}, pas des nombres bruts.
+interface MontantOvh {
+  value: number;
+  text: string;
+  currencyCode: string;
+}
+
+interface FactureOvh {
+  billId: string;
+  date: string; // ISO 8601 avec fuseau, ex. "2016-10-01T19:21:42+02:00"
+  pdfUrl: string;
+  priceWithTax: MontantOvh;
+  priceWithoutTax: MontantOvh;
+}
+
+const NOM_FOURNISSEUR_OVH = "OVHcloud";
+
+export interface ResultatSyncOvh {
+  facturesExaminees: number;
+  facturesNouvelles: number;
+  erreurs: string[];
+}
+
+/**
+ * Synchronise les factures OVHcloud (demande explicite de l'utilisateur :
+ * seulement les NOUVELLES factures a partir de maintenant, jamais
+ * l'historique complet du compte - des 2016 dans ce cas reel - qu'il gere
+ * deja par ailleurs). Meme principe de watermark que derniereSynchroStripe :
+ * le journal d'evenements ("ovh_sync") sert de reference, sans etat
+ * supplementaire a maintenir. Idempotent par construction (dedoublonnage
+ * par numero+fournisseurNom avant toute creation), donc sans risque a
+ * rejouer.
+ */
+export async function synchroniserOvh(prisma: PrismaClient): Promise<ResultatSyncOvh> {
+  const resultat: ResultatSyncOvh = { facturesExaminees: 0, facturesNouvelles: 0, erreurs: [] };
+
+  // Premiere synchronisation : aucune trace anterieure dans le journal ->
+  // le repere (watermark) est fixe a MAINTENANT, pas au debut du compte -
+  // demande explicite de l'utilisateur ("pas de raison d'importer, hormis
+  // les nouvelles factures").
+  const depuis = (await derniereSynchroOvh(prisma)) ?? new Date();
+
+  const idsFactures = await appelOvh<string[]>("GET", "/me/bill");
+
+  for (const billId of idsFactures) {
+    try {
+      const dejaPresente = await prisma.archiveComptable.findFirst({
+        where: { fournisseurNom: NOM_FOURNISSEUR_OVH, numero: billId },
+        select: { id: true },
+      });
+      if (dejaPresente) continue; // deja importee (re-execution ulterieure) - jamais retraitee
+
+      const detail = await appelOvh<FactureOvh>("GET", `/me/bill/${encodeURIComponent(billId)}`);
+      const dateFacture = new Date(detail.date);
+      if (dateFacture < depuis) continue; // anterieure au repere - jamais importee (voir ci-dessus)
+
+      resultat.facturesExaminees++;
+
+      const reponsePdf = await fetch(detail.pdfUrl);
+      if (!reponsePdf.ok) throw new Error(`Telechargement du PDF (HTTP ${reponsePdf.status}).`);
+      const donnees = Buffer.from(await reponsePdf.arrayBuffer());
+
+      await enregistrerArchiveComptableExterne(prisma, {
+        fichierNom: `${NOM_FOURNISSEUR_OVH} - ${dateFacture.toISOString().slice(0, 10)} - ${billId}.pdf`,
+        donnees,
+        mimeType: "application/pdf",
+        fournisseurNom: NOM_FOURNISSEUR_OVH,
+        numero: billId,
+        dateFacture,
+        montantHT: detail.priceWithoutTax.value,
+        montantTTC: detail.priceWithTax.value,
+        classifiePar: "ovh_api",
+      });
+      resultat.facturesNouvelles++;
+    } catch (err) {
+      resultat.erreurs.push(`Facture ${billId} : ${(err as Error).message}`);
+    }
+  }
+
+  await logEvenement(prisma, {
+    evenement: "ovh_sync",
+    action: "Synchronisation des factures OVHcloud",
+    resultat: `${resultat.facturesNouvelles} facture(s) nouvelle(s) sur ${resultat.facturesExaminees} examinee(s), ${resultat.erreurs.length} erreur(s).`,
+  });
+
+  return resultat;
+}
+
+/** Date de la derniere synchronisation reussie, pour affichage et comme repere (watermark) de synchroniserOvh. */
+export async function derniereSynchroOvh(prisma: PrismaClient): Promise<Date | null> {
+  const dernier = await prisma.journalEvenement.findFirst({
+    where: { evenement: "ovh_sync" },
+    orderBy: { horodatage: "desc" },
+  });
+  return dernier?.horodatage || null;
 }
