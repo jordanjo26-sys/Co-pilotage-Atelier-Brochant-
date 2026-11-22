@@ -726,7 +726,13 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 14.5px;
   font-weight: 800;
   color: var(--ink);
+  flex: 1;
 }
+/* Categorie alignee a droite de l'entete (meme ligne que le fournisseur),
+   et badge de rapprochement pousse a droite de la ligne meta - demande
+   explicite de l'utilisateur (maquette fournie). */
+.archive-v2-carte-categorie { margin-left: auto; flex: none; }
+.archive-v2-carte-badge-rapprochement { margin-left: auto; }
 .archive-v2-carte-fichier-nom {
   font-size: 12px;
   color: var(--ink-muted);

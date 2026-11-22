@@ -3436,15 +3436,15 @@ function construireCarteArchiveComptable(a, { doublon = false } = {}) {
             ${estPdf ? `<span class="archive-v2-ruban-pdf">PDF</span>` : ""}
           </span>
           <span class="archive-v2-carte-fournisseur">${echapper(a.fournisseurNom || "Fournisseur non identifié")}</span>
+          ${a.categorie ? `<span class="badge badge-categorie archive-v2-carte-categorie">${echapper(a.categorie)}</span>` : ""}
         </div>
         <div class="archive-v2-carte-fichier-nom">${echapper(a.fichierNom)}</div>
         <div class="archive-v2-carte-meta">
           ${a.dateFacture ? `<span>${icone("calendrier")} ${fmtDate(a.dateFacture)}</span>` : ""}
           ${a.numero ? `<span>n° ${echapper(a.numero)}</span>` : ""}
-          ${a.categorie ? `<span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
           ${a.statut === "a_verifier" ? `<span class="badge badge-palier-ambre">à vérifier</span>` : ""}
           ${doublon ? `<span class="badge badge-palier-ambre">doublon possible</span>` : ""}
-          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${icone(a.rapproche ? "bouclier" : "lien-casse")} ${a.rapproche ? "rapproché" : "non rapproché"}</span>
+          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"} archive-v2-carte-badge-rapprochement">${icone(a.rapproche ? "bouclier" : "lien-casse")} ${a.rapproche ? "rapproché" : "non rapproché"}</span>
         </div>
         <div class="archive-v2-carte-montants">
           ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
@@ -3628,7 +3628,7 @@ async function chargerArchivesMoisCourant() {
 
   const maintenant = new Date();
   const anneeMois = `${maintenant.getFullYear()}-${String(maintenant.getMonth() + 1).padStart(2, "0")}`;
-  if (libelleEl) libelleEl.textContent = `Factures datées de ${libelleMoisAnnee(maintenant.toISOString())}.`;
+  if (libelleEl) libelleEl.innerHTML = `${icone("calendrier")} Factures datées de ${echapper(libelleMoisAnnee(maintenant.toISOString()))}.`;
 
   try {
     const res = await fetch(`/api/archives-comptables?anneeMois=${anneeMois}`);
