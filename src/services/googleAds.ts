@@ -1053,6 +1053,7 @@ export interface ForceAnnonceAds {
   adId: string;
   statut: string;
   forceAnnonce: string; // POOR | AVERAGE | GOOD | EXCELLENT | PENDING | NO_ADS | UNKNOWN
+  urlFinale: string;
   titres: string[];
   descriptions: string[];
   nombreTitres: number;
@@ -1086,7 +1087,8 @@ export async function obtenirForceAnnoncesCampagne(prisma: PrismaClient, campagn
       ad_group_ad.status,
       ad_group_ad.ad_strength,
       ad_group_ad.ad.responsive_search_ad.headlines,
-      ad_group_ad.ad.responsive_search_ad.descriptions
+      ad_group_ad.ad.responsive_search_ad.descriptions,
+      ad_group_ad.ad.final_urls
     FROM ad_group_ad
     WHERE campaign.id = ${campagneId}
       AND ad_group_ad.status != 'REMOVED'
@@ -1104,6 +1106,7 @@ export async function obtenirForceAnnoncesCampagne(prisma: PrismaClient, campagn
       adId: String(ligne.ad_group_ad?.ad?.id ?? ""),
       statut: String(ligne.ad_group_ad?.status ?? ""),
       forceAnnonce: decoderEnum(enums.AdStrength as unknown as Record<string, string | number>, ligne.ad_group_ad?.ad_strength),
+      urlFinale: ligne.ad_group_ad?.ad?.final_urls?.[0] ?? "",
       titres: titres.map((h) => h.text ?? ""),
       descriptions: descriptions.map((d) => d.text ?? ""),
       nombreTitres: titres.length,
