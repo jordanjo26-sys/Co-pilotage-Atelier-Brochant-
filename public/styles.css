@@ -968,6 +968,17 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 .rapprochement-picker-ligne { display: flex; align-items: center; gap: 8px; font-size: 12.5px; flex-wrap: wrap; }
 .rapprochement-picker-montant { width: 90px; }
 
+.filtre-mouvements-ligne {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  margin: 8px 0;
+}
+.filtre-mouvements-ligne input[type="month"] { font-size: 12.5px; padding: 4px 6px; }
+
 /* ---------- Suivi mensuel ---------- */
 .suivi-mensuel-carte {
   display: flex;

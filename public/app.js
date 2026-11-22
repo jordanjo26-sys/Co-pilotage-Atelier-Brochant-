@@ -404,13 +404,33 @@ function classeLigneRapprochement(statut) {
   return "";
 }
 
+// Cache en memoire de la derniere liste chargee - reutilise par le filtre
+// client (mois + "non rapproches seulement") sans refaire d'appel reseau a
+// chaque changement de filtre, et par voirMouvementsDuMois (lien depuis le
+// Suivi mensuel) pour ouvrir directement sur le mois concerne.
+let mouvementsBancairesCache = [];
+
 async function chargerMouvementsBancaires() {
   const res = await fetch("/api/mouvements-bancaires");
-  const mouvements = await res.json();
+  mouvementsBancairesCache = await res.json();
+  appliquerFiltreMouvementsBancaires();
+}
+
+function appliquerFiltreMouvementsBancaires() {
+  const filtreMois = document.getElementById("filtre-mois-mouvements")?.value || "";
+  const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements")?.checked || false;
+
+  const mouvements = mouvementsBancairesCache.filter((m) => {
+    if (filtreMois && !String(m.date).startsWith(filtreMois)) return false;
+    if (filtreNonRapproches && m.rapprochementStatut === "rapproche") return false;
+    return true;
+  });
+
   const tbody = document.querySelector("#table-mouvements-bancaires tbody");
-  tbody.innerHTML = mouvements
-    .map(
-      (m) => `
+  tbody.innerHTML = mouvements.length
+    ? mouvements
+        .map(
+          (m) => `
     <tr class="${classeLigneRapprochement(m.rapprochementStatut)}">
       <td>${fmtDate(m.date)}</td>
       <td>${echapper(m.libelle)}</td>
@@ -422,9 +442,38 @@ async function chargerMouvementsBancaires() {
     <tr class="rapprochement-detail-ligne" data-detail-pour="${m.id}" hidden>
       <td colspan="6"><div class="rapprochement-detail"></div></td>
     </tr>`
-    )
-    .join("");
+        )
+        .join("")
+    : `<tr><td colspan="6" class="liste-vide">Aucun mouvement pour ce filtre.</td></tr>`;
 }
+
+document.getElementById("filtre-mois-mouvements")?.addEventListener("change", appliquerFiltreMouvementsBancaires);
+document.getElementById("filtre-non-rapproches-mouvements")?.addEventListener("change", appliquerFiltreMouvementsBancaires);
+document.getElementById("btn-reinitialiser-filtre-mouvements")?.addEventListener("click", () => {
+  const filtreMois = document.getElementById("filtre-mois-mouvements");
+  const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements");
+  if (filtreMois) filtreMois.value = "";
+  if (filtreNonRapproches) filtreNonRapproches.checked = false;
+  appliquerFiltreMouvementsBancaires();
+});
+
+/**
+ * Lien "Voir les mouvements" depuis une carte du Suivi mensuel (demande
+ * explicite de l'utilisateur : il pouvait valider un mois mais pas voir
+ * QUELS mouvements restaient a verifier) - bascule sur l'onglet Tresorerie,
+ * pre-filtre sur le mois et sur "non rapproches/a verifier seulement", et
+ * amene la table a l'ecran.
+ */
+function voirMouvementsDuMois(periode) {
+  basculerOnglet("tresorerie");
+  const filtreMois = document.getElementById("filtre-mois-mouvements");
+  const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements");
+  if (filtreMois) filtreMois.value = periode;
+  if (filtreNonRapproches) filtreNonRapproches.checked = true;
+  appliquerFiltreMouvementsBancaires();
+  document.getElementById("table-mouvements-bancaires")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.voirMouvementsDuMois = voirMouvementsDuMois;
 
 /**
  * Detail depliable d'un mouvement (facture(s) liee(s), historique, et selon
@@ -685,6 +734,7 @@ function construireCarteSuiviMensuel(s) {
       <span class="suivi-mensuel-compteurs">${s.nbRapproches}/${s.nbMouvements} rapproché(s)${s.nbAVerifier > 0 ? `, ${s.nbAVerifier} à vérifier` : ""}</span>
       <span class="badge suivi-mensuel-statut-${s.statut}">${coche}${echapper(LIBELLES_STATUT_MOIS[s.statut] || s.statut)}</span>
       ${driftHtml}
+      <button type="button" class="ghost" onclick="voirMouvementsDuMois('${s.periode}')">Voir les mouvements</button>
       ${boutonValider}
     </div>`;
 }

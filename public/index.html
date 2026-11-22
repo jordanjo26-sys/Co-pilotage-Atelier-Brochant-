@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=41" />
+  <link rel="stylesheet" href="/styles.css?v=42" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -306,6 +306,12 @@
         </p>
         <button type="button" id="btn-relancer-rapprochement">Relancer le rapprochement</button>
         <div id="resultat-rapprochement"></div>
+        <div class="filtre-mouvements-ligne">
+          <label for="filtre-mois-mouvements">Filtrer par mois :</label>
+          <input type="month" id="filtre-mois-mouvements" />
+          <label><input type="checkbox" id="filtre-non-rapproches-mouvements" /> Uniquement non rapprochés/à vérifier</label>
+          <button type="button" class="ghost" id="btn-reinitialiser-filtre-mouvements">Réinitialiser</button>
+        </div>
         <div class="table-scroll">
           <table id="table-mouvements-bancaires">
             <thead>
@@ -566,7 +572,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=68"></script>
+  <script src="/app.js?v=69"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>
