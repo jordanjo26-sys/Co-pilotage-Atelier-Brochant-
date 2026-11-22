@@ -525,6 +525,17 @@
         <!-- À vérifier : doublons potentiels + informations manquantes (espace dedie). -->
         <div class="archive-v2-sousvue" data-sousvue-panneau="a-verifier" hidden>
           <p class="aide">Factures dont une information est manquante, ou qui semblent être un doublon d'une autre (même numéro ou même montant à la même date chez un même fournisseur) — à vérifier puis corriger ou supprimer.</p>
+          <div class="filtre-mouvements-ligne">
+            <label for="filtre-a-verifier-fournisseur">Fournisseur :</label>
+            <input type="search" id="filtre-a-verifier-fournisseur" placeholder="Rechercher…" />
+            <label for="filtre-a-verifier-rapprochement">Rapprochement :</label>
+            <select id="filtre-a-verifier-rapprochement">
+              <option value="">Tous</option>
+              <option value="rapproche">Rapprochées</option>
+              <option value="non_rapproche">Non rapprochées</option>
+            </select>
+            <button type="button" class="ghost" id="btn-reinitialiser-filtre-a-verifier">Réinitialiser</button>
+          </div>
           <div id="archive-v2-a-verifier-liste"></div>
         </div>
       </section>
@@ -578,7 +589,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=70"></script>
+  <script src="/app.js?v=71"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>

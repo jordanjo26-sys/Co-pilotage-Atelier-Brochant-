@@ -3775,6 +3775,13 @@ async function chargerArchivesAnnees() {
  * demande explicite de l'utilisateur, espace dedie plutot qu'une simple
  * case a cocher perdue dans les filtres de l'onglet Archives.
  */
+// Cache en memoire de la derniere liste "a verifier" chargee - reutilise
+// par le filtre client (fournisseur + rapprochement) sans refaire d'appel
+// reseau a chaque changement de filtre (demande explicite de l'utilisateur :
+// impossible jusqu'ici de chercher les factures rapprochees/non rapprochees
+// dans cet espace).
+let archivesAVerifierCache = [];
+
 async function chargerArchivesAVerifier() {
   const conteneur = document.getElementById("archive-v2-a-verifier-liste");
   if (!conteneur) return;
@@ -3783,14 +3790,41 @@ async function chargerArchivesAVerifier() {
     const archives = await res.json();
     if (!res.ok) throw new Error(archives.erreur || "Chargement impossible.");
     definirBadge("archive-a-verifier", archives.length);
-    conteneur.innerHTML =
-      archives.length === 0
-        ? `<p class="liste-vide">Rien à vérifier pour le moment.</p>`
-        : archives.map((a) => construireCarteArchiveComptable(a, { doublon: a.raisonAVerifier.startsWith("doublon") })).join("");
+    archivesAVerifierCache = archives;
+    appliquerFiltreArchivesAVerifier();
   } catch (err) {
     conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
   }
 }
+
+function appliquerFiltreArchivesAVerifier() {
+  const conteneur = document.getElementById("archive-v2-a-verifier-liste");
+  if (!conteneur) return;
+  const fournisseurRecherche = document.getElementById("filtre-a-verifier-fournisseur")?.value.trim().toLowerCase() || "";
+  const filtreRapprochement = document.getElementById("filtre-a-verifier-rapprochement")?.value || "";
+
+  const archives = archivesAVerifierCache.filter((a) => {
+    if (fournisseurRecherche && !(a.fournisseurNom || "").toLowerCase().includes(fournisseurRecherche)) return false;
+    if (filtreRapprochement === "rapproche" && !a.rapproche) return false;
+    if (filtreRapprochement === "non_rapproche" && a.rapproche) return false;
+    return true;
+  });
+
+  conteneur.innerHTML =
+    archives.length === 0
+      ? `<p class="liste-vide">${archivesAVerifierCache.length === 0 ? "Rien à vérifier pour le moment." : "Aucune facture ne correspond à ce filtre."}</p>`
+      : archives.map((a) => construireCarteArchiveComptable(a, { doublon: a.raisonAVerifier.startsWith("doublon") })).join("");
+}
+
+document.getElementById("filtre-a-verifier-fournisseur")?.addEventListener("input", appliquerFiltreArchivesAVerifier);
+document.getElementById("filtre-a-verifier-rapprochement")?.addEventListener("change", appliquerFiltreArchivesAVerifier);
+document.getElementById("btn-reinitialiser-filtre-a-verifier")?.addEventListener("click", () => {
+  const fournisseur = document.getElementById("filtre-a-verifier-fournisseur");
+  const rapprochement = document.getElementById("filtre-a-verifier-rapprochement");
+  if (fournisseur) fournisseur.value = "";
+  if (rapprochement) rapprochement.value = "";
+  appliquerFiltreArchivesAVerifier();
+});
 
 /**
  * Exporte en CSV les archives actuellement affichees (apres tous les
