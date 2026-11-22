@@ -81,6 +81,16 @@ META_CONFIG_ID_ARG="${21:-}"
 # .env.example). Aucune API disponible, meme principe que Synec.
 ATELIER_BROCHANT_ADMIN_EMAIL_ARG="${22:-}"
 ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE_ARG="${23:-}"
+# API officielle OVHcloud (recuperation automatique des factures qui
+# n'arrivent jamais par e-mail, voir src/services/ovhFacturation.ts) : cle
+# generee par l'utilisateur lui-meme sur une page OVH officielle (jamais un
+# mot de passe du site), zone de compte (ovh-eu/ovh-us/ovh-ca) + les trois
+# valeurs issues de cette generation. Absents, la section OVH reste
+# desactivee.
+OVH_ENDPOINT_ARG="${24:-}"
+OVH_APPLICATION_KEY_ARG="${25:-}"
+OVH_APPLICATION_SECRET_ARG="${26:-}"
+OVH_CONSUMER_KEY_ARG="${27:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -267,6 +277,10 @@ definir_variable META_CONFIG_ID "$META_CONFIG_ID_ARG"
 definir_variable OPENAI_API_KEY "$OPENAI_API_KEY_ARG"
 definir_variable ATELIER_BROCHANT_ADMIN_EMAIL "$ATELIER_BROCHANT_ADMIN_EMAIL_ARG"
 definir_variable ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE "$ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE_ARG"
+definir_variable OVH_ENDPOINT "$OVH_ENDPOINT_ARG"
+definir_variable OVH_APPLICATION_KEY "$OVH_APPLICATION_KEY_ARG"
+definir_variable OVH_APPLICATION_SECRET "$OVH_APPLICATION_SECRET_ARG"
+definir_variable OVH_CONSUMER_KEY "$OVH_CONSUMER_KEY_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi

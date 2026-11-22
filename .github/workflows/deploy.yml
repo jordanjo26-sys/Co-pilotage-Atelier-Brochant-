@@ -109,8 +109,11 @@ jobs:
           # ATELIER_BROCHANT_ADMIN_EMAIL / ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE
           # les identifiants du tableau de bord admin atelier-brochant.com
           # (emergent.sh) pour la publication automatisee d'actualites (voir
-          # atelierBrochantActualites.ts). Absents, bootstrap.sh laisse la
-          # configuration existante inchangee.
+          # atelierBrochantActualites.ts). OVH_ENDPOINT / OVH_APPLICATION_KEY /
+          # OVH_APPLICATION_SECRET / OVH_CONSUMER_KEY la recuperation
+          # automatique des factures OVHcloud (voir ovhFacturation.ts), cle
+          # generee par l'utilisateur sur une page OVH officielle. Absents,
+          # bootstrap.sh laisse la configuration existante inchangee.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
-            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}' '${{ secrets.META_APP_ID }}' '${{ secrets.META_APP_SECRET }}' '${{ secrets.OPENAI_API_KEY }}' '${{ secrets.META_CONFIG_ID }}' '${{ secrets.ATELIER_BROCHANT_ADMIN_EMAIL }}' '${{ secrets.ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE }}'"
+            "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}' '${{ secrets.META_APP_ID }}' '${{ secrets.META_APP_SECRET }}' '${{ secrets.OPENAI_API_KEY }}' '${{ secrets.META_CONFIG_ID }}' '${{ secrets.ATELIER_BROCHANT_ADMIN_EMAIL }}' '${{ secrets.ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE }}' '${{ secrets.OVH_ENDPOINT }}' '${{ secrets.OVH_APPLICATION_KEY }}' '${{ secrets.OVH_APPLICATION_SECRET }}' '${{ secrets.OVH_CONSUMER_KEY }}'"
