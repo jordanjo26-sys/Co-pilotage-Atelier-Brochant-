@@ -1158,6 +1158,14 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 .morgane-panneau-flottant .morgane-fil { flex: 1; margin: 0; padding: 10px 12px; }
 .morgane-panneau-flottant .morgane-formulaire { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); }
 
+/* Remonte la bulle/le panneau Morgane au-dessus de la nouvelle barre mobile
+   basse (.cab-bottomnav, ~56px de haut) introduite par la refonte V2 :
+   sans ca, la bulle flottante chevauche l'onglet "Plus" de la barre. */
+@media (max-width: 959px) {
+  .morgane-bulle-ouvrir { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 76px)); }
+  .morgane-panneau-flottant { bottom: max(140px, calc(env(safe-area-inset-bottom, 0px) + 140px)); }
+}
+
 .barre-filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .barre-filtres select, .barre-filtres input { flex: 1 1 140px; min-width: 0; }
 
@@ -1401,3 +1409,279 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 }
 .scan-poignee:active { cursor: grabbing; }
 .scan-canvas-resultat { display: block; max-width: 100%; max-height: 420px; border-radius: 8px; margin-top: 8px; background: #fff; border: 1px solid var(--line); }
+
+/* ============================================================
+   V2 — Systeme de design commun (refonte UX/UI, novembre 2026)
+   Prefixe isole "cab-" (Copilote Atelier Brochant), distinct de
+   "archive-v2-" (deja utilise par Comptabilite) : nouvelle coquille
+   d'application (sidebar desktop permanente + barre mobile basse),
+   et composants reutilisables pour les ecrans "flagship" (onglets
+   segmentes avec compteur, barre d'outils de filtres, tableau avec
+   puce de statut + avatar fournisseur, panneau de detail lateral,
+   encart de suggestion IA, pagination, etats vide/chargement/erreur).
+   Reutilise integralement les tokens de couleur deja definis plus
+   haut (--brand-*, --good/-warning/-critical, --surface*, --ink*,
+   --line*) ainsi que .tuile/.grille-cockpit (deja le bon pattern
+   pour les tuiles KPI) : aucune nouvelle teinte introduite, aucune
+   classe existante modifiee - uniquement de nouveaux composants
+   additifs, montes au-dessus de la structure .onglet/.onglet-panneau
+   existante sans la remplacer (basculerOnglet() dans app.js reste
+   inchangee). ---------------------------------------------------- */
+
+/* ---------- Coquille : sidebar desktop + contenu ---------- */
+.cab-shell { display: flex; align-items: stretch; min-height: 100vh; }
+.cab-contenu-shell { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-bottom: 60px; }
+@media (min-width: 960px) {
+  .cab-contenu-shell { padding-bottom: 0; }
+}
+
+.cab-sidebar { display: none; }
+@media (min-width: 960px) {
+  .cab-sidebar {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    width: 252px;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    background: linear-gradient(180deg, #17223F 0%, #0E1729 100%);
+    color: #EAF0FC;
+    overflow-y: auto;
+  }
+}
+
+.cab-sidebar-marque { display: flex; align-items: center; gap: 10px; padding: 18px 16px; flex: none; }
+.cab-sidebar-marque .cab-logo {
+  width: 34px; height: 34px; border-radius: 9px;
+  background: var(--brand-blue); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Manrope", sans-serif; font-weight: 800; font-size: 15px; flex: none;
+}
+.cab-sidebar-marque .cab-marque-texte { font-family: "Manrope", sans-serif; font-weight: 700; font-size: 13.5px; line-height: 1.25; color: #fff; }
+
+.cab-sidebar-nav { flex: 1; padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+
+.cab-sidebar-lien {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 9px;
+  color: #B9C4DE; text-decoration: none;
+  font-size: 13.5px; font-weight: 600;
+  background: none; border: none; width: 100%; text-align: left;
+  cursor: pointer; font-family: inherit; min-height: auto;
+}
+.cab-sidebar-lien:hover { background: rgba(255,255,255,0.07); color: #fff; opacity: 1; }
+.cab-sidebar-lien.actif { background: rgba(255,255,255,0.13); color: #fff; }
+.cab-sidebar-lien svg { width: 17px; height: 17px; flex: none; }
+.cab-sidebar-lien .cab-badge-compte {
+  margin-left: auto; background: var(--critical); color: #fff;
+  font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 999px;
+}
+.cab-sidebar-lien .cab-badge-compte[hidden] { display: none; }
+
+.cab-sidebar-groupe { display: flex; flex-direction: column; }
+.cab-sidebar-groupe-titre {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 9px;
+  color: #B9C4DE; background: none; border: none; width: 100%; text-align: left;
+  cursor: pointer; font-size: 13.5px; font-weight: 700; font-family: inherit; min-height: auto;
+}
+.cab-sidebar-groupe-titre:hover { color: #fff; opacity: 1; background: none; }
+.cab-sidebar-groupe-titre svg { width: 17px; height: 17px; flex: none; }
+.cab-sidebar-groupe-titre svg.cab-chevron { margin-left: auto; width: 13px; height: 13px; transition: transform .15s ease; flex: none; }
+.cab-sidebar-groupe.ouvert .cab-chevron { transform: rotate(90deg); }
+.cab-sidebar-sous-liens { display: flex; flex-direction: column; gap: 1px; padding-left: 14px; margin: 1px 0 4px; }
+.cab-sidebar-groupe:not(.ouvert) .cab-sidebar-sous-liens { display: none; }
+.cab-sidebar-sous-liens .cab-sidebar-lien { font-size: 13px; font-weight: 600; padding: 7px 10px; }
+
+.cab-sidebar-pied { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.1); }
+.cab-sidebar-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--brand-teal); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 12px; flex: none;
+}
+.cab-sidebar-pied-texte { font-size: 12px; line-height: 1.35; overflow: hidden; }
+.cab-sidebar-pied-nom { font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cab-sidebar-pied-sous { color: #8491AD; }
+
+/* ---------- Barre mobile basse (remplace la sidebar sous 960px) ---------- */
+.cab-bottomnav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
+  display: flex; background: var(--surface); border-top: 1px solid var(--line);
+  box-shadow: 0 -2px 12px rgba(22,33,62,0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (min-width: 960px) { .cab-bottomnav { display: none; } }
+.cab-bottomnav-lien {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 2px 7px; background: none; border: none; color: var(--ink-muted);
+  font-size: 10px; font-weight: 700; cursor: pointer; font-family: inherit;
+  min-height: auto; text-decoration: none;
+}
+.cab-bottomnav-lien svg { width: 20px; height: 20px; }
+.cab-bottomnav-lien.actif { color: var(--brand-blue); }
+
+/* ---------- Barre superieure (recherche + actions) ---------- */
+.cab-topbar {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 15;
+}
+.cab-topbar-recherche {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 12px; color: var(--ink-muted); max-width: 420px;
+}
+.cab-topbar-recherche input { flex: 1; min-width: 0; border: none; background: none; font: inherit; font-size: 13px; color: var(--ink); outline: none; }
+.cab-topbar-recherche svg { width: 15px; height: 15px; flex: none; }
+.cab-topbar-raccourci { flex: none; font-size: 10.5px; font-weight: 700; color: var(--ink-muted); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 5px; padding: 1px 5px; }
+.cab-topbar-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.cab-topbar-icone-bouton {
+  position: relative; width: 34px; height: 34px; border-radius: 9px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; min-height: auto; padding: 0;
+}
+.cab-topbar-icone-bouton:hover { background: var(--surface); opacity: 1; }
+.cab-topbar-icone-bouton svg { width: 16px; height: 16px; }
+.cab-topbar-point-notif { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--critical); }
+.cab-topbar-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--brand-violet); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12.5px; flex: none; }
+
+/* ---------- Onglets segmentes avec compteur (ex. Toutes/A traiter/Validees) ---------- */
+.cab-segments { display: flex; gap: 18px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.cab-segments::-webkit-scrollbar { display: none; }
+.cab-segment {
+  flex: none; background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 10px 2px 9px; margin-bottom: -1px; font-size: 13px; font-weight: 700;
+  color: var(--ink-muted); cursor: pointer; font-family: inherit; min-height: auto; white-space: nowrap;
+}
+.cab-segment:hover { opacity: 1; color: var(--ink); background: none; }
+.cab-segment.actif { color: var(--ink); border-bottom-color: var(--brand-blue); }
+
+/* ---------- Barre d'outils : recherche + filtres + action principale ---------- */
+.cab-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.cab-toolbar-recherche { flex: 1 1 160px; min-width: 0; }
+.cab-toolbar select, .cab-toolbar .cab-toolbar-recherche input {
+  font: inherit; font-size: 12.5px; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2);
+}
+.cab-toolbar-spacer { flex: 1 1 auto; }
+
+/* ---------- Tableau "flagship" (avatar fournisseur + puce de statut) ---------- */
+.cab-avatar-cercle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%; color: #fff;
+  font-weight: 800; font-size: 11px; flex: none; font-family: "Manrope", sans-serif;
+}
+.cab-ligne-fournisseur { display: flex; align-items: center; gap: 8px; }
+
+.cab-statut-point { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
+.cab-statut-point::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-muted); flex: none; }
+.cab-statut-a_traiter::before, .cab-statut-non_rapproche::before { background: var(--brand-blue); }
+.cab-statut-validee::before, .cab-statut-rapproche::before { background: var(--good); }
+.cab-statut-a_corriger::before, .cab-statut-a_verifier::before { background: var(--warning); }
+
+tr.cab-ligne-selectionnee { background: var(--brand-blue-soft); }
+tr.cab-ligne-cliquable { cursor: pointer; }
+
+/* ---------- Panneau de detail lateral (ecran flagship) ---------- */
+.cab-overlay { position: fixed; inset: 0; background: rgba(10,16,30,0.45); z-index: 39; }
+.cab-overlay[hidden] { display: none; }
+
+.cab-detail-panneau {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
+  width: min(420px, 100vw); background: var(--surface); border-left: 1px solid var(--line);
+  box-shadow: -8px 0 24px rgba(22,33,62,0.12);
+  display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform .2s ease;
+}
+.cab-detail-panneau.ouvert { transform: translateX(0); }
+.cab-detail-panneau[hidden] { display: none; }
+@media (max-width: 640px) { .cab-detail-panneau { width: 100vw; } }
+
+.cab-detail-entete { display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid var(--line); flex: none; }
+.cab-detail-entete h3 { font-size: 15px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cab-detail-fermer {
+  background: none; border: none; color: var(--ink-muted); font-size: 20px; line-height: 1;
+  cursor: pointer; padding: 0; min-height: auto; width: 28px; height: 28px; flex: none;
+}
+.cab-detail-fermer:hover { color: var(--ink); background: none; opacity: 1; }
+
+.cab-detail-onglets { display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+.cab-detail-onglet {
+  background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 0 9px; margin-bottom: -1px;
+  font-size: 12.5px; font-weight: 700; color: var(--ink-muted); cursor: pointer; font-family: inherit; min-height: auto;
+}
+.cab-detail-onglet:hover { opacity: 1; color: var(--ink); background: none; }
+.cab-detail-onglet.actif { color: var(--brand-blue); border-bottom-color: var(--brand-blue); }
+
+.cab-detail-corps { flex: 1; overflow-y: auto; padding: 16px; }
+.cab-detail-ligne { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.cab-detail-ligne:first-child { border-top: none; }
+.cab-detail-ligne span:first-child { color: var(--ink-muted); }
+.cab-detail-ligne span:last-child { color: var(--ink); font-weight: 600; text-align: right; }
+.cab-detail-ligne.cab-detail-ligne-forte span:last-child { font-size: 15px; font-weight: 800; }
+
+.cab-detail-apercu {
+  float: right; width: 64px; height: 80px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-2); display: flex; align-items: center; justify-content: center; margin-left: 10px;
+}
+.cab-detail-apercu img { max-width: 100%; max-height: 100%; object-fit: cover; border-radius: 7px; }
+
+.cab-detail-pied { display: flex; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--line); flex: none; }
+.cab-detail-pied button { flex: 1 1 0; }
+
+/* ---------- Encart suggestion IA ("A verifier" / assistance) ---------- */
+.cab-encart-ia {
+  display: flex; gap: 8px;
+  background: color-mix(in srgb, var(--brand-violet) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand-violet) 25%, var(--line));
+  border-radius: 12px; padding: 12px 14px; margin: 14px 0; font-size: 12.5px; color: var(--ink-2);
+}
+.cab-encart-ia svg { flex: none; color: var(--brand-violet); width: 16px; height: 16px; margin-top: 1px; }
+.cab-encart-ia strong { color: var(--ink); }
+.cab-encart-ia ul { margin: 4px 0 0; padding-left: 16px; }
+.cab-encart-ia li { padding: 1px 0; }
+
+/* ---------- Pagination ---------- */
+.cab-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; color: var(--ink-muted); }
+.cab-pagination select { font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); }
+.cab-pagination-pages { display: flex; align-items: center; gap: 4px; }
+.cab-pagination-pages button { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); min-width: 30px; min-height: 30px; padding: 0; border-radius: 8px; font-size: 12.5px; font-weight: 700; }
+.cab-pagination-pages button.actif { background: var(--brand-blue); color: #fff; }
+.cab-pagination-pages button:disabled { opacity: .4; }
+
+/* ---------- Etats vide / chargement / erreur (generiques) ---------- */
+.cab-etat { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px 16px; text-align: center; color: var(--ink-muted); }
+.cab-etat svg { width: 36px; height: 36px; opacity: .5; }
+.cab-etat-titre { font-size: 13.5px; font-weight: 700; color: var(--ink-2); }
+.cab-etat-texte { font-size: 12.5px; max-width: 320px; }
+.cab-etat-erreur svg { color: var(--critical); opacity: 1; }
+.cab-etat-chargement svg { animation: cab-spin 1s linear infinite; }
+@keyframes cab-spin { to { transform: rotate(360deg); } }
+
+/* ---------- Feuille basse mobile (sous-liens d'un pole, depuis la barre mobile) ---------- */
+.cab-feuille-bas {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
+  background: var(--surface); border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 24px rgba(22,33,62,0.18);
+  padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%); transition: transform .2s ease;
+}
+.cab-feuille-bas.ouverte { transform: translateY(0); }
+.cab-feuille-bas[hidden] { display: none; }
+.cab-feuille-bas-poignee { width: 36px; height: 4px; border-radius: 999px; background: var(--line-strong); margin: 4px auto 10px; }
+.cab-feuille-bas-lien {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px;
+  color: var(--ink); text-decoration: none; font-size: 14px; font-weight: 600;
+  background: none; border: none; width: 100%; text-align: left; font-family: inherit; cursor: pointer; min-height: auto;
+}
+.cab-feuille-bas-lien:hover { background: var(--surface-2); opacity: 1; }
+.cab-feuille-bas-lien svg { width: 18px; height: 18px; color: var(--ink-muted); flex: none; }
+@media (min-width: 960px) { .cab-feuille-bas, .cab-overlay.cab-overlay-feuille { display: none; } }
+
+/* ---------- Entete de page dans le contenu (remplace l'ancien .entete en haut de chaque page autonome) ---------- */
+.cab-page-entete { margin-bottom: 2px; }
+.cab-page-entete h1 { font-size: 20px; }
+.cab-page-entete p { margin: 4px 0 0; }
