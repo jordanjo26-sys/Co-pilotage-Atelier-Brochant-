@@ -138,6 +138,10 @@
 
     <!-- ===== Tableau de bord ===== -->
     <div class="onglet-panneau" data-panneau="tableau-de-bord">
+      <div class="cab-page-entete">
+        <h1>Accueil</h1>
+        <p class="aide">Vue d'ensemble de l'activité du jour — chiffre d'affaires, impayés, actions qui attendent une décision.</p>
+      </div>
       <section class="carte accent-bleu carte-cockpit">
         <h2>Cockpit du jour</h2>
         <div id="cockpit" class="grille-cockpit"></div>
@@ -346,6 +350,10 @@
 
     <!-- ===== Fournisseurs ===== -->
     <div class="onglet-panneau" data-panneau="fournisseurs" hidden>
+      <div class="cab-page-entete">
+        <h1>Fournisseurs</h1>
+        <p class="aide">Réception des documents fournisseurs, fiches par fournisseur et suivi des dépenses.</p>
+      </div>
       <section class="carte accent-teal">
         <h2>Gmail → Dext</h2>
         <p class="aide">Réception automatique des factures fournisseurs par e-mail, classification et transfert vers Dext.</p>
@@ -391,6 +399,10 @@
 
     <!-- ===== Trésorerie ===== -->
     <div class="onglet-panneau" data-panneau="tresorerie" hidden>
+      <div class="cab-page-entete">
+        <h1>Trésorerie</h1>
+        <p class="aide">Connexions bancaires, imports de relevés et rapprochement automatique des mouvements.</p>
+      </div>
       <section class="carte accent-teal">
         <h2>Stripe</h2>
         <p class="aide">Récupération automatique des payouts et paiements par API (en ligne et Tap to Pay) — remplace le dépôt manuel d'export CSV Stripe une fois connecté.</p>
@@ -462,6 +474,10 @@
 
     <!-- ===== Suivi mensuel (etat du rapprochement bancaire, mois par mois) ===== -->
     <div class="onglet-panneau" data-panneau="suivi-mensuel" hidden>
+      <div class="cab-page-entete">
+        <h1>Suivi mensuel</h1>
+        <p class="aide">État du rapprochement bancaire, mois par mois.</p>
+      </div>
       <section class="carte accent-teal">
         <h2>Suivi mensuel du rapprochement bancaire</h2>
         <p class="aide">Un mois passe en « Terminé et validé » uniquement lorsque vous le validez vous-même ci-dessous — jamais automatiquement, même si tous les mouvements du mois sont déjà rapprochés.</p>
@@ -471,6 +487,10 @@
 
     <!-- ===== Google Ads ===== -->
     <div class="onglet-panneau" data-panneau="google-ads" hidden>
+      <div class="cab-page-entete">
+        <h1>Google Ads</h1>
+        <p class="aide">Campagnes, performance et propositions d'optimisation de Morgane.</p>
+      </div>
       <section class="carte accent-ambre">
         <h2>Google Ads (import manuel)</h2>
         <p class="aide">Repli si l'accès API live est indisponible : déposez ici un export CSV « Campagnes » téléchargé depuis Google Ads, Morgane l'utilisera pour analyser vos campagnes.</p>
@@ -491,6 +511,10 @@
 
     <!-- ===== Système ===== -->
     <div class="onglet-panneau" data-panneau="systeme" hidden>
+      <div class="cab-page-entete">
+        <h1>Système &amp; Paramètres</h1>
+        <p class="aide">Mémoire de Morgane (décisions) et journal des événements de l'application.</p>
+      </div>
       <section class="carte accent-violet">
         <h2>Mémoire de Morgane</h2>
         <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>
@@ -506,6 +530,10 @@
 
     <!-- ===== Réseaux sociaux ===== -->
     <div class="onglet-panneau" data-panneau="reseaux-sociaux" hidden>
+      <div class="cab-page-entete">
+        <h1>Marketing &amp; Visibilité</h1>
+        <p class="aide">Réseaux sociaux, fiche Google Business et présence PagesJaunes/Solocal.</p>
+      </div>
       <section class="carte accent-ambre" id="section-reseaux-sociaux">
         <h2>Réseaux sociaux (Facebook / Instagram)</h2>
         <p class="aide">Module en construction, phase fondations : connexion + publication avec photo après votre validation — rien ne part automatiquement. Génération d'images par IA et récupération automatique de photos pas encore disponibles.</p>
@@ -559,6 +587,10 @@
 
     <!-- ===== Réalisations ===== -->
     <div class="onglet-panneau" data-panneau="realisations" hidden>
+      <div class="cab-page-entete">
+        <h1>Réalisations</h1>
+        <p class="aide">Photos de chantier partagées automatiquement avec les prestataires concernés.</p>
+      </div>
       <section class="carte accent-teal">
         <h2>Réalisations</h2>
         <p class="aide">Ajoutez des photos de chantier ici au lieu de les envoyer par WhatsApp : chaque lundi matin, un lien vers la galerie des nouvelles photos est envoyé automatiquement au bon prestataire, selon l'activité choisie ci-dessous — rien n'est envoyé s'il n'y a aucune nouvelle photo.</p>
@@ -584,6 +616,10 @@
 
     <!-- ===== Comptabilité (archive de secours, independante de Factures fournisseurs/Dext) ===== -->
     <div class="onglet-panneau" data-panneau="comptabilite" hidden>
+      <div class="cab-page-entete">
+        <h1>Comptabilité</h1>
+        <p class="aide">Archive de secours des factures, indépendante du circuit Gmail/Dext.</p>
+      </div>
       <section class="carte accent-violet">
         <h2>Importer l'archive de factures</h2>
         <p class="aide">Module indépendant du circuit "Factures fournisseurs" (Dext) — pensé comme archive de secours en cas de contrôle fiscal. Chaque fichier est analysé automatiquement en arrière-plan (fournisseur, date, montants HT/TTC), sans jamais rien inventer — un fichier dont un champ n'est pas lisible reste simplement "à vérifier" pour une complétion manuelle.</p>
