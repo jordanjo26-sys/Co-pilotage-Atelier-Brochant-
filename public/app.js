@@ -3408,13 +3408,18 @@ function icone(nom, taille = 14) {
       '<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>',
     calendrier:
       '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>',
-    lien: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>',
     "lien-casse":
       '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path><line x1="3" y1="3" x2="21" y2="21"></line>',
     fichier: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>',
     pile: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>',
     archive: '<polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line>',
     "cercle-coche": '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
+    // Demande explicite de l'utilisateur : un bouclier vert pour signaler
+    // qu'une facture est bien rattachee a un mouvement du compte en banque
+    // (remplace l'icone "lien" pour le cas rapproche - "non rapproche"
+    // garde l'icone de lien casse, inchangee).
+    bouclier:
+      '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline>',
   };
   const trace = TRACES[nom];
   if (!trace) return "";
@@ -3439,7 +3444,7 @@ function construireCarteArchiveComptable(a, { doublon = false } = {}) {
           ${a.categorie ? `<span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
           ${a.statut === "a_verifier" ? `<span class="badge badge-palier-ambre">à vérifier</span>` : ""}
           ${doublon ? `<span class="badge badge-palier-ambre">doublon possible</span>` : ""}
-          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${icone(a.rapproche ? "lien" : "lien-casse")} ${a.rapproche ? "rapproché" : "non rapproché"}</span>
+          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${icone(a.rapproche ? "bouclier" : "lien-casse")} ${a.rapproche ? "rapproché" : "non rapproché"}</span>
         </div>
         <div class="archive-v2-carte-montants">
           ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
