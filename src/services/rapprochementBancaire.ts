@@ -183,6 +183,18 @@ function normaliserPourComparaison(texte: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+// Pool de statuts repris pour les 3 passes debit (archives/documents/
+// factures fournisseurs) - inclut "a_verifier" en plus de "non_rapproche"
+// : un mouvement deja marque ambigu lors d'une execution precedente
+// (ex. Castorama face a un prelevement Free Mobile recurrent au meme
+// montant) ne redevenait jamais candidat ensuite, meme une fois
+// departagerParNomFournisseur disponible - restait bloque "a verifier"
+// pour toujours, cas reel signale par l'utilisateur. Sans danger : la
+// regle de securite ne change pas, un candidat unique reste rapproche
+// directement (l'ambiguite d'origine s'est resorbee), plusieurs restent
+// ambigus sauf si un seul correspond au nom du fournisseur.
+const STATUTS_CANDIDATS_DEBIT: string[] = ["non_rapproche", "a_verifier"];
+
 /**
  * Departage plusieurs mouvements candidats au MEME montant (dans la meme
  * fenetre de dates) a l'aide du libelle deja imprime par la banque sur le
@@ -383,7 +395,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
   // candidat (ligne purement creditrice).
   const [facturesAtraiter, mouvementsDebit] = await Promise.all([
     prisma.factureFournisseur.findMany({ where: { statut: "a_payer", mouvementBancaireId: null }, include: { fournisseur: true } }),
-    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } }),
+    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: { in: STATUTS_CANDIDATS_DEBIT }, debit: { gt: 0 } } }),
   ]);
 
   for (const facture of facturesAtraiter) {
@@ -438,7 +450,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
       where: { type: "facture", montantTTC: { not: null }, mouvementBancaireId: null },
       include: { fournisseur: true },
     }),
-    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } }),
+    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: { in: STATUTS_CANDIDATS_DEBIT }, debit: { gt: 0 } } }),
   ]);
 
   for (const document of documentsAtraiter) {
@@ -487,7 +499,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
     prisma.archiveComptable.findMany({
       where: { montantTTC: { not: null }, mouvementBancaireId: null },
     }),
-    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } }),
+    prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: { in: STATUTS_CANDIDATS_DEBIT }, debit: { gt: 0 } } }),
   ]);
 
   for (const archive of archivesAtraiter) {

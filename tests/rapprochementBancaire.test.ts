@@ -333,6 +333,24 @@ test("rapprochement bancaire : archives comptables hors Dext (EDF, Bouygues Tele
     assert.equal(archiveMaj?.mouvementBancaireId, null);
   });
 
+  // Un mouvement deja marque "a_verifier" par une execution anterieure
+  // (ambiguite jamais resorbee jusqu'ici, meme une fois le bon fournisseur
+  // identifie par la suite) doit pouvoir etre repris par une execution
+  // ulterieure - jamais bloque "a verifier" pour toujours (voir
+  // STATUTS_CANDIDATS_DEBIT).
+  await t.test("mouvement deja 'a_verifier' lors d'une execution precedente -> reconsidere et departage par le nom", async () => {
+    const mLeroyMerlin = await mouvementDebit("LEROY MERLIN SCFR COLLEGIEN (070126 CB****9020)", new Date("2026-01-07"), 15.49);
+    await prisma.mouvementBancaire.update({ where: { id: mLeroyMerlin.id }, data: { rapprochementStatut: "a_verifier" } });
+    await mouvementDebit("PRLV SEPA FREE MOBILE", new Date("2026-01-10"), 15.49);
+    const a = await archive("Leroy Merlin", new Date("2026-01-07"), 15.49);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsArchives.find((x) => x.archiveId === a.id)?.resultat, "rapproche");
+
+    const archiveMaj = await prisma.archiveComptable.findUnique({ where: { id: a.id } });
+    assert.equal(archiveMaj?.mouvementBancaireId, mLeroyMerlin.id);
+  });
+
   await t.test("archive sans date de facture -> jamais rapprochee a l'aveugle", async () => {
     await mouvementDebit("PRLV SEPA BOUYGUES TELECOM", new Date("2026-11-01"), 94.54);
     const a = await archive("BOUYGUES TELECOM", null, 94.54);
