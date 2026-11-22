@@ -3394,30 +3394,61 @@ function detecterIdsDoublonsArchives(archives) {
  * (idsDoublons) est optionnelle : fournie uniquement par la sous-vue
  * "A verifier" (voir listerArchivesAVerifier cote serveur).
  */
+// Petites icones vectorielles (traits, 24x24, currentColor) - alignees sur la
+// maquette fournie par l'utilisateur, qui demande des icones nettes plutot
+// que des emojis (rendu couleur incoherent d'un appareil a l'autre). Une
+// seule fonction centralise les tracés pour eviter de les dupliquer a
+// chaque carte.
+function icone(nom, taille = 14) {
+  const TRACES = {
+    oeil: '<circle cx="12" cy="12" r="3"></circle><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"></path>',
+    crayon:
+      '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>',
+    corbeille:
+      '<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>',
+    calendrier:
+      '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>',
+    lien: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>',
+    "lien-casse":
+      '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path><line x1="3" y1="3" x2="21" y2="21"></line>',
+    fichier: '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline>',
+    pile: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>',
+    archive: '<polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line>',
+    "cercle-coche": '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
+  };
+  const trace = TRACES[nom];
+  if (!trace) return "";
+  return `<svg class="archive-v2-icone" width="${taille}" height="${taille}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${trace}</svg>`;
+}
+
 function construireCarteArchiveComptable(a, { doublon = false } = {}) {
+  const estPdf = a.mimeType === "application/pdf";
   return `
       <div class="archive-v2-carte" id="archive-comptable-${a.id}">
         <div class="archive-v2-carte-entete">
-          <span>📄</span>
+          <span class="archive-v2-carte-icone-fichier">
+            ${icone("fichier", 22)}
+            ${estPdf ? `<span class="archive-v2-ruban-pdf">PDF</span>` : ""}
+          </span>
           <span class="archive-v2-carte-fournisseur">${echapper(a.fournisseurNom || "Fournisseur non identifié")}</span>
         </div>
-        <div class="archive-v2-carte-fichier">${echapper(a.fichierNom)}</div>
+        <div class="archive-v2-carte-fichier-nom">${echapper(a.fichierNom)}</div>
         <div class="archive-v2-carte-meta">
-          ${a.dateFacture ? `<span>${fmtDate(a.dateFacture)}</span>` : ""}
+          ${a.dateFacture ? `<span>${icone("calendrier")} ${fmtDate(a.dateFacture)}</span>` : ""}
           ${a.numero ? `<span>n° ${echapper(a.numero)}</span>` : ""}
           ${a.categorie ? `<span class="badge badge-categorie">${echapper(a.categorie)}</span>` : ""}
           ${a.statut === "a_verifier" ? `<span class="badge badge-palier-ambre">à vérifier</span>` : ""}
           ${doublon ? `<span class="badge badge-palier-ambre">doublon possible</span>` : ""}
-          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${a.rapproche ? "✓ rapproché" : "non rapproché"}</span>
+          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"}">${icone(a.rapproche ? "lien" : "lien-casse")} ${a.rapproche ? "rapproché" : "non rapproché"}</span>
         </div>
         <div class="archive-v2-carte-montants">
           ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
           ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="alerte-montant-manquant">TTC non renseigné</span>`}
         </div>
         <div class="archive-v2-carte-actions">
-          <button type="button" class="archive-v2-bouton-voir" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}')">👁 Voir</button>
-          <button type="button" class="archive-v2-bouton-corriger" onclick="ouvrirCorrectionArchive('${a.id}')">✏️ Corriger</button>
-          <button type="button" class="archive-v2-bouton-supprimer" onclick="supprimerArchiveComptable('${a.id}', this)">🗑 Supprimer</button>
+          <button type="button" class="archive-v2-bouton-voir" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}')">${icone("oeil")} Voir</button>
+          <button type="button" class="archive-v2-bouton-corriger" onclick="ouvrirCorrectionArchive('${a.id}')">${icone("crayon")} Corriger</button>
+          <button type="button" class="archive-v2-bouton-supprimer" onclick="supprimerArchiveComptable('${a.id}', this)">${icone("corbeille")} Supprimer</button>
         </div>
       </div>`;
 }

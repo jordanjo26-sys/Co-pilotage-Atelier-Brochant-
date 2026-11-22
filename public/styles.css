@@ -11,6 +11,10 @@
   --line: #E2E7F1;
   --line-strong: #CBD3E3;
   --brand-blue: #3E72CE;
+  /* Variante "douce" de --brand-blue (meme principe que --good-soft/
+     --warning-soft/--critical-soft) - demande explicite de l'utilisateur :
+     boutons Voir/Corriger en teinte pale plutot qu'en bleu plein. */
+  --brand-blue-soft: #E3EBFA;
   --brand-teal: #2FAE8E;
   --brand-violet: #6650B8;
   --good: #1C8F63;
@@ -51,6 +55,7 @@
     --line: #223354;
     --line-strong: #2E4269;
     --brand-blue: #6C9BEE;
+    --brand-blue-soft: #1E2E4D;
     --brand-teal: #4FCBA8;
     --brand-violet: #9683DE;
     --good: #3FBE8B;
@@ -78,6 +83,7 @@
   --line: #223354;
   --line-strong: #2E4269;
   --brand-blue: #6C9BEE;
+  --brand-blue-soft: #1E2E4D;
   --brand-teal: #4FCBA8;
   --brand-violet: #9683DE;
   --good: #3FBE8B;
@@ -625,17 +631,19 @@ button:disabled { opacity: 0.4; cursor: default; }
    le plan greedy-puzzling-quail). */
 .archive-v2-sousonglets {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 14px;
   overflow-x: auto;
+  padding-bottom: 2px;
 }
 .archive-v2-sousonglet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: none;
   border: none;
-  border-bottom: 3px solid transparent;
-  border-radius: 0;
-  padding: 8px 10px;
+  border-radius: 999px;
+  padding: 8px 14px;
   font-size: 12.5px;
   font-weight: 700;
   color: var(--ink-muted);
@@ -643,7 +651,10 @@ button:disabled { opacity: 0.4; cursor: default; }
   white-space: nowrap;
 }
 .archive-v2-sousonglet:hover { color: var(--ink); }
-.archive-v2-sousonglet.actif { color: var(--brand-brown); border-bottom-color: var(--brand-brown); }
+.archive-v2-sousonglet.actif {
+  color: var(--brand-violet);
+  background: color-mix(in srgb, var(--brand-violet) 14%, var(--surface));
+}
 
 .archive-v2-modal {
   position: fixed;
@@ -689,15 +700,34 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .archive-v2-carte-entete {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+}
+.archive-v2-carte-icone-fichier {
+  position: relative;
+  display: inline-flex;
+  color: var(--ink-muted);
+  flex: none;
+}
+.archive-v2-ruban-pdf {
+  position: absolute;
+  left: -3px;
+  bottom: -5px;
+  background: var(--critical);
+  color: #fff;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 3px;
 }
 .archive-v2-carte-fournisseur {
   font-size: 14.5px;
   font-weight: 800;
   color: var(--ink);
 }
-.archive-v2-carte-fichier {
+.archive-v2-carte-fichier-nom {
   font-size: 12px;
   color: var(--ink-muted);
   margin-top: 3px;
@@ -705,6 +735,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.archive-v2-icone { flex: none; vertical-align: -2px; }
 .archive-v2-carte-meta {
   display: flex;
   flex-wrap: wrap;
@@ -744,16 +775,22 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .archive-v2-bouton-voir,
 .archive-v2-bouton-corriger {
-  background: var(--brand-blue);
-  color: #fff;
+  background: var(--brand-blue-soft);
+  color: var(--brand-blue);
 }
 .archive-v2-bouton-voir:hover,
-.archive-v2-bouton-corriger:hover { filter: brightness(1.08); }
+.archive-v2-bouton-corriger:hover { background: var(--brand-blue); color: #fff; }
 .archive-v2-bouton-supprimer {
   background: var(--critical-soft);
   color: var(--critical);
 }
 .archive-v2-bouton-supprimer:hover { background: var(--critical); color: #fff; }
+.archive-v2-bouton-principal {
+  background: var(--brand-blue);
+  color: #fff;
+  border: none;
+}
+.archive-v2-bouton-principal:hover { filter: brightness(1.08); }
 
 /* ---------- Comptabilite : filtres avances repliables ---------- */
 .archive-v2-filtres-avances {
@@ -823,7 +860,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   border: none;
   cursor: pointer;
 }
-.archive-v2-correction-form-actions .archive-v2-bouton-corriger { background: var(--brand-blue); color: #fff; }
 
 @media (max-width: 480px) {
   .archive-v2-correction-form-ligne { flex-direction: column; }

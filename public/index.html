@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=39" />
+  <link rel="stylesheet" href="/styles.css?v=40" />
 </head>
 <body>
   <div class="entete" role="banner">
@@ -461,9 +461,19 @@
 
       <section class="carte accent-brun">
         <div class="archive-v2-sousonglets" role="tablist" aria-label="Vue des factures d'achat">
-          <button type="button" class="archive-v2-sousonglet actif" data-sousvue="mois-courant" role="tab" aria-selected="true">Factures en cours</button>
-          <button type="button" class="archive-v2-sousonglet" data-sousvue="archives" role="tab" aria-selected="false">Archives</button>
-          <button type="button" class="archive-v2-sousonglet" data-sousvue="a-verifier" role="tab" aria-selected="false">À vérifier <span class="onglet-badge" data-badge="archive-a-verifier" hidden>0</span></button>
+          <button type="button" class="archive-v2-sousonglet actif" data-sousvue="mois-courant" role="tab" aria-selected="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+            <span>Factures en cours</span>
+          </button>
+          <button type="button" class="archive-v2-sousonglet" data-sousvue="archives" role="tab" aria-selected="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+            <span>Archives</span>
+          </button>
+          <button type="button" class="archive-v2-sousonglet" data-sousvue="a-verifier" role="tab" aria-selected="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            <span>À vérifier</span>
+            <span class="onglet-badge" data-badge="archive-a-verifier" hidden>0</span>
+          </button>
         </div>
 
         <!-- Mois en cours (defaut) : classement selon dateFacture, pas la date d'import. -->
@@ -548,7 +558,7 @@
         <div id="archive-v2-correction-erreur" class="archive-v2-correction-erreur" hidden></div>
         <div class="ligne-boutons archive-v2-correction-form-actions">
           <button type="button" class="ghost" id="archive-v2-correction-annuler">Annuler</button>
-          <button type="submit" class="archive-v2-bouton-corriger">Enregistrer</button>
+          <button type="submit" class="archive-v2-bouton-principal">Enregistrer</button>
         </div>
       </form>
     </div>
@@ -556,7 +566,7 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=65"></script>
+  <script src="/app.js?v=66"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
 </html>
