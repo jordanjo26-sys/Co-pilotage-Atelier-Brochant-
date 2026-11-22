@@ -343,6 +343,19 @@ const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
   /à\s*payer/i,
   /amount\s*due/i,
   /montant\s*d[ûu]/i,
+  // Documents reels sans aucune notion de TVA (ni "ht"/"ttc", ni "tva"/"vat"
+  // nulle part) : une quittance de loyer ("Montant total : 940,00 €", vraie
+  // facture Sci Dov - le bailleur, pas de TVA sur un loyer), un justificatif
+  // de paiement en ligne d'une amende ("Montant de la transaction :",
+  // Republique Francaise/amendes.gouv.fr) ou un justificatif de reglement
+  // d'amende forfaitaire ("Montant réglé"). En tout dernier recours : sur
+  // une vraie facture, les libelles HT/TTC explicites ci-dessus matchent
+  // toujours en premier - celui-ci ne sert que quand aucun n'a rien trouve,
+  // et complete HT comme TTC avec la MEME valeur (pas de scission possible
+  // sur ce type de document).
+  /montant\s*total\b/i,
+  /montant\s*de\s*la\s*transaction/i,
+  /montant\s*r[eé]gl[eé]/i,
 ];
 
 // Memes principes que pour le TTC, pour le montant hors taxes (demande
@@ -388,6 +401,12 @@ const MOTIFS_MONTANT_HT_PAR_PRIORITE = [
   /total\s*excl\.?\s*(?:of\s*)?tax/i,
   /\bsubtotal\b/i,
   /\bnet\b(?!\s*à\s*payer)/i,
+  // Memes documents sans aucune notion de TVA que MOTIFS_MONTANT_TTC_PAR_PRIORITE
+  // ci-dessus (quittance de loyer, justificatif de paiement d'amende) -
+  // completent HT avec la MEME valeur que TTC, faute de scission possible.
+  /montant\s*total\b/i,
+  /montant\s*de\s*la\s*transaction/i,
+  /montant\s*r[eé]gl[eé]/i,
 ];
 
 // Un montant en euros s'ecrit avec deux conventions decimales reellement

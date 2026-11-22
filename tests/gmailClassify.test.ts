@@ -411,6 +411,59 @@ test("extraireMontantHTFacture/extraireMontantTTCFacture : 'Subtotal'/'Amount du
   assert.equal(extraireMontantTTCFacture(texte), 84);
 });
 
+// Regression reelle en production (novembre 2026) : des documents reels
+// n'ont tout simplement AUCUNE notion de TVA/HT/TTC (une quittance de
+// loyer, un justificatif de paiement d'amende) - restaient "non renseigne"
+// car aucun motif HT/TTC classique ne matchait jamais. Le montant unique
+// trouve doit alors completer HT ET TTC avec la MEME valeur.
+test("extraireMontantHTFacture/extraireMontantTTCFacture + completer* : 'Montant total' sans aucune TVA (vraie quittance de loyer Sci Dov)", () => {
+  const texte =
+    "   Détail\n" +
+    "   - Loyer nu : 880,00 €\n" +
+    "   - Charges / Provisions de Charges : 60,00 €\n" +
+    "\n" +
+    "   Montant total : 940,00 €\n" +
+    "   - Paiement locataire : 940,00 €\n" +
+    "   - Solde à payer : 0 €";
+  let ht = extraireMontantHTFacture(texte);
+  let ttc = extraireMontantTTCFacture(texte);
+  ht = completerMontantHTSansTva(texte, ht, ttc);
+  ttc = completerMontantTTCManquant(texte, ht, ttc);
+  assert.equal(ht, 940);
+  assert.equal(ttc, 940);
+});
+
+test("extraireMontantHTFacture/extraireMontantTTCFacture + completer* : 'Montant de la transaction' (vrai justificatif de paiement d'amende, amendes.gouv.fr)", () => {
+  const texte =
+    "                                                       Détails de la transaction\n" +
+    "\n" +
+    "    Montant de la transaction :                35,00 €\n" +
+    "\n" +
+    "    Date de la transaction :\n" +
+    "    24 juil. 2025";
+  let ht = extraireMontantHTFacture(texte);
+  let ttc = extraireMontantTTCFacture(texte);
+  ht = completerMontantHTSansTva(texte, ht, ttc);
+  ttc = completerMontantTTCManquant(texte, ht, ttc);
+  assert.equal(ht, 35);
+  assert.equal(ttc, 35);
+});
+
+test("extraireMontantHTFacture/extraireMontantTTCFacture + completer* : 'Montant réglé' (vrai justificatif de règlement d'amende forfaitaire)", () => {
+  const texte =
+    "Type d'opération                                                     Paiement\n" +
+    "\n" +
+    "Montant réglé                                                        60,00 €\n" +
+    "\n" +
+    "Date de règlement                                                    21/05/2025";
+  let ht = extraireMontantHTFacture(texte);
+  let ttc = extraireMontantTTCFacture(texte);
+  ht = completerMontantHTSansTva(texte, ht, ttc);
+  ttc = completerMontantTTCManquant(texte, ht, ttc);
+  assert.equal(ht, 60);
+  assert.equal(ttc, 60);
+});
+
 // Regressions a partir d'exemples reels fournis par l'utilisateur
 // (novembre 2026) : apres deploiement, la quasi-totalite des factures deja
 // en base restaient a "0,00 €" malgre une extraction "a posteriori"
