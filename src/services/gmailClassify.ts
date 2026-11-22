@@ -329,14 +329,19 @@ export function extraireNumeroFacture(texte: string): string | null {
 // ci-dessous, le TTC n'etant alors retrouve que par coincidence via une
 // autre ligne ("Total TTC" isolee en pied de page) - jamais garanti,
 // jamais le cas pour le HT correspondant (voir MOTIFS_MONTANT_HT_PAR_PRIORITE).
+// "total incl. tax"/"amount due" : memes vraies factures en anglais que
+// MOTIFS_MONTANT_HT_PAR_PRIORITE ci-dessous (Trofim Victor, WeTransfer BV) -
+// "amount due" joue exactement le meme role que "net à payer"/"à payer".
 const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
   /montant\s*total\s*ttc/i,
   /total\s*de\s*la\s*facture\s*ttc/i,
   /total\s*€?\s*ttc/i,
   /montant\s*ttc/i,
   /tot\.?\s*ttc/i,
+  /total\s*incl\.?\s*(?:of\s*)?tax/i,
   /net\s*à\s*payer/i,
   /à\s*payer/i,
+  /amount\s*due/i,
   /montant\s*d[ûu]/i,
 ];
 
@@ -366,13 +371,22 @@ const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
 // reconnu par aucun motif existant (ni "total ht" ni "montant ht", les
 // mots "de la facture" s'intercalant), laissant le HT durablement "non
 // renseigne" sur des dizaines de vraies factures OVHcloud.
+// "total (ht)" : vu sur une vraie facture TooManyTools ("Total (HT)" entre
+// parentheses) - ne matchait aucun motif existant (la parenthese s'intercale
+// entre "total" et "ht").
+// "total excl. tax"/"subtotal" : vraies factures reelles en anglais
+// (Trofim Victor, WeTransfer BV) - fournisseurs etrangers ou plateformes
+// internationales qui n'utilisent jamais de libelle francais.
 const MOTIFS_MONTANT_HT_PAR_PRIORITE = [
   /montant\s*total\s*(?:net\s*)?ht/i,
   /total\s*de\s*la\s*facture\s*ht/i,
+  /total\s*\(\s*ht\s*\)/i,
   /total\s*€?\s*ht/i,
   /montant\s*ht/i,
   /montant\s*hors\s*tva/i,
   /hors\s*tva/i,
+  /total\s*excl\.?\s*(?:of\s*)?tax/i,
+  /\bsubtotal\b/i,
   /\bnet\b(?!\s*à\s*payer)/i,
 ];
 

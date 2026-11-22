@@ -372,6 +372,45 @@ test("extraireMontantHTFacture/extraireMontantTTCFacture : en-tete de tableau su
   assert.equal(extraireMontantTTCFacture(texte), 199.99);
 });
 
+// Regression reelle en production (novembre 2026) : credit Anthropic epuise,
+// le filet IA ne pouvait plus completer ce que la regex ratait - plusieurs
+// vraies factures de fournisseurs etrangers (jamais de libelle francais)
+// restaient "non renseigne" alors que HT/TTC y sont parfaitement lisibles.
+test("extraireMontantHTFacture/extraireMontantTTCFacture : 'Total (HT)' entre parentheses (vraie facture TooManyTools)", () => {
+  const texte =
+    "                                    Détail des        Taux de taxe      Prix de base            Taxe totale                                       Total produits                       166,58 €\n" +
+    "                                                                                                                                                       Total (HT)                      172,00 €\n" +
+    "                                                                                                                                                     Taxe totale                            34,40 €\n" +
+    "                                        Moyen de paiement                        PayPal                206,40 €                                              Total                   206,40 €\n" +
+    "                                                                           SARL MANYTOOL au capital de 5000 Euros N°Siret 534867999 TVA: FR36534867999";
+  assert.equal(extraireMontantHTFacture(texte), 172);
+  // Pas de libelle TTC exploitable ici (juste "Total" seul, trop ambigu pour
+  // etre un motif fiable) - complete via le taux standard 20% (confirme
+  // exact sur cette facture : Taxe totale 34,40 = 172 x 0.2 ; la mention
+  // "TVA" au pied de page empeche le repli "absence totale de TVA").
+  assert.equal(completerMontantTTCManquant(texte, 172, extraireMontantTTCFacture(texte)), 206.4);
+});
+
+test("extraireMontantHTFacture/extraireMontantTTCFacture : 'Total excl./incl. tax' (vraie facture Trofim Victor, anglais, TVA a 10%)", () => {
+  const texte =
+    "To pay bank transfer.                                               Total excl. tax                                      570,00 €\n" +
+    "Due by 19/04/2026.\n" +
+    "                                                                    Tax at 10 %                                           57,00 €\n" +
+    "                                                                    Total incl. tax                                    627,00 €";
+  assert.equal(extraireMontantHTFacture(texte), 570);
+  assert.equal(extraireMontantTTCFacture(texte), 627);
+});
+
+test("extraireMontantHTFacture/extraireMontantTTCFacture : 'Subtotal'/'Amount due' (vraie facture WeTransfer BV, anglais)", () => {
+  const texte =
+    "                                                                        Subtotal     EUR 70.00\n" +
+    "                                                                        Tax          EUR 14.00\n" +
+    "                                                                        Total        EUR 84.00\n" +
+    "                                                                        Amount due   EUR 84.00";
+  assert.equal(extraireMontantHTFacture(texte), 70);
+  assert.equal(extraireMontantTTCFacture(texte), 84);
+});
+
 // Regressions a partir d'exemples reels fournis par l'utilisateur
 // (novembre 2026) : apres deploiement, la quasi-totalite des factures deja
 // en base restaient a "0,00 €" malgre une extraction "a posteriori"
