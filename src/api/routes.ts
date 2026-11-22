@@ -91,6 +91,7 @@ import {
   diagnosticLienGestionnaire,
   listerObjectifsConversionCampagne,
   obtenirForceAnnoncesCampagne,
+  listerMotsClesConfigures,
 } from "../services/googleAds";
 import { diagnostiquerRejetsDext, listerRejetsDext } from "../services/dextDiagnostic";
 
@@ -1320,6 +1321,17 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/google-ads/campagnes/:id/force-annonces", async (req, res) => {
     try {
       res.json(await obtenirForceAnnoncesCampagne(prisma, req.params.id));
+    } catch (err) {
+      res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // Mots-cles reellement configures sur une campagne (lecture seule),
+  // demande explicite de l'utilisateur pour s'appuyer sur de vrais
+  // mots-cles cibles plutot que d'inventer un angle marketing.
+  router.get("/google-ads/campagnes/:id/mots-cles", async (req, res) => {
+    try {
+      res.json(await listerMotsClesConfigures(prisma, req.params.id));
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
     }
