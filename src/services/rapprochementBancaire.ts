@@ -175,6 +175,40 @@ function differenceJours(a: Date, b: Date): number {
   return Math.abs(a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24);
 }
 
+function normaliserPourComparaison(texte: string): string {
+  return texte
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Departage plusieurs mouvements candidats au MEME montant (dans la meme
+ * fenetre de dates) a l'aide du libelle deja imprime par la banque sur le
+ * releve - une donnee REELLE deja presente, jamais une supposition
+ * (section 14). Cas reel qui motive ce correctif (signale par
+ * l'utilisateur, verifie sur ses donnees de production) : un abonnement
+ * recurrent au montant fixe (ex. Free Mobile, 9,99€/mois) tombe souvent,
+ * par coincidence, dans la fenetre de 20 jours d'un achat ponctuel du meme
+ * montant (ex. Castorama, 9,99€) - les deux sont alors proposes comme
+ * candidats et JAMAIS departages automatiquement malgre un nom de
+ * fournisseur sans ambiguite possible pour un humain. Ne departage QUE si
+ * un SEUL des candidats a un libelle contenant le nom du fournisseur (apres
+ * normalisation : minuscules, accents et ponctuation retires) - si aucun ou
+ * plusieurs correspondent ainsi, reste ambigu comme avant (jamais de pari
+ * entre plusieurs correspondances).
+ */
+function departagerParNomFournisseur<T extends { libelle: string }>(candidats: T[], nomFournisseur: string | null | undefined): T | null {
+  const nomNormalise = nomFournisseur ? normaliserPourComparaison(nomFournisseur) : "";
+  // Nom trop court (ex. "EDF", "SFR") : risque reel de correspondre par
+  // coincidence a un libelle sans rapport - signal pas assez fiable pour
+  // departager automatiquement.
+  if (nomNormalise.length < 4) return null;
+  const correspondants = candidats.filter((m) => normaliserPourComparaison(m.libelle).includes(nomNormalise));
+  return correspondants.length === 1 ? correspondants[0] : null;
+}
+
 /**
  * Historique de chaque rapprochement et de ses modifications (demande
  * explicite de l'utilisateur) - une ligne d'audit par action, jamais
@@ -348,7 +382,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
   // du compte, jamais n'y arrive) - un debit a montant 0 ne peut etre un
   // candidat (ligne purement creditrice).
   const [facturesAtraiter, mouvementsDebit] = await Promise.all([
-    prisma.factureFournisseur.findMany({ where: { statut: "a_payer", mouvementBancaireId: null } }),
+    prisma.factureFournisseur.findMany({ where: { statut: "a_payer", mouvementBancaireId: null }, include: { fournisseur: true } }),
     prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } }),
   ]);
 
@@ -366,9 +400,10 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
         Math.abs(m.debit - facture.montant) < TOLERANCE_MONTANT &&
         differenceJours(m.date, facture.echeance as Date) <= FENETRE_JOURS_FACTURE_FOURNISSEUR
     );
+    const departage = candidats.length > 1 ? departagerParNomFournisseur(candidats, facture.fournisseur?.nom) : null;
 
-    if (candidats.length === 1) {
-      const mouvement = candidats[0];
+    if (candidats.length === 1 || departage) {
+      const mouvement = departage ?? candidats[0];
       await prisma.$transaction([
         prisma.factureFournisseur.update({
           where: { id: facture.id },
@@ -401,6 +436,7 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
   const [documentsAtraiter, mouvementsDebitDocuments] = await Promise.all([
     prisma.documentFournisseur.findMany({
       where: { type: "facture", montantTTC: { not: null }, mouvementBancaireId: null },
+      include: { fournisseur: true },
     }),
     prisma.mouvementBancaire.findMany({ where: { rapprochementStatut: "non_rapproche", debit: { gt: 0 } } }),
   ]);
@@ -420,9 +456,10 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
         Math.abs(m.debit - (document.montantTTC as number)) < TOLERANCE_MONTANT &&
         differenceJours(m.date, dateReference) <= FENETRE_JOURS_FACTURE_FOURNISSEUR
     );
+    const departage = candidats.length > 1 ? departagerParNomFournisseur(candidats, document.fournisseur?.nom) : null;
 
-    if (candidats.length === 1) {
-      const mouvement = candidats[0];
+    if (candidats.length === 1 || departage) {
+      const mouvement = departage ?? candidats[0];
       await prisma.$transaction([
         prisma.documentFournisseur.update({ where: { id: document.id }, data: { mouvementBancaireId: mouvement.id } }),
         prisma.mouvementBancaire.update({ where: { id: mouvement.id }, data: { rapprochementStatut: "rapproche" } }),
@@ -467,9 +504,10 @@ export async function executerRapprochementBancaire(prisma: PrismaClient): Promi
         Math.abs(m.debit - (archive.montantTTC as number)) < TOLERANCE_MONTANT &&
         differenceJours(m.date, archive.dateFacture as Date) <= FENETRE_JOURS_ARCHIVE_COMPTABLE
     );
+    const departage = candidats.length > 1 ? departagerParNomFournisseur(candidats, archive.fournisseurNom) : null;
 
-    if (candidats.length === 1) {
-      const mouvement = candidats[0];
+    if (candidats.length === 1 || departage) {
+      const mouvement = departage ?? candidats[0];
       await prisma.$transaction([
         prisma.archiveComptable.update({ where: { id: archive.id }, data: { mouvementBancaireId: mouvement.id } }),
         prisma.mouvementBancaire.update({ where: { id: mouvement.id }, data: { rapprochementStatut: "rapproche" } }),

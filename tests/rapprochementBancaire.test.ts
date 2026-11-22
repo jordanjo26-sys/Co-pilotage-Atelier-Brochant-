@@ -303,6 +303,36 @@ test("rapprochement bancaire : archives comptables hors Dext (EDF, Bouygues Tele
     assert.equal(archiveMaj?.mouvementBancaireId, null);
   });
 
+  // Cas reel signale par l'utilisateur (verifie sur ses donnees de
+  // production) : une facture Castorama de 9,99€ ne se rapprochait jamais
+  // car un prelevement Free Mobile recurrent, egalement a 9,99€, tombait
+  // par coincidence dans la meme fenetre de 20 jours - deux candidats au
+  // meme montant, jamais departages malgre un nom de commerçant sans
+  // ambiguite possible pour un humain (voir departagerParNomFournisseur).
+  await t.test("deux mouvements au meme montant mais un seul au libelle correspondant au fournisseur -> departage automatique", async () => {
+    const mCastorama = await mouvementDebit("CASTORAMA FR PARIS 1487 (260326 CB****9383)", new Date("2026-03-26"), 9.99);
+    await mouvementDebit("PRLV SEPA FREE MOBILE", new Date("2026-03-12"), 9.99);
+    const a = await archive("Castorama", new Date("2026-03-26"), 9.99);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsArchives.find((x) => x.archiveId === a.id)?.resultat, "rapproche");
+
+    const archiveMaj = await prisma.archiveComptable.findUnique({ where: { id: a.id } });
+    assert.equal(archiveMaj?.mouvementBancaireId, mCastorama.id);
+  });
+
+  await t.test("deux mouvements au meme montant, aucun (ou plusieurs) au libelle correspondant -> reste ambigu", async () => {
+    await mouvementDebit("PRLV SEPA FREE MOBILE", new Date("2026-04-12"), 19.99);
+    await mouvementDebit("PRLV SEPA SFR", new Date("2026-04-14"), 19.99);
+    const a = await archive("Un Fournisseur Sans Rapport", new Date("2026-04-15"), 19.99);
+
+    const resultat = await executerRapprochementBancaire(prisma);
+    assert.equal(resultat.detailsArchives.find((x) => x.archiveId === a.id)?.resultat, "ambigu");
+
+    const archiveMaj = await prisma.archiveComptable.findUnique({ where: { id: a.id } });
+    assert.equal(archiveMaj?.mouvementBancaireId, null);
+  });
+
   await t.test("archive sans date de facture -> jamais rapprochee a l'aveugle", async () => {
     await mouvementDebit("PRLV SEPA BOUYGUES TELECOM", new Date("2026-11-01"), 94.54);
     const a = await archive("BOUYGUES TELECOM", null, 94.54);
