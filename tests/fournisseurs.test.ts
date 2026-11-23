@@ -249,6 +249,94 @@ test("resoudreFournisseur : priorite au nom lu sur le document (IA) sur le nom d
   await prisma.$disconnect();
 });
 
+test("corrigerNomsFournisseursDepuisExpediteur : corrige retroactivement les fiches au nom illisible", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { corrigerNomsFournisseursDepuisExpediteur } = await import("../src/services/fournisseurs");
+  const prisma = new PrismaClient();
+
+  await t.test("nom = l'adresse e-mail elle-meme, consensus unanime -> renomme (cas reel Leon Grosse)", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "t.reymond@leongrosse.fr" } });
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "a.pdf", gmailExpediteur: '"t.reymond@leongrosse.fr" <t.reymond@leongrosse.fr>' },
+    });
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "b.pdf", gmailExpediteur: '"t.reymond@leongrosse.fr" <t.reymond@leongrosse.fr>' },
+    });
+
+    const resultat = await corrigerNomsFournisseursDepuisExpediteur(prisma);
+    const entree = resultat.corriges.find((c) => c.fournisseurId === f.id);
+    assert.ok(entree, "la fiche doit avoir ete corrigee");
+    assert.equal(entree?.ancienNom, "t.reymond@leongrosse.fr");
+    assert.equal(entree?.nouveauNom, "Leongrosse");
+
+    const apres = await prisma.fournisseur.findUnique({ where: { id: f.id } });
+    assert.equal(apres?.nom, "Leongrosse");
+  });
+
+  await t.test("documents rattaches a des expediteurs differents -> pas de consensus, fiche jamais touchee", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "contact@ambigu.fr" } });
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "a.pdf", gmailExpediteur: "contact@ambigu.fr" },
+    });
+    await prisma.documentFournisseur.create({
+      // Document reattache manuellement a une autre fiche existante au prealable
+      // (simule ici par un expediteur totalement different) : aucune certitude
+      // sur le nom a appliquer, donc aucun changement.
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "b.pdf", gmailExpediteur: "contact@autre-domaine.fr" },
+    });
+
+    const resultat = await corrigerNomsFournisseursDepuisExpediteur(prisma);
+    assert.equal(resultat.corriges.some((c) => c.fournisseurId === f.id), false);
+    const apres = await prisma.fournisseur.findUnique({ where: { id: f.id } });
+    assert.equal(apres?.nom, "contact@ambigu.fr");
+  });
+
+  await t.test("nom deja correct -> aucun changement (idempotent)", async () => {
+    const f = await prisma.fournisseur.create({ data: { nom: "Cedeo" } });
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "a.pdf", gmailExpediteur: "contact@cedeo.fr" },
+    });
+
+    const resultat = await corrigerNomsFournisseursDepuisExpediteur(prisma);
+    assert.equal(resultat.corriges.some((c) => c.fournisseurId === f.id), false);
+  });
+
+  await t.test("nom cible deja pris par une autre fiche -> fusion (meme comportement que renommerFournisseur)", async () => {
+    const cible = await prisma.fournisseur.create({ data: { nom: "Kiloutou" } });
+    const source = await prisma.fournisseur.create({ data: { nom: "agence0240@kiloutou.fr" } });
+    const doc = await prisma.documentFournisseur.create({
+      data: {
+        type: "facture",
+        fournisseurId: source.id,
+        fichierNom: "a.pdf",
+        gmailExpediteur: '"agence0240@kiloutou.fr" <agence0240@kiloutou.fr>',
+      },
+    });
+
+    const resultat = await corrigerNomsFournisseursDepuisExpediteur(prisma);
+    const entree = resultat.corriges.find((c) => c.fournisseurId === source.id);
+    assert.ok(entree?.fusionne);
+    assert.equal(await prisma.fournisseur.findUnique({ where: { id: source.id } }), null);
+    assert.equal((await prisma.documentFournisseur.findUnique({ where: { id: doc.id } }))?.fournisseurId, cible.id);
+  });
+
+  await prisma.$disconnect();
+});
+
 test("suppression d'un document isole rattache a tort a un fournisseur", async (t) => {
   dotenv.config({ path: path.join(__dirname, "..", ".env") });
   const testDatabaseUrl =

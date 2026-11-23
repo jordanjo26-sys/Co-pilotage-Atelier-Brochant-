@@ -27,6 +27,7 @@ import {
   obtenirFournisseur,
   supprimerFournisseur,
   renommerFournisseur,
+  corrigerNomsFournisseursDepuisExpediteur,
   FournisseurAvecFacturesError,
   supprimerDocumentFournisseur,
   saisirMontantDocumentFournisseur,
@@ -990,6 +991,16 @@ export function buildRouter(prisma: PrismaClient): Router {
     } catch (err) {
       res.status(404).json({ erreur: (err as Error).message });
     }
+  });
+
+  // Correction ponctuelle des fiches fournisseur au nom illisible (adresse
+  // e-mail brute, en-tete mal forme...) creees avant les correctifs
+  // successifs de extraireIdentiteExpediteur - voir
+  // corrigerNomsFournisseursDepuisExpediteur. A usage manuel, sans risque a
+  // rejouer (ne touche jamais une fiche sans consensus unanime).
+  router.post("/fournisseurs/corriger-noms-depuis-expediteur", async (_req, res) => {
+    const resultat = await corrigerNomsFournisseursDepuisExpediteur(prisma);
+    res.json(resultat);
   });
 
   // Suppression manuelle d'un document rattache a tort (CV, photo, logo...)

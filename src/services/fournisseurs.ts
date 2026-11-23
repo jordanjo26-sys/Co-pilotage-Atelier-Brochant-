@@ -335,6 +335,51 @@ export async function renommerFournisseur(prisma: PrismaClient, fournisseurId: s
   return { fusionneAvec: cible.nom };
 }
 
+export interface ResultatCorrectionNomsFournisseurs {
+  examines: number;
+  corriges: Array<{ fournisseurId: string; ancienNom: string; nouveauNom: string; fusionne: boolean }>;
+}
+
+/**
+ * Corrige retroactivement les fiches fournisseur creees avec un nom
+ * illisible (adresse e-mail brute, en-tete mal forme...) avant les
+ * correctifs successifs de extraireIdentiteExpediteur ci-dessus - demande
+ * explicite de l'utilisateur apres avoir repere plusieurs fiches de ce
+ * type en production (ex. "t.reymond@leongrosse.fr", "L'équipe WeFix"
+ * affiche avec des guillemets internes, "Alain Picard NL (...)").
+ *
+ * Pour chaque fiche, recalcule le nom a partir de TOUS les expediteurs
+ * Gmail connus de ses documents (jamais un seul pris au hasard) : ne
+ * corrige que si TOUS s'accordent sur le meme nom recalcule (consensus
+ * unanime) et que celui-ci differe du nom actuel - une fiche dont les
+ * documents ont ete rattaches manuellement a des expediteurs differents
+ * n'est jamais touchee, par prudence (jamais de choix arbitraire). Fusionne
+ * avec une fiche cible existante le cas echeant (voir renommerFournisseur),
+ * sans rien perdre. Sans effet, et donc sans risque, a rejouer plusieurs
+ * fois.
+ */
+export async function corrigerNomsFournisseursDepuisExpediteur(prisma: PrismaClient): Promise<ResultatCorrectionNomsFournisseurs> {
+  const fournisseurs = await prisma.fournisseur.findMany({
+    include: { documents: { where: { gmailExpediteur: { not: null } }, select: { gmailExpediteur: true } } },
+  });
+
+  const corriges: ResultatCorrectionNomsFournisseurs["corriges"] = [];
+  for (const f of fournisseurs) {
+    const expediteurs = f.documents.map((d) => d.gmailExpediteur).filter((e): e is string => Boolean(e));
+    if (expediteurs.length === 0) continue;
+
+    const nomsRecalcules = new Set(expediteurs.map((e) => extraireIdentiteExpediteur(e).nom));
+    if (nomsRecalcules.size !== 1) continue;
+    const [nomRecalcule] = nomsRecalcules;
+    if (!nomRecalcule || nomRecalcule === f.nom) continue;
+
+    const resultat = await renommerFournisseur(prisma, f.id, nomRecalcule);
+    corriges.push({ fournisseurId: f.id, ancienNom: f.nom, nouveauNom: nomRecalcule, fusionne: resultat.fusionneAvec !== null });
+  }
+
+  return { examines: fournisseurs.length, corriges };
+}
+
 /**
  * Supprime un document rattache a tort a une fiche fournisseur (ex. un CV ou
  * une photo mal classes qui restent visibles dans "Voir les documents" meme
