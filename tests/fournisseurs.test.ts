@@ -164,6 +164,68 @@ test("renommage d'une fiche fournisseur", async (t) => {
   await prisma.$disconnect();
 });
 
+test("resoudreFournisseur : priorite au nom lu sur le document (IA) sur le nom derive de l'expediteur", async (t) => {
+  dotenv.config({ path: path.join(__dirname, "..", ".env") });
+  const testDatabaseUrl =
+    process.env.TEST_DATABASE_URL ||
+    (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/(\?|$)/, "_test$1") : undefined);
+  if (!testDatabaseUrl) {
+    throw new Error("TEST_DATABASE_URL (ou DATABASE_URL) manquante : voir .env.example.");
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { resoudreFournisseur } = await import("../src/services/fournisseurs");
+  const prisma = new PrismaClient();
+
+  await t.test("nomDocumentIA fourni (facture transmise par un intermediaire) -> prime sur l'expediteur", async () => {
+    const fournisseurId = await resoudreFournisseur(prisma, '"e-Facture PA" <no-reply@e-facture-pa.fr>', undefined, "Leroy Merlin");
+    const fournisseur = await prisma.fournisseur.findUnique({ where: { id: fournisseurId } });
+    assert.equal(fournisseur?.nom, "Leroy Merlin", "le fournisseur reel lu sur le document, pas l'intermediaire qui l'a transmise");
+  });
+
+  await t.test("nomDocumentIA absent -> comportement inchange (nom derive de l'expediteur)", async () => {
+    const fournisseurId = await resoudreFournisseur(prisma, "contact@cedeo.fr");
+    const fournisseur = await prisma.fournisseur.findUnique({ where: { id: fournisseurId } });
+    assert.equal(fournisseur?.nom, "Cedeo");
+  });
+
+  await t.test("nomDocumentIA vide/blanc -> ignore, repli sur l'expediteur (jamais de fiche vide)", async () => {
+    const fournisseurId = await resoudreFournisseur(prisma, "contact@point-p.fr", undefined, "   ");
+    const fournisseur = await prisma.fournisseur.findUnique({ where: { id: fournisseurId } });
+    assert.equal(fournisseur?.nom, "Point P");
+  });
+
+  await t.test("nomDocumentIA tout en majuscules -> remis en casse titre comme le nom d'expediteur", async () => {
+    const fournisseurId = await resoudreFournisseur(prisma, "contact@portail-facturation.fr", undefined, "LEROY MERLIN");
+    const fournisseur = await prisma.fournisseur.findUnique({ where: { id: fournisseurId } });
+    assert.equal(fournisseur?.nom, "Leroy Merlin");
+  });
+
+  await t.test("deuxieme facture du meme fournisseur reel via le meme intermediaire -> rattachee a la MEME fiche (pas de doublon)", async () => {
+    const premiere = await resoudreFournisseur(prisma, '"e-Facture PA" <no-reply@e-facture-pa.fr>', undefined, "Leroy Merlin");
+    const seconde = await resoudreFournisseur(prisma, '"e-Facture PA" <no-reply@e-facture-pa.fr>', undefined, "Leroy Merlin");
+    assert.equal(premiere, seconde);
+    const toutes = await prisma.fournisseur.findMany({ where: { nom: "Leroy Merlin" } });
+    assert.equal(toutes.length, 1);
+  });
+
+  await t.test("cache partage : la cle de cache suit le nom final resolu, pas le nom d'expediteur", async () => {
+    const cache = new Map<string, string>();
+    const id1 = await resoudreFournisseur(prisma, '"Portail X" <x@portail-x.fr>', cache, "Castorama");
+    assert.equal(cache.get("Castorama"), id1);
+    const id2 = await resoudreFournisseur(prisma, '"Portail X" <x@portail-x.fr>', cache, "Castorama");
+    assert.equal(id1, id2);
+  });
+
+  await prisma.$disconnect();
+});
+
 test("suppression d'un document isole rattache a tort a un fournisseur", async (t) => {
   dotenv.config({ path: path.join(__dirname, "..", ".env") });
   const testDatabaseUrl =

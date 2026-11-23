@@ -141,9 +141,25 @@ export function extraireIdentiteExpediteur(expediteur: string): IdentiteExpedite
  * si c'est le premier document recu de sa part. `cache` (facultatif) evite
  * une requete repetee pour le meme expediteur au sein d'une meme
  * synchronisation (meme principe que le cache de libelles Gmail).
+ *
+ * `nomDocumentIA` (facultatif) : nom du fournisseur tel que lu sur le
+ * document lui-meme par l'extraction IA (ChampsFacture.fournisseurNom, voir
+ * archiveComptableIA.ts), quand elle a deja ete executee pour en extraire
+ * les montants. Prioritaire sur le nom derive de l'expediteur de l'e-mail
+ * quand il est fourni (demande explicite de l'utilisateur : une facture
+ * transmise via un intermediaire/portail d'e-facturation - ex. un expediteur
+ * "e-Facture PA" pour une facture Leroy Merlin - doit porter le nom du
+ * fournisseur reel imprime sur le document, pas celui de l'intermediaire qui
+ * l'a transmise). Jamais invente : absent/vide, on retombe sur l'expediteur
+ * comme avant (section 14, "jamais deviner").
  */
-export async function resoudreFournisseur(prisma: PrismaClient, expediteur: string, cache?: Map<string, string>): Promise<string> {
-  const { nom } = extraireIdentiteExpediteur(expediteur);
+export async function resoudreFournisseur(
+  prisma: PrismaClient,
+  expediteur: string,
+  cache?: Map<string, string>,
+  nomDocumentIA?: string | null
+): Promise<string> {
+  const nom = nomDocumentIA && nomDocumentIA.trim() ? normaliserCasse(nettoyerEspaces(nomDocumentIA)) : extraireIdentiteExpediteur(expediteur).nom;
 
   const enCache = cache?.get(nom);
   if (enCache) return enCache;

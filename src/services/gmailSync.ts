@@ -61,9 +61,10 @@ async function resoudreMontantsFacture(
   mimeType: string,
   donnees: Buffer,
   contenuExtrait: string | undefined
-): Promise<{ montantHT: number | null; montantTTC: number | null }> {
+): Promise<{ montantHT: number | null; montantTTC: number | null; fournisseurNomIA: string | null }> {
   let montantTTC = contenuExtrait ? extraireMontantTTCFacture(contenuExtrait) : null;
   let montantHT = contenuExtrait ? extraireMontantHTFacture(contenuExtrait) : null;
+  let fournisseurNomIA: string | null = null;
 
   if (montantHT == null || montantTTC == null) {
     let champsIA = null;
@@ -78,6 +79,11 @@ async function resoudreMontantsFacture(
     if (champsIA) {
       if (montantHT == null && champsIA.montantHT != null) montantHT = champsIA.montantHT;
       if (montantTTC == null && champsIA.montantTTC != null) montantTTC = champsIA.montantTTC;
+      // Nom du fournisseur tel que lu sur le document lui-meme (logo/texte),
+      // jamais encore exploite jusqu'ici en aval : voir resoudreFournisseur
+      // dans fournisseurs.ts, qui le prefere au nom derive de l'expediteur
+      // de l'e-mail quand il est fourni.
+      if (champsIA.fournisseurNom) fournisseurNomIA = champsIA.fournisseurNom;
     }
   }
 
@@ -85,7 +91,7 @@ async function resoudreMontantsFacture(
     montantHT = completerMontantHTSansTva(contenuExtrait, montantHT, montantTTC);
     montantTTC = completerMontantTTCManquant(contenuExtrait, montantHT, montantTTC);
   }
-  return { montantHT, montantTTC };
+  return { montantHT, montantTTC, fournisseurNomIA };
 }
 
 export interface ResultatSyncGmail {
@@ -438,6 +444,7 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
         numero: string | null;
         montantHT: number | null;
         montantTTC: number | null;
+        fournisseurNomIA: string | null;
         classifiePar: "ia" | null;
       }
       const piecesAtraiter: PieceAClasser[] = [];
@@ -536,9 +543,11 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
           // sur un devis/bon d'enlevement/releve. Jamais dans le sujet/corps :
           // un sujet/corps peut mentionner un montant sans rapport (devis
           // precedent, relance...) a la difference du document lui-meme.
-          const { montantHT, montantTTC } =
-            type === "facture" ? await resoudreMontantsFacture(prisma, piece.mimeType, donnees, contenuExtrait) : { montantHT: null, montantTTC: null };
-          piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, montantHT, montantTTC, classifiePar });
+          const { montantHT, montantTTC, fournisseurNomIA } =
+            type === "facture"
+              ? await resoudreMontantsFacture(prisma, piece.mimeType, donnees, contenuExtrait)
+              : { montantHT: null, montantTTC: null, fournisseurNomIA: null };
+          piecesAtraiter.push({ piece, type, donnees, hashFichier, numero, montantHT, montantTTC, fournisseurNomIA, classifiePar });
         } catch (err) {
           resultat.erreurs.push(`${piece.nomFichier} : ${(err as Error).message}`);
           messageEnErreur = true;
@@ -569,7 +578,17 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
       // le correctif ci-dessus, ni meme un vrai devis fournisseur, qu'il ne
       // veut pas voir dans cet onglet.
       const auMoinsUnDocumentReconnu = piecesAtraiter.some((p) => p.type !== "ambigu" && p.type !== "autre" && p.type !== "devis");
-      const fournisseurId = auMoinsUnDocumentReconnu ? await resoudreFournisseur(prisma, expediteur, cacheFournisseurs) : null;
+      // Nom reellement lu sur le document (logo/texte) par l'extraction IA,
+      // quand elle a ete executee - priorite sur le nom derive de
+      // l'expediteur de l'e-mail (section 6, voir resoudreFournisseur) :
+      // un intermediaire/portail d'e-facturation (ex. "e-Facture PA") ne
+      // doit jamais masquer le vrai fournisseur imprime sur la facture
+      // (ex. Leroy Merlin) - demande explicite de l'utilisateur.
+      const nomFournisseurIA = piecesAtraiter.find((p) => p.type === "facture" && p.fournisseurNomIA)?.fournisseurNomIA ?? null;
+      const fournisseurId = auMoinsUnDocumentReconnu
+        ? await resoudreFournisseur(prisma, expediteur, cacheFournisseurs, nomFournisseurIA)
+        : null;
+      const fournisseurNomResolu = nomFournisseurIA || extraireIdentiteExpediteur(expediteur).nom;
 
       for (const { piece, type, donnees, hashFichier, numero, montantHT, montantTTC, classifiePar } of piecesAtraiter) {
         try {
@@ -649,7 +668,7 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
               fichierNom: piece.nomFichier,
               mimeType: piece.mimeType,
               donnees,
-              fournisseurNom: extraireIdentiteExpediteur(expediteur).nom,
+              fournisseurNom: fournisseurNomResolu,
               numero,
               dateFacture: dateReception,
               montantHT,
