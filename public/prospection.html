@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Prospection — Atelier Brochant</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=45" />
+  <link rel="stylesheet" href="/styles.css?v=46" />
 </head>
 <body>
   <div class="cab-shell">
@@ -103,7 +103,7 @@
     <section class="carte accent-bleu">
       <h2>Tableau de bord</h2>
       <div id="tuiles-statuts" class="tuile-statuts"></div>
-      <div class="table-scroll">
+      <div class="table-scroll cab-desktop-seul">
         <table id="table-stats-campagnes">
           <thead>
             <tr><th>Campagne</th><th>Statut</th><th>Envoyés</th><th>Ouverts</th><th>Cliqués</th><th>Répondus</th><th>Désabonnés</th><th>Tx. ouverture</th><th>Tx. réponse</th></tr>
@@ -111,6 +111,7 @@
           <tbody></tbody>
         </table>
       </div>
+      <div id="campagnes-cartes" class="cab-cartes-liste cab-mobile-seul"></div>
     </section>
 
     <section class="carte accent-teal">
@@ -163,7 +164,7 @@
         <input id="filtre-cp" placeholder="Code postal (ex. 77)" />
         <input id="filtre-recherche" placeholder="Rechercher entreprise/contact…" />
       </div>
-      <div class="table-scroll">
+      <div class="table-scroll cab-desktop-seul">
         <table id="table-prospects">
           <thead>
             <tr><th>Entreprise</th><th>Type</th><th>Contact</th><th>Email</th><th>Ville</th><th>Statut</th></tr>
@@ -171,6 +172,7 @@
           <tbody></tbody>
         </table>
       </div>
+      <div id="prospects-cartes" class="cab-cartes-liste cab-mobile-seul"></div>
       <div id="fiche-prospect"></div>
     </section>
 
@@ -284,7 +286,7 @@
     <a class="cab-feuille-bas-lien" href="/index.html#reseaux-sociaux">Réseaux sociaux</a>
   </div>
 
-  <script src="/prospection.js?v=1"></script>
+  <script src="/prospection.js?v=2"></script>
   <script src="/navigation.js?v=1"></script>
   <script src="/morgane.js?v=3"></script>
 </body>

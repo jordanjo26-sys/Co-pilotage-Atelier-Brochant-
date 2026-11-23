@@ -1042,6 +1042,25 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 .form-grille textarea { min-height: 90px; resize: vertical; font-family: inherit; }
 .form-grille.pleine-largeur, .champ-pleine-largeur { grid-column: 1 / -1; }
 
+/* ---------- Regroupement visuel de formulaire (finition mobile V2) ----------
+   Simple repere visuel entre groupes de champs lies (ex. "Coordonnees" /
+   "Adresse" / "Planning") sur un long formulaire - jamais un element de
+   formulaire lui-meme (aucun name, jamais soumis), juste un titre + une
+   ligne de separation pour qu'un long formulaire empile sur mobile ne
+   ressemble plus a une seule liste indifferenciee de champs. */
+.form-grille-section {
+  grid-column: 1 / -1;
+  margin: 14px 0 -2px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+}
+.form-grille-section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
 /* Zone de depot (glisser-deposer) pour l'import de fichiers - remplace les
    champs <input type="file"> nus, demande explicite de l'utilisateur
    ("une importation plus ergonomique"). */

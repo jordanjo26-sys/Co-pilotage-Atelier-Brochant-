@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Nouvelle demande client — Atelier Brochant</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=45" />
+  <link rel="stylesheet" href="/styles.css?v=46" />
 </head>
 <body>
   <div class="cab-shell">
@@ -104,9 +104,12 @@
       <h2>Nouvel appel</h2>
       <p class="aide">À remplir juste après avoir raccroché, à la place du papier. Seul le nom est obligatoire.</p>
       <form id="form-demande" class="form-grille">
+        <div class="form-grille-section">Coordonnées</div>
         <label>Nom du client *<input name="nom" required /></label>
         <label>Téléphone<input name="telephone" type="tel" /></label>
         <label>E-mail<input name="email" type="email" /></label>
+
+        <div class="form-grille-section">Adresse et logement</div>
         <label class="champ-autocomplete">Adresse (numéro et rue)
           <input name="adresse" id="champ-adresse" autocomplete="off" />
           <ul id="suggestions-adresse" class="liste-suggestions" hidden></ul>
@@ -125,6 +128,8 @@
         </label>
         <label>Étage (si appartement)<input name="etage" /></label>
         <label>Code d'accès / interphone<input name="codeAcces" /></label>
+
+        <div class="form-grille-section">Planning</div>
         <label>Urgence
           <select name="urgence">
             <option value="normale" selected>Normale</option>
@@ -134,6 +139,8 @@
         </label>
         <label>Début souhaité<input name="dateSouhaitee" type="datetime-local" /></label>
         <label>Fin souhaitée<input name="dateSouhaiteeFin" type="datetime-local" /></label>
+
+        <div class="form-grille-section">Classification</div>
         <label>Source d'acquisition
           <select name="sourceAcquisition">
             <option value="">—</option>

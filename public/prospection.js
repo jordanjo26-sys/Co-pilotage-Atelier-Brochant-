@@ -14,6 +14,25 @@ function pastilleStatut(statut) {
   return `<span class="pastille-statut pastille-${echapper(statut)}">${echapper(LIBELLE_STATUT[statut] || statut)}</span>`;
 }
 
+// Fiche mobile generique (finition mobile V2, meme principe que
+// construireCarteLigne dans app.js - duplique ici car prospection.html est
+// une page autonome, sans app.js) : remplace une ligne de tableau par une
+// carte compacte sous 720px (voir .cab-carte-ligne/.cab-desktop-seul dans
+// styles.css).
+function construireCarteLigne({ titre, montant, metaGauche, statutHtml, onclick }) {
+  return `
+    <div class="cab-carte-ligne${onclick ? " cab-ligne-cliquable" : ""}"${onclick ? ` onclick="${onclick}"` : ""}>
+      <div class="cab-carte-ligne-entete">
+        <span class="cab-carte-ligne-titre"><span class="texte">${titre}</span></span>
+        ${montant != null ? `<span class="cab-carte-ligne-montant">${montant}</span>` : ""}
+      </div>
+      <div class="cab-carte-ligne-meta">
+        <span>${metaGauche || ""}</span>
+        <span class="cab-carte-ligne-meta-droite">${statutHtml || ""}</span>
+      </div>
+    </div>`;
+}
+
 async function appelApi(url, options) {
   const res = await fetch(url, options);
   const isJson = res.headers.get("content-type")?.includes("application/json");
@@ -59,6 +78,26 @@ async function chargerDashboard() {
     </tr>`
       )
       .join("") || `<tr><td colspan="9" class="liste-vide">Aucune campagne pour le moment.</td></tr>`;
+
+  // Fiches mobiles : seules les informations essentielles (demande explicite
+  // de l'utilisateur, "tableaux de bord : informations essentielles visibles
+  // immediatement") - le detail complet (9 colonnes) reste sur le tableau
+  // desktop, jamais retire.
+  const cartesCampagnes = document.getElementById("campagnes-cartes");
+  if (cartesCampagnes) {
+    cartesCampagnes.innerHTML = campagnes.length
+      ? campagnes
+          .map((c) =>
+            construireCarteLigne({
+              titre: echapper(c.nom),
+              montant: `${c.tauxOuverture}% ouv.`,
+              metaGauche: `${c.nbEnvois} envoyé(s) · ${c.nbRepondus} répondu(s)`,
+              statutHtml: echapper(c.statut),
+            })
+          )
+          .join("")
+      : `<p class="liste-vide">Aucune campagne pour le moment.</p>`;
+  }
 }
 
 // --- Sourcing ------------------------------------------------------------
@@ -135,6 +174,22 @@ async function chargerProspects() {
   tbody.querySelectorAll("tr[data-id]").forEach((tr) => {
     tr.addEventListener("click", () => afficherFicheProspect(tr.dataset.id));
   });
+
+  const cartes = document.getElementById("prospects-cartes");
+  if (cartes) {
+    cartes.innerHTML = prospects.length
+      ? prospects
+          .map((p) =>
+            construireCarteLigne({
+              titre: echapper(p.entreprise),
+              metaGauche: `${echapper(p.contactNom || "—")}${p.ville ? ` · ${echapper(p.ville)}` : ""}`,
+              statutHtml: pastilleStatut(p.statut),
+              onclick: `afficherFicheProspect('${p.id}')`,
+            })
+          )
+          .join("")
+      : `<p class="liste-vide">Aucun prospect pour ce filtre.</p>`;
+  }
 }
 
 ["filtre-type", "filtre-statut", "filtre-cp"].forEach((id) => document.getElementById(id).addEventListener("change", chargerProspects));
