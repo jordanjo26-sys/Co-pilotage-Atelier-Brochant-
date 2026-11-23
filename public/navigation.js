@@ -49,3 +49,25 @@ document.querySelectorAll(".cab-feuille-bas").forEach((feuille) => {
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") fermerFeuillesBasses();
 });
+
+// Restauration bfcache (retour arriere Safari/iOS apres avoir quitte une
+// feuille basse ouverte par un lien <a href>, ou le panneau detail facture) :
+// le navigateur restaure alors le DOM EXACTEMENT comme il etait au moment du
+// depart (overlay/panneau encore ouverts), sans rejouer le chargement initial
+// de la page - d'ou un fondu sombre qui reste affiche en permanence, sans
+// aucune feuille ni panneau visiblement ouverts (signale par l'utilisateur,
+// "fondu derangeant" persistant sur Accueil comme sur Factures fournisseurs).
+// Force la fermeture de tout calque de ce type des que la page est restauree
+// depuis le bfcache, quelle que soit la page (les classes/ids absents d'une
+// page donnee sont simplement ignores par querySelectorAll).
+window.addEventListener("pageshow", (ev) => {
+  if (!ev.persisted) return;
+  fermerFeuillesBasses();
+  document.querySelectorAll(".cab-overlay").forEach((overlay) => {
+    overlay.hidden = true;
+  });
+  document.querySelectorAll(".cab-detail-panneau").forEach((panneau) => {
+    panneau.classList.remove("ouvert");
+    panneau.hidden = true;
+  });
+});
