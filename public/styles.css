@@ -1200,10 +1200,14 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 
 /* Remonte la bulle/le panneau Morgane au-dessus de la nouvelle barre mobile
    basse (.cab-bottomnav, ~56px de haut) introduite par la refonte V2 :
-   sans ca, la bulle flottante chevauche l'onglet "Plus" de la barre. */
+   sans ca, la bulle flottante chevauche l'onglet "Plus" de la barre. Meme
+   correctif pour le bouton de diagnostic temporaire (signale par
+   l'utilisateur : il recouvrait "Accueil"/"Gestion" en bas de l'ecran,
+   les rendant impossibles a toucher). */
 @media (max-width: 959px) {
   .morgane-bulle-ouvrir { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 76px)); }
   .morgane-panneau-flottant { bottom: max(140px, calc(env(safe-area-inset-bottom, 0px) + 140px)); }
+  .diagnostic-bouton-signaler { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 76px)); }
 }
 
 .barre-filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
