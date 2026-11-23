@@ -166,3 +166,120 @@ test("Ecran unifie 'Factures fournisseurs' (V2) — fusion DocumentFournisseur +
     await assert.rejects(() => obtenirDetailFactureFournisseurUnifiee(prisma, "bruit-invalide"), FactureFournisseurUnifieeError);
   });
 });
+
+test("reconcilierDoublonsHistoriquesDext — reclasse a posteriori les copies archive_comptable anterieures au suivi 'origine'", async (t) => {
+  execSync("npx prisma db push --force-reset --skip-generate", {
+    cwd: path.join(__dirname, ".."),
+    env: process.env,
+    stdio: "pipe",
+  });
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { reconcilierDoublonsHistoriquesDext, listerFacturesFournisseursUnifiees } = await import("../src/services/facturesFournisseursUnifiees");
+  const prisma = new PrismaClient();
+
+  t.after(async () => {
+    await prisma.$disconnect();
+  });
+
+  await t.test("cas reel signale par l'utilisateur : meme numero + meme montant TTC + meme fournisseur -> reclassee", async () => {
+    const fournisseur = await prisma.fournisseur.create({ data: { nom: "Point.P" } });
+    const document = await prisma.documentFournisseur.create({
+      data: {
+        type: "facture",
+        fichierNom: "e-Facture PA.pdf",
+        numero: "CFR00111626020513",
+        montantHT: 44.17,
+        montantTTC: 53,
+        statutDext: "envoye",
+        fournisseurId: fournisseur.id,
+      },
+    });
+    const archive = await prisma.archiveComptable.create({
+      data: {
+        fichierNom: "e-Facture PA.pdf",
+        cheminFichier: "/tmp/inexistant-pa.pdf",
+        mimeType: "application/pdf",
+        fournisseurNom: "Point.P",
+        numero: "CFR00111626020513",
+        montantHT: 44.17,
+        montantTTC: 53,
+        statut: "complete",
+        origine: null,
+      },
+    });
+
+    const avant = await listerFacturesFournisseursUnifiees(prisma);
+    assert.equal(avant.total, 2, "avant reconciliation, la facture apparait bien en double (bug signale)");
+
+    const resultat = await reconcilierDoublonsHistoriquesDext(prisma);
+    assert.equal(resultat.reclassees.length, 1);
+    assert.equal(resultat.reclassees[0].archiveId, archive.id);
+    assert.equal(resultat.reclassees[0].documentId, document.id);
+
+    const archiveApres = await prisma.archiveComptable.findUniqueOrThrow({ where: { id: archive.id } });
+    assert.equal(archiveApres.origine, "dext_copie");
+    assert.equal(archiveApres.documentFournisseurId, document.id);
+
+    const apres = await listerFacturesFournisseursUnifiees(prisma);
+    assert.equal(apres.total, 1, "le doublon ne doit plus apparaitre apres reconciliation");
+  });
+
+  await t.test("numero identique mais fournisseur different -> jamais reclassee (evite un faux positif)", async () => {
+    const fournisseur = await prisma.fournisseur.create({ data: { nom: "Fournisseur A" } });
+    const document = await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: "fournisseur-a.pdf", numero: "DUP-1", montantTTC: 99, statutDext: "envoye", fournisseurId: fournisseur.id },
+    });
+    const archive = await prisma.archiveComptable.create({
+      data: {
+        fichierNom: "fournisseur-b.pdf",
+        cheminFichier: "/tmp/inexistant-dup1.pdf",
+        mimeType: "application/pdf",
+        fournisseurNom: "Un Autre Fournisseur",
+        numero: "DUP-1",
+        montantTTC: 99,
+        statut: "complete",
+        origine: null,
+      },
+    });
+    void document;
+
+    const resultat = await reconcilierDoublonsHistoriquesDext(prisma);
+    assert.equal(resultat.reclassees.length, 0);
+
+    const archiveApres = await prisma.archiveComptable.findUniqueOrThrow({ where: { id: archive.id } });
+    assert.equal(archiveApres.origine, null, "aucune reclassification sans certitude sur le fournisseur");
+  });
+
+  await t.test("deux documents candidats pour le meme numero+montant -> ambigu, jamais reclassee", async () => {
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: "candidat-1.pdf", numero: "DUP-2", montantTTC: 42, statutDext: "envoye" },
+    });
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: "candidat-2.pdf", numero: "DUP-2", montantTTC: 42, statutDext: "archive" },
+    });
+    const archive = await prisma.archiveComptable.create({
+      data: {
+        fichierNom: "archive-ambigue.pdf",
+        cheminFichier: "/tmp/inexistant-dup2.pdf",
+        mimeType: "application/pdf",
+        fournisseurNom: null,
+        numero: "DUP-2",
+        montantTTC: 42,
+        statut: "complete",
+        origine: null,
+      },
+    });
+
+    const resultat = await reconcilierDoublonsHistoriquesDext(prisma);
+    assert.equal(resultat.reclassees.length, 0);
+
+    const archiveApres = await prisma.archiveComptable.findUniqueOrThrow({ where: { id: archive.id } });
+    assert.equal(archiveApres.origine, null, "jamais de choix arbitraire entre plusieurs candidats");
+  });
+
+  await t.test("deja rejouee : idempotente, ne touche jamais une archive deja classee", async () => {
+    const resultat = await reconcilierDoublonsHistoriquesDext(prisma);
+    assert.equal(resultat.reclassees.length, 0, "la seule archive reclassable l'a deja ete au premier sous-test");
+  });
+});

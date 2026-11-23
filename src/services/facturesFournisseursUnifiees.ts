@@ -195,6 +195,66 @@ export async function listerFacturesFournisseursUnifiees(
   };
 }
 
+export interface ResultatReconciliationDoublonsHistoriques {
+  examinees: number;
+  reclassees: Array<{ archiveId: string; documentId: string; fournisseurNom: string | null; numero: string | null; montantTTC: number | null }>;
+}
+
+/**
+ * Reclasse a posteriori (origine=NULL -> "dext_copie") les archives
+ * anterieures a la migration 20261122160000_archive_comptable_origine qui
+ * se revelent, avec CERTITUDE et non par hypothese, etre une copie d'un
+ * DocumentFournisseur deja envoye a Dext - cas reel signale par
+ * l'utilisateur (facture "e-Facture PA" / CFR00111626020513 affichee deux
+ * fois dans l'ecran unifie). Critere de certitude : meme numero de facture
+ * (identifiant cense etre unique chez un fournisseur donne) ET meme montant
+ * TTC EXACT entre l'archive et le document - et, quand les deux noms de
+ * fournisseur sont connus, ils doivent aussi correspondre (evite un faux
+ * positif si deux fournisseurs differents partageaient par hasard le meme
+ * numero). N'affecte jamais une archive dont l'origine est deja connue
+ * (ovh_api/zip_manuel/dext_copie) ni une archive sans numero (trop faible
+ * comme critere a lui seul).
+ */
+export async function reconcilierDoublonsHistoriquesDext(prisma: PrismaClient): Promise<ResultatReconciliationDoublonsHistoriques> {
+  const [archivesNonClassees, documentsEnvoyes] = await Promise.all([
+    prisma.archiveComptable.findMany({
+      where: { origine: null, numero: { not: null } },
+    }),
+    prisma.documentFournisseur.findMany({
+      where: { type: "facture", statutDext: { in: ["envoye", "archive"] }, numero: { not: null } },
+      include: { fournisseur: { select: { nom: true } } },
+    }),
+  ]);
+
+  const reclassees: ResultatReconciliationDoublonsHistoriques["reclassees"] = [];
+  for (const archive of archivesNonClassees) {
+    if (!archive.numero) continue;
+    const correspondances = documentsEnvoyes.filter(
+      (d) => d.numero === archive.numero && d.montantTTC != null && archive.montantTTC != null && Math.abs(d.montantTTC - archive.montantTTC) < 0.01
+    );
+    // Un seul document correspondant : jamais de choix arbitraire entre plusieurs candidats.
+    if (correspondances.length !== 1) continue;
+    const document = correspondances[0];
+    const nomDocument = document.fournisseur?.nom ?? null;
+    // Quand l'archive connait un nom de fournisseur, le document doit lui
+    // aussi en avoir un resolu ET identique - un document sans fournisseur
+    // resolu n'offre pas assez de certitude pour etre reconcilie sur le
+    // seul numero+montant (jamais de reclassification devinee).
+    if (archive.fournisseurNom) {
+      if (!nomDocument) continue;
+      if (nomDocument.toLowerCase().trim() !== archive.fournisseurNom.toLowerCase().trim()) continue;
+    }
+
+    await prisma.archiveComptable.update({
+      where: { id: archive.id },
+      data: { origine: "dext_copie", documentFournisseurId: document.id },
+    });
+    reclassees.push({ archiveId: archive.id, documentId: document.id, fournisseurNom: archive.fournisseurNom, numero: archive.numero, montantTTC: archive.montantTTC });
+  }
+
+  return { examinees: archivesNonClassees.length, reclassees };
+}
+
 export class FactureFournisseurUnifieeError extends Error {}
 
 function decomposerId(id: string): { source: "document_fournisseur" | "archive_comptable"; sourceId: string } {

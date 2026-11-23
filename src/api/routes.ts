@@ -52,6 +52,7 @@ import { ovhEstConfigure, verifierConnexionOvh, obtenirFacturesBrutesOvh, synchr
 import {
   listerFacturesFournisseursUnifiees,
   obtenirDetailFactureFournisseurUnifiee,
+  reconcilierDoublonsHistoriquesDext,
   FactureFournisseurUnifieeError,
   StatutFactureUnifiee,
 } from "../services/facturesFournisseursUnifiees";
@@ -1076,6 +1077,16 @@ export function buildRouter(prisma: PrismaClient): Router {
       }
       res.status(500).json({ erreur: (err as Error).message });
     }
+  });
+
+  // Correction ponctuelle des doublons historiques (archives anterieures au
+  // suivi "origine", affichees a tort en double avec le DocumentFournisseur
+  // deja envoye a Dext correspondant) - voir reconcilierDoublonsHistoriquesDext.
+  // A usage manuel, sans risque a rejouer (n'affecte jamais une archive deja
+  // classee).
+  router.post("/factures-fournisseurs/reconcilier-doublons-historiques", async (_req, res) => {
+    const resultat = await reconcilierDoublonsHistoriquesDext(prisma);
+    res.json(resultat);
   });
 
   // Previsualisation d'une facture fournisseur reconnue mais pas encore
