@@ -1654,7 +1654,12 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .cab-sousnav { margin-bottom: 4px; }
 
 /* ---------- Panneau de detail lateral (ecran flagship) ---------- */
-.cab-overlay { position: fixed; inset: 0; background: rgba(10,16,30,0.45); z-index: 39; }
+/* Opacite allegee (0.45 -> 0.18) : demande explicite de l'utilisateur (voix
+   et video, novembre 2026) - le fond assombri derriere une feuille basse/un
+   panneau de detail ouvert etait trop marque ("fondu dérangeant"). Reste
+   assez visible pour signaler qu'un element modal est ouvert, sans
+   assombrir le reste de l'ecran de facon genante. */
+.cab-overlay { position: fixed; inset: 0; background: rgba(10,16,30,0.18); z-index: 39; }
 .cab-overlay[hidden] { display: none; }
 
 .cab-detail-panneau {
