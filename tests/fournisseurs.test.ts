@@ -59,6 +59,29 @@ test("'Prenom NOM' chez une messagerie grand public -> nom affiche conserve tel 
   assert.equal(r.nom, "Jean DUPONT");
 });
 
+test("nom affiche egal a l'adresse e-mail elle-meme -> traite comme une absence de nom, repli sur le domaine (cas reel : Leon Grosse, Kiloutou, CPSE)", () => {
+  const r = extraireIdentiteExpediteur('"t.reymond@leongrosse.fr" <t.reymond@leongrosse.fr>');
+  assert.equal(r.nom, "Leongrosse");
+  assert.equal(r.email, "t.reymond@leongrosse.fr");
+});
+
+test("en-tete mal forme avec guillemets internes mal echappes -> nom reel recupere malgre tout (cas reel : WeFix)", () => {
+  const r = extraireIdentiteExpediteur(`"\\"L'équipe WeFix\\" " <mailing@wefix.net>`);
+  assert.equal(r.nom, "L'équipe WeFix");
+  assert.equal(r.email, "mailing@wefix.net");
+});
+
+test("nom affiche contenant une adresse e-mail entre parentheses (systeme d'envoi automatise) -> nom derive de CETTE adresse, pas de l'expediteur technique (cas reel : Masternaut via NetSuite)", () => {
+  const r = extraireIdentiteExpediteur('"Alain Picard NL (alain.picard@masternaut.com)" <system@sent-via.netsuite.com>');
+  assert.equal(r.nom, "Masternaut");
+  assert.equal(r.email, "system@sent-via.netsuite.com");
+});
+
+test("adresse entre parentheses sur une messagerie grand public -> pas de deduction fiable, nom affiche conserve tel quel", () => {
+  const r = extraireIdentiteExpediteur('"Jean (jean.dupont@gmail.com)" <system@sent-via.netsuite.com>');
+  assert.equal(r.nom, "Jean (jean.dupont@gmail.com)");
+});
+
 test("suppression d'une fiche fournisseur", async (t) => {
   // Base de test dediee a ce seul test (contrairement aux autres tests de ce
   // fichier, purement unitaires) : prepare ici plutot que dans un before()

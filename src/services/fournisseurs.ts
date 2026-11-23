@@ -89,6 +89,9 @@ function ressembleANomDePersonne(nom: string): boolean {
   return MOTIF_NOM_PRENOM_VIRGULE.test(nom) || MOTIF_PRENOM_NOM_MAJUSCULES.test(nom);
 }
 
+const MOTIF_EMAIL = /^[^\s<>@]+@[^\s<>@]+$/;
+const MOTIF_EMAIL_ENTRE_PARENTHESES = /\(([^()\s]+@[^()\s]+)\)/;
+
 /**
  * Extrait un nom de fournisseur exploitable a partir d'un en-tete "From"
  * Gmail (`"Cedeo Paris" <contact@cedeo.fr>` ou simplement `contact@cedeo.fr`).
@@ -99,16 +102,53 @@ function ressembleANomDePersonne(nom: string): boolean {
  */
 export function extraireIdentiteExpediteur(expediteur: string): IdentiteExpediteur {
   const brut = expediteur.trim();
-  const avecNomAffiche = brut.match(/^"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  // L'adresse recherchee est celle du DERNIER "<...>" de la chaine, jamais
+  // une regex stricte "guillemets ouvrants/fermants" sur le nom affiche :
+  // certains expediteurs reels envoient un en-tete mal forme (ex. WeFix,
+  // nom affiche contenant des guillemets internes mal echappes -
+  // `"\"L'équipe WeFix\" " <mailing@wefix.net>`) que cette derniere
+  // approche ne reconnaissait pas du tout, faisant echouer toute extraction
+  // et remonter l'en-tete brut tel quel comme "nom" (signale par
+  // l'utilisateur : fournisseur affiche comme une adresse e-mail illisible).
+  // Les guillemets (echappes ou non) sont ensuite simplement retires du
+  // reste de la chaine plutot que d'etre apparies - narrower, mais ne casse
+  // aucun cas bien forme existant (verifie par les tests).
+  const avecEmailEntreChevrons = brut.match(/^(.*)<([^<>]+)>\s*$/);
 
   let nomAffiche = "";
   let email: string | null = null;
 
-  if (avecNomAffiche) {
-    nomAffiche = nettoyerEspaces(avecNomAffiche[1]);
-    email = avecNomAffiche[2].trim().toLowerCase();
-  } else if (/^[^\s<>@]+@[^\s<>@]+$/.test(brut)) {
+  if (avecEmailEntreChevrons) {
+    email = avecEmailEntreChevrons[2].trim().toLowerCase();
+    nomAffiche = nettoyerEspaces(avecEmailEntreChevrons[1].replace(/\\?"/g, ""));
+  } else if (MOTIF_EMAIL.test(brut)) {
     email = brut.toLowerCase();
+  }
+
+  // Nom affiche qui encode en realite une adresse e-mail entre parentheses
+  // (vu en production : systemes d'envoi automatise type NetSuite, ou
+  // l'expediteur technique reel - ex. system@sent-via.netsuite.com - n'a
+  // aucun rapport avec le fournisseur, le vrai contact etant enfoui dans le
+  // nom affiche lui-meme, ex. "Alain Picard NL (alain.picard@masternaut.com)").
+  // Derive alors le nom du domaine de cette adresse embarquee plutot que de
+  // garder un prefixe illisible ou l'expediteur technique, qui n'identifient
+  // ni l'un ni l'autre le vrai fournisseur.
+  const emailEntreParentheses = nomAffiche.match(MOTIF_EMAIL_ENTRE_PARENTHESES);
+  if (emailEntreParentheses) {
+    const domaineEmbarque = (emailEntreParentheses[1].split("@")[1] || "").toLowerCase();
+    if (domaineEmbarque && !FOURNISSEURS_MESSAGERIE_GRAND_PUBLIC.has(domaineEmbarque)) {
+      return { nom: nomDepuisDomaine(domaineEmbarque), email };
+    }
+  }
+
+  // Nom affiche qui EST lui-meme une adresse e-mail (certains systemes la
+  // repetent faute de nom configure, ex. `"t.reymond@leongrosse.fr"
+  // <t.reymond@leongrosse.fr>`, vu en production) : n'identifie pas
+  // davantage le fournisseur qu'une absence de nom affiche - traite donc de
+  // la meme facon, en repli sur le domaine ci-dessous plutot que d'afficher
+  // l'adresse telle quelle comme si c'etait une raison sociale.
+  if (MOTIF_EMAIL.test(nomAffiche)) {
+    nomAffiche = "";
   }
 
   // Le nom affiche d'un contact commercial individuel (voir
