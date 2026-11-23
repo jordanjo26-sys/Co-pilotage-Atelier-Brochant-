@@ -349,16 +349,28 @@ export interface ResultatCorrectionNomsFournisseurs {
  * affiche avec des guillemets internes, "Alain Picard NL (...)").
  *
  * Pour chaque fiche, recalcule le nom a partir de TOUS les expediteurs
- * Gmail connus de ses documents (jamais un seul pris au hasard) : ne
- * corrige que si TOUS s'accordent sur le meme nom recalcule (consensus
- * unanime) et que celui-ci differe du nom actuel - une fiche dont les
- * documents ont ete rattaches manuellement a des expediteurs differents
- * n'est jamais touchee, par prudence (jamais de choix arbitraire). Fusionne
- * avec une fiche cible existante le cas echeant (voir renommerFournisseur),
- * sans rien perdre. Sans effet, et donc sans risque, a rejouer plusieurs
- * fois.
+ * Gmail connus de ses documents, a l'EXCLUSION des documents envoyes depuis
+ * le compte Gmail connecte lui-meme (voir assignerFournisseurDocument : une
+ * photo qu'on s'envoie a soi-meme pour archivage n'a par construction aucune
+ * valeur d'identification du fournisseur - le nom de la fiche y est alors
+ * TOUJOURS saisi a la main, jamais derive de l'expediteur. Les y inclure a
+ * deja provoque une vraie regression en production : deux fiches
+ * correctement nommees a la main - "Leclerc", "Revival Derichebourg" -
+ * avaient alors ete ecrasees par l'adresse Gmail elle-meme). Ne corrige que
+ * si TOUS les documents restants (hors compte connecte) s'accordent sur le
+ * meme nom recalcule (consensus unanime, jamais un seul pris au hasard) et
+ * que celui-ci differe du nom actuel - une fiche dont les documents ont ete
+ * rattaches a des expediteurs differents, ou dont aucun document n'a
+ * d'expediteur exploitable, n'est jamais touchee, par prudence (jamais de
+ * choix arbitraire). Fusionne avec une fiche cible existante le cas echeant
+ * (voir renommerFournisseur), sans rien perdre. Sans effet, et donc sans
+ * risque, a rejouer plusieurs fois.
  */
 export async function corrigerNomsFournisseursDepuisExpediteur(prisma: PrismaClient): Promise<ResultatCorrectionNomsFournisseurs> {
+  const comptesConnectes = new Set(
+    (await prisma.gmailConnexion.findMany({ select: { compteEmail: true } })).map((c) => c.compteEmail.toLowerCase())
+  );
+
   const fournisseurs = await prisma.fournisseur.findMany({
     include: { documents: { where: { gmailExpediteur: { not: null } }, select: { gmailExpediteur: true } } },
   });
@@ -368,7 +380,10 @@ export async function corrigerNomsFournisseursDepuisExpediteur(prisma: PrismaCli
     const expediteurs = f.documents.map((d) => d.gmailExpediteur).filter((e): e is string => Boolean(e));
     if (expediteurs.length === 0) continue;
 
-    const nomsRecalcules = new Set(expediteurs.map((e) => extraireIdentiteExpediteur(e).nom));
+    const identites = expediteurs.map((e) => extraireIdentiteExpediteur(e)).filter((i) => !i.email || !comptesConnectes.has(i.email));
+    if (identites.length === 0) continue;
+
+    const nomsRecalcules = new Set(identites.map((i) => i.nom));
     if (nomsRecalcules.size !== 1) continue;
     const [nomRecalcule] = nomsRecalcules;
     if (!nomRecalcule || nomRecalcule === f.nom) continue;

@@ -315,6 +315,19 @@ test("corrigerNomsFournisseursDepuisExpediteur : corrige retroactivement les fic
     assert.equal(resultat.corriges.some((c) => c.fournisseurId === f.id), false);
   });
 
+  await t.test("documents envoyes depuis le compte Gmail connecte lui-meme -> jamais utilises pour recalculer le nom (regression reelle corrigee : Leclerc/Revival Derichebourg ecrases par 'atelier.brochant@gmail.com')", async () => {
+    await prisma.gmailConnexion.create({ data: { compteEmail: "atelier.brochant@gmail.com", refreshTokenChiffre: "x" } });
+    const f = await prisma.fournisseur.create({ data: { nom: "Leclerc" } });
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fournisseurId: f.id, fichierNom: "ticket.pdf", gmailExpediteur: "atelier.brochant@gmail.com" },
+    });
+
+    const resultat = await corrigerNomsFournisseursDepuisExpediteur(prisma);
+    assert.equal(resultat.corriges.some((c) => c.fournisseurId === f.id), false, "un document auto-envoye ne doit jamais ecraser un nom saisi a la main");
+    const apres = await prisma.fournisseur.findUnique({ where: { id: f.id } });
+    assert.equal(apres?.nom, "Leclerc");
+  });
+
   await t.test("nom cible deja pris par une autre fiche -> fusion (meme comportement que renommerFournisseur)", async () => {
     const cible = await prisma.fournisseur.create({ data: { nom: "Kiloutou" } });
     const source = await prisma.fournisseur.create({ data: { nom: "agence0240@kiloutou.fr" } });
