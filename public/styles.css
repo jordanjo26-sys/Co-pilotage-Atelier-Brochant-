@@ -681,6 +681,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 #archive-v2-modal-corps { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; }
 #archive-v2-modal-corps iframe { width: 100%; height: 100%; border: none; }
 #archive-v2-modal-corps img { max-width: 100%; max-height: 100%; object-fit: contain; }
+#archive-v2-modal-corps .lecteur-pdf { width: 100%; height: 100%; border-radius: 0; border: none; }
+#archive-v2-modal-corps .lecteur-pdf-pages-conteneur { max-height: none; flex: 1; }
 
 /* ---------- Comptabilite : refonte visuelle des cartes facture ----------
    Demande explicite de l'utilisateur (refonte premium, mobile-first) :
@@ -824,6 +826,23 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .archive-v2-filtres-avances[open] summary::after { content: "▴"; }
 .archive-v2-filtres-avances-contenu { margin-top: 10px; }
+
+/* ---------- Sections dépliables génériques (détails techniques d'une carte,
+   import manuel) - même pattern que .archive-v2-filtres-avances ci-dessus. ---------- */
+.cab-details-techniques summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--brand-blue);
+  list-style: none;
+  margin-top: 8px;
+}
+.cab-details-techniques summary::-webkit-details-marker { display: none; }
+.cab-details-techniques > summary::after { content: " ▾"; color: var(--ink-muted); }
+.cab-details-techniques[open] > summary::after { content: " ▴"; }
+.cab-details-import-manuel { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--surface-2); }
+.cab-details-import-manuel > summary { font-size: 13.5px; margin-top: 0; }
+.cab-details-import-manuel[open] > summary { margin-bottom: 10px; }
 
 /* ---------- Comptabilite : formulaire de correction (remplace les prompt() natifs) ---------- */
 .archive-v2-modal-contenu-formulaire { height: auto; max-height: 90vh; width: min(480px, 100%); }
@@ -982,20 +1001,28 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 /* ---------- Suivi mensuel ---------- */
 .suivi-mensuel-carte {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 0;
   border-top: 1px solid var(--line-strong);
 }
 .suivi-mensuel-carte:first-of-type { border-top: none; padding-top: 0; }
-.suivi-mensuel-mois { font-size: 13px; font-weight: 700; color: var(--ink); min-width: 140px; }
+.suivi-mensuel-carte-entete { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.suivi-mensuel-mois { font-size: 14px; font-weight: 700; color: var(--ink); }
 .suivi-mensuel-compteurs { font-size: 12px; color: var(--ink-muted); }
 .suivi-mensuel-statut-termine_valide { background: var(--good-soft); color: var(--good); }
 .suivi-mensuel-statut-a_verifier { background: var(--warning-soft); color: var(--warning); }
 .suivi-mensuel-statut-en_cours { background: var(--surface-2); color: var(--ink-muted); }
 .suivi-mensuel-drift { color: var(--warning); font-size: 12px; }
+.suivi-mensuel-barre {
+  width: 100%; height: 7px; border-radius: 999px; background: var(--surface-2);
+  overflow: hidden; margin-top: 2px;
+}
+.suivi-mensuel-barre-remplissage { height: 100%; border-radius: 999px; background: var(--brand-blue); transition: width .3s ease; }
+.suivi-mensuel-barre-remplissage.suivi-mensuel-progression-ok { background: var(--good); }
+.suivi-mensuel-barre-remplissage.suivi-mensuel-progression-attention { background: var(--warning); }
+.suivi-mensuel-pourcentage { font-size: 11.5px; color: var(--ink-muted); align-self: flex-end; }
+.suivi-mensuel-carte-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 
 @media (min-width: 640px) {
   main { padding: 24px 24px 56px; gap: 18px; }
@@ -1602,6 +1629,7 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 }
 .cab-segment:hover { opacity: 1; color: var(--ink); background: none; }
 .cab-segment.actif { color: var(--ink); border-bottom-color: var(--brand-blue); }
+.cab-segment .onglet-badge { margin-left: 6px; vertical-align: middle; }
 
 /* ---------- Barre d'outils : recherche + filtres + action principale ---------- */
 .cab-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
@@ -1775,6 +1803,35 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .cab-etat-erreur svg { color: var(--critical); opacity: 1; }
 .cab-etat-chargement svg { animation: cab-spin 1s linear infinite; }
 @keyframes cab-spin { to { transform: rotate(360deg); } }
+
+/* ---------- Lecteur PDF (voir public/lecteur-pdf.js) ---------- */
+.lecteur-pdf-etat { padding: 32px 16px; text-align: center; color: var(--ink-muted); font-size: 13px; }
+.lecteur-pdf-erreur { padding: 24px 16px; text-align: center; color: var(--ink-2); font-size: 13px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.lecteur-pdf { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+.lecteur-pdf-barre {
+  display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+  background: var(--surface); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.lecteur-pdf-bouton {
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2);
+  border-radius: 7px; padding: 5px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  text-decoration: none; line-height: 1.3;
+}
+.lecteur-pdf-bouton:hover { background: var(--surface-2); color: var(--ink); }
+.lecteur-pdf-zoom-valeur { font-size: 12px; color: var(--ink-muted); min-width: 38px; text-align: center; }
+.lecteur-pdf-pages-info { font-size: 12px; color: var(--ink-muted); }
+.lecteur-pdf-spacer { flex: 1; }
+.lecteur-pdf-pages-conteneur {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 12px; max-height: 70vh; overflow: auto; background: var(--line);
+}
+.lecteur-pdf-page { box-shadow: var(--shadow); background: #fff; max-width: 100%; }
+@media (max-width: 639px) {
+  .lecteur-pdf-barre { gap: 4px; padding: 6px 8px; }
+  .lecteur-pdf-bouton { padding: 5px 8px; font-size: 12px; }
+  .lecteur-pdf-pages-info { display: none; }
+  .lecteur-pdf-pages-conteneur { max-height: 60vh; padding: 8px; }
+}
 
 /* ---------- Feuille basse mobile (sous-liens d'un pole, depuis la barre mobile) ---------- */
 .cab-feuille-bas {

@@ -643,6 +643,7 @@ document.getElementById("btn-reinitialiser-filtre-mouvements")?.addEventListener
  */
 function voirMouvementsDuMois(periode) {
   basculerOnglet("tresorerie");
+  document.querySelector('.cab-sousnav[data-sousnav="tresorerie"] .cab-segment[data-souspanneau="mouvements"]')?.click();
   const filtreMois = document.getElementById("filtre-mois-mouvements");
   const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements");
   if (filtreMois) filtreMois.value = periode;
@@ -904,15 +905,28 @@ function construireCarteSuiviMensuel(s) {
     s.statut !== "termine_valide"
       ? `<button type="button" class="ghost" data-valider-periode="${s.periode}">Je valide ce mois</button>`
       : "";
+  // Pourcentage de progression visuel (demande explicite de l'utilisateur,
+  // voir maquette de reference) - purement indicatif, aucune incidence sur
+  // le statut reel (toujours calcule cote serveur, voir suiviMensuel.ts).
+  const pourcentage = s.nbMouvements > 0 ? Math.round((s.nbRapproches / s.nbMouvements) * 100) : 0;
+  const classeProgression = s.statut === "termine_valide" || pourcentage === 100 ? "suivi-mensuel-progression-ok" : s.nbAVerifier > 0 ? "suivi-mensuel-progression-attention" : "";
 
   return `
     <div class="suivi-mensuel-carte">
-      <span class="suivi-mensuel-mois">${echapper(libelleMois)}</span>
-      <span class="suivi-mensuel-compteurs">${s.nbRapproches}/${s.nbMouvements} rapproché(s)${s.nbAVerifier > 0 ? `, ${s.nbAVerifier} à vérifier` : ""}</span>
-      <span class="badge suivi-mensuel-statut-${s.statut}">${coche}${echapper(LIBELLES_STATUT_MOIS[s.statut] || s.statut)}</span>
+      <div class="suivi-mensuel-carte-entete">
+        <span class="suivi-mensuel-mois">${echapper(libelleMois)}</span>
+        <span class="badge suivi-mensuel-statut-${s.statut}">${coche}${echapper(LIBELLES_STATUT_MOIS[s.statut] || s.statut)}</span>
+      </div>
+      <span class="suivi-mensuel-compteurs">${s.nbRapproches}/${s.nbMouvements} mouvement(s) rapproché(s)${s.nbAVerifier > 0 ? ` · ${s.nbAVerifier} à vérifier` : ""}</span>
+      <div class="suivi-mensuel-barre" role="progressbar" aria-valuenow="${pourcentage}" aria-valuemin="0" aria-valuemax="100">
+        <div class="suivi-mensuel-barre-remplissage ${classeProgression}" style="width:${pourcentage}%"></div>
+      </div>
+      <span class="suivi-mensuel-pourcentage">${pourcentage}&nbsp;%</span>
       ${driftHtml}
-      <button type="button" class="ghost" onclick="voirMouvementsDuMois('${s.periode}')">Voir les mouvements</button>
-      ${boutonValider}
+      <div class="suivi-mensuel-carte-actions">
+        <button type="button" class="ghost" onclick="voirMouvementsDuMois('${s.periode}')">Voir les mouvements</button>
+        ${boutonValider}
+      </div>
     </div>`;
 }
 
@@ -2136,14 +2150,15 @@ window.voirDocument = voirDocument;
 // l'application - une simple modale suffit ici car /api/archives-comptables
 // deja en Content-Disposition: inline (voir archiveComptableRoutes.ts) rend
 // un PDF nativement dans une iframe.
-function ouvrirApercuDocument(url, mimeType) {
+function ouvrirApercuDocument(url, mimeType, nomFichier) {
   const modal = document.getElementById("archive-v2-modal");
   const corps = document.getElementById("archive-v2-modal-corps");
   if (!modal || !corps) return voirDocument(url);
-  corps.innerHTML =
-    mimeType === "application/pdf"
-      ? `<iframe src="${echapper(url)}" title="Aperçu du document"></iframe>`
-      : `<img src="${echapper(url)}" alt="Aperçu du document" />`;
+  if (mimeType === "application/pdf") {
+    afficherPdfDansConteneur(corps, url, nomFichier);
+  } else {
+    corps.innerHTML = `<img src="${echapper(url)}" alt="Aperçu du document" />`;
+  }
   modal.hidden = false;
 }
 window.ouvrirApercuDocument = ouvrirApercuDocument;
@@ -3108,11 +3123,11 @@ function ffChargerDocumentDetail() {
     ffDetailCourant.source === "document_fournisseur"
       ? `/api/documents-fournisseurs/${ffDetailCourant.sourceId}/document`
       : `/api/archives-comptables/${ffDetailCourant.sourceId}/fichier`;
-  const mime = ffDetailCourant.mimeType === "application/pdf" ? "application/pdf" : "image";
-  conteneur.innerHTML =
-    mime === "application/pdf"
-      ? `<iframe src="${echapper(url)}" title="Document" style="width:100%;height:360px;border:1px solid var(--line);border-radius:10px;"></iframe>`
-      : `<img src="${echapper(url)}" alt="Document" style="max-width:100%;border-radius:10px;border:1px solid var(--line);" />`;
+  if (ffDetailCourant.mimeType === "application/pdf") {
+    afficherPdfDansConteneur(conteneur, url, ffDetailCourant.fichierNom);
+  } else {
+    conteneur.innerHTML = `<img src="${echapper(url)}" alt="Document" style="max-width:100%;border-radius:10px;border:1px solid var(--line);" />`;
+  }
 }
 
 async function ffValiderDocument(documentId) {
@@ -4118,7 +4133,7 @@ function construireCarteArchiveComptable(a, { doublon = false } = {}) {
           ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="alerte-montant-manquant">TTC non renseigné</span>`}
         </div>
         <div class="archive-v2-carte-actions">
-          <button type="button" class="archive-v2-bouton-voir" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}')">${icone("oeil")} Voir</button>
+          <button type="button" class="archive-v2-bouton-voir" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}', '${echapper(a.fichierNom || "")}')">${icone("oeil")} Voir</button>
           <button type="button" class="archive-v2-bouton-corriger" onclick="ouvrirCorrectionArchive('${a.id}')">${icone("crayon")} Corriger</button>
           <button type="button" class="archive-v2-bouton-supprimer" onclick="supprimerArchiveComptable('${a.id}', this)">${icone("corbeille")} Supprimer</button>
         </div>

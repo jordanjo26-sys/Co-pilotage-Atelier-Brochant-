@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Copilote Brochant — Réception CSV</title>
   <link rel="icon" href="/logo.png" />
-  <link rel="stylesheet" href="/styles.css?v=52" />
+  <link rel="stylesheet" href="/styles.css?v=53" />
 </head>
 <body>
   <!-- Coquille V2 (refonte UX/UI, novembre 2026, maquette fournie) : sidebar
@@ -49,11 +49,6 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2z"/><path d="M16 5H6a2 2 0 0 0-2 2"/><path d="M18 13h.01"/></svg>
               Trésorerie
               <span class="onglet-badge" data-badge="tresorerie" hidden>0</span>
-            </button>
-            <button type="button" class="cab-sidebar-lien onglet" data-onglet="suivi-mensuel">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="m9 15 2 2 4-4"/></svg>
-              Suivi mensuel
-              <span class="onglet-badge" data-badge="suivi-mensuel" hidden>0</span>
             </button>
             <button type="button" class="cab-sidebar-lien onglet" data-onglet="comptabilite">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9M10 13h4"/></svg>
@@ -423,63 +418,73 @@
       </div>
       <div class="cab-segments cab-sousnav" data-sousnav="tresorerie" role="tablist" aria-label="Section de la trésorerie">
         <button type="button" class="cab-segment actif" data-souspanneau="connexions" role="tab" aria-selected="true">Connexions</button>
-        <button type="button" class="cab-segment" data-souspanneau="imports" role="tab" aria-selected="false">Imports</button>
-        <button type="button" class="cab-segment" data-souspanneau="mouvements" role="tab" aria-selected="false">Mouvements bancaires</button>
+        <button type="button" class="cab-segment" data-souspanneau="mouvements" role="tab" aria-selected="false">Mouvements</button>
+        <button type="button" class="cab-segment" data-souspanneau="rapprochement" role="tab" aria-selected="false">Rapprochement<span class="onglet-badge" data-badge="suivi-mensuel" hidden>0</span></button>
       </div>
 
       <div data-souspanneau-contenu="connexions">
       <section class="carte accent-teal">
         <h2>Stripe</h2>
-        <p class="aide">Récupération automatique des payouts et paiements par API (en ligne et Tap to Pay) — remplace le dépôt manuel d'export CSV Stripe une fois connecté.</p>
         <div id="stripe-statut"></div>
+        <details class="cab-details-techniques">
+          <summary>Détails et paramètres</summary>
+          <p class="aide">Récupération automatique des payouts et paiements par API (en ligne et Tap to Pay) — remplace le dépôt manuel d'export CSV Stripe une fois connecté.</p>
+        </details>
       </section>
 
       <section class="carte accent-violet">
         <h2>Synec</h2>
-        <p class="aide">Récupération automatique des factures par navigateur (Synec ne propose aucune API) — remplace le dépôt manuel d'export CSV Synec une fois connecté.</p>
         <div id="synec-statut"></div>
+        <details class="cab-details-techniques">
+          <summary>Détails et paramètres</summary>
+          <p class="aide">Récupération automatique des factures par navigateur (Synec ne propose aucune API) — remplace le dépôt manuel d'export CSV Synec une fois connecté.</p>
+        </details>
       </section>
 
       <section class="carte accent-ambre">
         <h2>OVHcloud</h2>
-        <p class="aide">Récupération automatique des factures OVHcloud (hébergement, domaine…) par API officielle, dans l'espace Comptabilité — remplace le téléchargement manuel une fois connecté. Seules les nouvelles factures à partir de la connexion sont importées, jamais l'historique.</p>
         <div id="ovh-statut"></div>
-      </section>
-      </div>
-
-      <div data-souspanneau-contenu="imports" hidden>
-      <section class="carte accent-bleu">
-        <h2>Déposer un fichier</h2>
-        <p class="aide">
-          Synec (factures), Stripe (paiements ou payouts), relevé bancaire (CSV, ou PDF — compte courant
-          Banque Populaire ou carte American Express). Le type est détecté automatiquement.
-        </p>
-        <form id="form-import">
-          <input type="file" id="input-fichier" accept=".csv,.pdf" multiple required />
-          <button type="submit">Importer</button>
-        </form>
-        <div id="resultat-import"></div>
+        <details class="cab-details-techniques">
+          <summary>Détails et paramètres</summary>
+          <p class="aide">Récupération automatique des factures OVHcloud (hébergement, domaine…) par API officielle, dans l'espace Comptabilité — remplace le téléchargement manuel une fois connecté. Seules les nouvelles factures à partir de la connexion sont importées, jamais l'historique.</p>
+        </details>
       </section>
 
-      <section class="carte accent-neutre">
-        <h2>Derniers imports</h2>
-        <div class="table-scroll cab-desktop-seul">
-          <table id="table-imports">
-            <thead>
-              <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <div id="imports-cartes" class="cab-cartes-liste"></div>
-      </section>
+      <details class="cab-details-techniques cab-details-import-manuel">
+        <summary>Importer un relevé manuellement (CSV, PDF)</summary>
+        <section class="carte accent-bleu">
+          <h2>Déposer un fichier</h2>
+          <p class="aide">
+            Synec (factures), Stripe (paiements ou payouts), relevé bancaire (CSV, ou PDF — compte courant
+            Banque Populaire ou carte American Express). Le type est détecté automatiquement.
+          </p>
+          <form id="form-import">
+            <input type="file" id="input-fichier" accept=".csv,.pdf" multiple required />
+            <button type="submit">Importer</button>
+          </form>
+          <div id="resultat-import"></div>
+        </section>
+
+        <section class="carte accent-neutre">
+          <h2>Derniers imports</h2>
+          <div class="table-scroll cab-desktop-seul">
+            <table id="table-imports">
+              <thead>
+                <tr><th>Date</th><th>Fichier</th><th>Type détecté</th><th>Statut</th><th>Nouveaux</th><th>Doublons</th><th>Erreurs</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="imports-cartes" class="cab-cartes-liste"></div>
+        </section>
+      </details>
       </div>
 
       <div data-souspanneau-contenu="mouvements" hidden>
       <section class="carte accent-teal">
         <h2>Mouvements bancaires</h2>
         <p class="aide">
-          Lignes issues des relevés déposés ci-dessus. Le rapprochement rattache automatiquement chaque
+          Lignes issues des relevés déposés dans Connexions. Le rapprochement rattache automatiquement chaque
           mouvement à un payout Stripe ou une facture fournisseur quand la correspondance (montant + date) est
           certaine ; sinon il reste « à vérifier » ou « non rapproché » plutôt que de deviner.
         </p>
@@ -502,19 +507,14 @@
         <div id="mouvements-cartes" class="cab-cartes-liste"></div>
       </section>
       </div>
-    </div>
 
-    <!-- ===== Suivi mensuel (etat du rapprochement bancaire, mois par mois) ===== -->
-    <div class="onglet-panneau" data-panneau="suivi-mensuel" hidden>
-      <div class="cab-page-entete">
-        <h1>Suivi mensuel</h1>
-        <p class="aide">État du rapprochement bancaire, mois par mois.</p>
-      </div>
-      <section class="carte accent-teal">
-        <h2>Suivi mensuel du rapprochement bancaire</h2>
+      <div data-souspanneau-contenu="rapprochement" hidden>
+      <section class="carte accent-teal" id="suivi-mensuel">
+        <h2>Suivi mensuel du rapprochement</h2>
         <p class="aide">Un mois passe en « Terminé et validé » uniquement lorsque vous le validez vous-même ci-dessous — jamais automatiquement, même si tous les mouvements du mois sont déjà rapprochés.</p>
         <div id="suivi-mensuel-liste"></div>
       </section>
+      </div>
     </div>
 
     <!-- ===== Google Ads ===== -->
@@ -797,10 +797,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2z"/><path d="M16 5H6a2 2 0 0 0-2 2"/><path d="M18 13h.01"/></svg>
       Trésorerie
     </button>
-    <button type="button" class="cab-feuille-bas-lien onglet" data-onglet="suivi-mensuel">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="m9 15 2 2 4-4"/></svg>
-      Suivi mensuel
-    </button>
     <button type="button" class="cab-feuille-bas-lien onglet" data-onglet="comptabilite">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9M10 13h4"/></svg>
       Comptabilité
@@ -878,7 +874,8 @@
 
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
-  <script src="/app.js?v=75"></script>
+  <script src="/lecteur-pdf.js?v=1"></script>
+  <script src="/app.js?v=76"></script>
   <script src="/navigation.js?v=4"></script>
   <script src="/morgane.js?v=3"></script>
 </body>
