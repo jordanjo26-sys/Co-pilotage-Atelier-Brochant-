@@ -151,6 +151,11 @@ function basculerOnglet(nom) {
     // stockage indisponible (navigation privee...) : l'onglet choisi reste actif pour la session en cours seulement
   }
   window.scrollTo(0, 0);
+  // Voir forcerNouveauCalqueAffichage (plus bas) : un onglet qu'on retrouve
+  // peut avoir ete peint une seule fois, bien avant, pendant la rafale de
+  // chargement initiale - masquer/afficher via "hidden" ne recalcule rien,
+  // donc un fondu reste "fige" meme en y revenant.
+  requestAnimationFrame(forcerNouveauCalqueAffichage);
 }
 window.basculerOnglet = basculerOnglet;
 
@@ -4756,12 +4761,32 @@ if (zoneDepotArchiveComptable) {
   });
 }
 
+// Force un nouveau calcul de mise en page/peinture sur tout le document -
+// tentative supplementaire contre le "fondu" assombri persistant signale
+// par l'utilisateur sur Accueil et Factures fournisseurs : rien dans le
+// DOM/CSS ne l'explique (overlay verifie ferme, aucune regle de couleur
+// correspondante), et il apparait precisement sur les cartes mises a jour
+// PENDANT la rafale de ~30 chargements paralleles ci-dessous - compatible
+// avec un calque de peinture reste "fige" cote navigateur tant qu'aucun
+// evenement de mise en page ulterieur ne le force a se recalculer (un
+// changement d'onglet, qui masque/affiche via display plutot que de
+// recalculer le contenu deja peint, ne suffit pas). Inoffensif si ce n'est
+// pas la cause : un reflow force ne change rien visuellement quand tout
+// est deja correct.
+function forcerNouveauCalqueAffichage() {
+  const corps = document.body;
+  corps.style.display = "none";
+  void corps.offsetHeight;
+  corps.style.display = "";
+}
+
 async function rafraichirTout() {
   ffInitialiserControles();
   initialiserSousNav("factures");
   initialiserSousNav("tresorerie");
   initialiserSousNav("marketing");
   await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
+  requestAnimationFrame(forcerNouveauCalqueAffichage);
 }
 
 document.getElementById("form-import").addEventListener("submit", async (e) => {
