@@ -1610,15 +1610,29 @@ tr.cab-ligne-cliquable { cursor: pointer; }
    de leur propre display) pour basculer entre une table desktop et une liste de
    fiches mobile construites a partir des MEMES donnees, sans dupliquer le
    chargement ni la logique metier - seul le rendu choisi differe selon la largeur. */
+/* .cab-desktop-seul : a poser sur un conteneur qui ne fixe pas lui-meme de
+   display (ex. .table-scroll, qui n'en definit aucun) - jamais de conflit
+   d'ordre dans ce fichier puisque rien d'autre ne pose "display" sur ce
+   meme element. Pour un composant qui a SA PROPRE valeur de display non-
+   "block" quand visible (ex. .cab-cartes-liste, en display:flex), la
+   bascule responsive est portee par le composant lui-meme (voir plus bas) :
+   une classe utilitaire separee deviendrait sinon une course a l'ordre
+   d'apparition dans ce fichier entre les deux regles (bug reellement
+   rencontre ici avec .cab-mobile-seul, retire pour cette raison). */
 .cab-desktop-seul { display: none; }
-.cab-mobile-seul { display: block; }
 @media (min-width: 720px) {
   .cab-desktop-seul { display: block; }
-  .cab-mobile-seul { display: none; }
 }
 
 /* ---------- Liste de fiches mobile (remplace un tableau illisible en dessous de 720px) ---------- */
-.cab-cartes-liste { display: flex; flex-direction: column; gap: 10px; }
+/* display:none par defaut, flex sous 720px seulement : .cab-cartes-liste
+   est systematiquement l'alternative mobile d'un tableau desktop dans
+   cette appli, jamais utilisee seule - porte donc elle-meme sa bascule
+   responsive plutot que de dependre d'une classe utilitaire separee. */
+.cab-cartes-liste { display: none; flex-direction: column; gap: 10px; }
+@media (max-width: 719px) {
+  .cab-cartes-liste { display: flex; }
+}
 .cab-carte-ligne {
   display: flex; flex-direction: column; gap: 8px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
