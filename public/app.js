@@ -126,6 +126,17 @@ const CLE_ONGLET_ACTIF = "copilote_onglet_actif";
 function basculerOnglet(nom) {
   const panneauExiste = document.querySelector(`.onglet-panneau[data-panneau="${nom}"]`);
   if (!panneauExiste) return;
+  // Ferme le panneau de detail d'une facture fournisseur s'il est reste
+  // ouvert (ex. l'utilisateur quitte l'onglet Factures via la barre de
+  // navigation plutot que par la croix de fermeture) : sinon son calque
+  // assombri (#ff-detail-overlay, position:fixed independant des onglets)
+  // continue de s'afficher par-dessus N'IMPORTE QUEL autre onglet,
+  // indefiniment - bug reel signale par l'utilisateur ("fondu derangeant"
+  // persistant, y compris sur Accueil), reproduit et confirme : la bascule
+  // d'onglet ne touchait jusqu'ici jamais a ce panneau, independant de la
+  // structure .onglet/.onglet-panneau.
+  const detailPanneau = document.getElementById("ff-detail-panneau");
+  if (detailPanneau && detailPanneau.classList.contains("ouvert")) ffFermerDetail();
   document.querySelectorAll(".onglet").forEach((b) => {
     const actif = b.dataset.onglet === nom;
     b.classList.toggle("actif", actif);
