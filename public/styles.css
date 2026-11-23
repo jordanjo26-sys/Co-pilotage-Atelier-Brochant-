@@ -183,6 +183,17 @@ main {
   border-radius: 14px;
   padding: 16px;
   box-shadow: var(--shadow);
+  /* Isole chaque carte dans son propre calque de composition GPU - remede
+     standard a un defaut de rendu connu de WebKit/iOS Safari ou plusieurs
+     cartes empilees (ombre portee + coins arrondis), repeintes en rafale
+     par un gros volume de mises a jour JS juste apres le chargement de la
+     page (voir le Promise.all de ~25 chargements paralleles sur Accueil),
+     restent affichees avec un calque "fantome" assombri jusqu'a ce qu'un
+     evenement forcant un nouveau calcul de mise en page survienne - signale
+     par l'utilisateur ("fondu derangeant" persistant, confirme non lie a un
+     element modal reste ouvert ni a une restauration bfcache). */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
   /* overflow-wrap: anywhere plutot que sur un selecteur de texte precis :
      ce qui provoquait l'elargissement de toute la page sur mobile (signale
      par l'utilisateur) etait une longue URL SANS ESPACE dans un message de
@@ -1547,6 +1558,10 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
   display: flex; align-items: center; gap: 12px; padding: 12px 16px;
   background: var(--surface); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 15;
+  /* Meme remede que .carte ci-dessus (calque GPU dedie) - un element
+     "sticky" est une autre source frequente de ce meme defaut WebKit. */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
 }
 .cab-topbar-recherche {
   flex: 1; display: flex; align-items: center; gap: 8px;
