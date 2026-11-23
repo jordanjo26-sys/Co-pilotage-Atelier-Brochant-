@@ -17,6 +17,34 @@
 // mecanisme que tout autre evenement, deja relu via /api/journal) - seule
 // methode fiable face a un rendu qui ne se reproduit ni en local ni en
 // emulation mobile.
+// Resume complet des styles calcules d'un element qui pourraient expliquer
+// un assombrissement visuel SANS passer par une couleur de fond (ex.
+// filter/backdrop-filter/mix-blend-mode, invisibles pour un simple controle
+// de background-color - trou reel de la version precedente de cet outil,
+// qui n'a rien trouve de suspect alors que l'utilisateur voyait bien le
+// probleme au moment du signalement).
+function resumeStyleElement(el) {
+  const cs = getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  return {
+    tag: el.tagName,
+    classe: typeof el.className === "string" ? el.className : "",
+    id: el.id || null,
+    backgroundColor: cs.backgroundColor,
+    opacity: cs.opacity,
+    position: cs.position,
+    zIndex: cs.zIndex,
+    transform: cs.transform,
+    filter: cs.filter,
+    backdropFilter: cs.backdropFilter || cs.webkitBackdropFilter || null,
+    mixBlendMode: cs.mixBlendMode,
+    isolation: cs.isolation,
+    willChange: cs.willChange,
+    hidden: el.hasAttribute("hidden"),
+    rect: { x: Math.round(rect.x), y: Math.round(rect.y), largeur: Math.round(rect.width), hauteur: Math.round(rect.height) },
+  };
+}
+
 function signalerAffichageIncorrect(bouton) {
   const texteOriginal = bouton.textContent;
   bouton.disabled = true;
@@ -28,30 +56,25 @@ function signalerAffichageIncorrect(bouton) {
     if (rect.width < 80 || rect.height < 80) return;
     const cs = getComputedStyle(el);
     const bg = cs.backgroundColor;
-    if (bg === "rgba(0, 0, 0, 0)" || bg === "transparent" || bg === "rgb(255, 255, 255)") return;
-    elementsSuspects.push({
-      tag: el.tagName,
-      classe: typeof el.className === "string" ? el.className : "",
-      id: el.id || null,
-      backgroundColor: bg,
-      opacity: cs.opacity,
-      position: cs.position,
-      zIndex: cs.zIndex,
-      transform: cs.transform,
-      filter: cs.filter,
-      mixBlendMode: cs.mixBlendMode,
-      hidden: el.hasAttribute("hidden"),
-      rect: { x: Math.round(rect.x), y: Math.round(rect.y), largeur: Math.round(rect.width), hauteur: Math.round(rect.height) },
-    });
+    const bgSuspect = bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent" && bg !== "rgb(255, 255, 255)";
+    const filtreSuspect = cs.filter && cs.filter !== "none";
+    const backdropSuspect = (cs.backdropFilter || cs.webkitBackdropFilter) && (cs.backdropFilter || cs.webkitBackdropFilter) !== "none";
+    const fusionSuspecte = cs.mixBlendMode && cs.mixBlendMode !== "normal";
+    const opaciteSuspecte = parseFloat(cs.opacity) > 0 && parseFloat(cs.opacity) < 1;
+    if (!bgSuspect && !filtreSuspect && !backdropSuspect && !fusionSuspecte && !opaciteSuspecte) return;
+    elementsSuspects.push(resumeStyleElement(el));
   });
 
   const cx = Math.round(window.innerWidth / 2);
   const cy = Math.round(window.innerHeight / 2);
-  const empilementCentre = (document.elementsFromPoint(cx, cy) || []).map((el) => ({
-    tag: el.tagName,
-    classe: typeof el.className === "string" ? el.className : "",
-    id: el.id || null,
-  }));
+  // Dump complet (pas seulement tag/classe) de CHAQUE ancetre reellement
+  // empile a cet endroit precis - garantit une reponse exploitable meme si
+  // le filtre "suspect" ci-dessus a encore un angle mort.
+  const empilementCentre = (document.elementsFromPoint(cx, cy) || []).map(resumeStyleElement);
+
+  // Pareil au-dessus de la barre de recherche (zone jamais touchee par le
+  // probleme signale jusqu'ici) : sert de point de comparaison "normal".
+  const empilementTemoin = (document.elementsFromPoint(Math.round(window.innerWidth / 2), 40) || []).map(resumeStyleElement);
 
   const rapport = {
     url: location.href,
@@ -60,8 +83,10 @@ function signalerAffichageIncorrect(bouton) {
     scroll: { x: window.scrollX, y: window.scrollY },
     utilisateurAgent: navigator.userAgent,
     themeCouleurPreferee: window.matchMedia("(prefers-color-scheme: dark)").matches ? "sombre" : "clair",
+    corpsEtHtml: { body: resumeStyleElement(document.body), html: resumeStyleElement(document.documentElement) },
     elementsSuspects,
     empilementCentre,
+    empilementTemoin,
   };
 
   fetch("/api/diagnostic-affichage", {
