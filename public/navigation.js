@@ -7,6 +7,91 @@
 // groupes de la sidebar et des feuilles basses mobiles, indépendamment
 // de la présence ou non d'app.js sur la page.
 
+// Outil de diagnostic TEMPORAIRE (a retirer une fois le "fondu" assombri
+// persistant resolu) : plusieurs correctifs bases sur des hypotheses
+// (restauration bfcache, calque de composition GPU, reflow force) ont ete
+// deployes sans succes - demande explicite de l'utilisateur d'arreter de
+// deviner. Capture ici, directement depuis l'appareil ou le probleme se
+// produit, l'etat REEL du rendu (styles calcules, empilement des elements
+// a l'ecran) au moment ou il est visible, et l'envoie au Journal (meme
+// mecanisme que tout autre evenement, deja relu via /api/journal) - seule
+// methode fiable face a un rendu qui ne se reproduit ni en local ni en
+// emulation mobile.
+function signalerAffichageIncorrect(bouton) {
+  const texteOriginal = bouton.textContent;
+  bouton.disabled = true;
+  bouton.textContent = "Analyse…";
+
+  const elementsSuspects = [];
+  document.querySelectorAll("body *").forEach((el) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 80 || rect.height < 80) return;
+    const cs = getComputedStyle(el);
+    const bg = cs.backgroundColor;
+    if (bg === "rgba(0, 0, 0, 0)" || bg === "transparent" || bg === "rgb(255, 255, 255)") return;
+    elementsSuspects.push({
+      tag: el.tagName,
+      classe: typeof el.className === "string" ? el.className : "",
+      id: el.id || null,
+      backgroundColor: bg,
+      opacity: cs.opacity,
+      position: cs.position,
+      zIndex: cs.zIndex,
+      transform: cs.transform,
+      filter: cs.filter,
+      mixBlendMode: cs.mixBlendMode,
+      hidden: el.hasAttribute("hidden"),
+      rect: { x: Math.round(rect.x), y: Math.round(rect.y), largeur: Math.round(rect.width), hauteur: Math.round(rect.height) },
+    });
+  });
+
+  const cx = Math.round(window.innerWidth / 2);
+  const cy = Math.round(window.innerHeight / 2);
+  const empilementCentre = (document.elementsFromPoint(cx, cy) || []).map((el) => ({
+    tag: el.tagName,
+    classe: typeof el.className === "string" ? el.className : "",
+    id: el.id || null,
+  }));
+
+  const rapport = {
+    url: location.href,
+    horodatage: new Date().toISOString(),
+    viewport: { largeur: window.innerWidth, hauteur: window.innerHeight },
+    scroll: { x: window.scrollX, y: window.scrollY },
+    utilisateurAgent: navigator.userAgent,
+    themeCouleurPreferee: window.matchMedia("(prefers-color-scheme: dark)").matches ? "sombre" : "clair",
+    elementsSuspects,
+    empilementCentre,
+  };
+
+  fetch("/api/diagnostic-affichage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rapport),
+  })
+    .then(() => {
+      bouton.textContent = "Envoyé ✓";
+      setTimeout(() => {
+        bouton.textContent = texteOriginal;
+        bouton.disabled = false;
+      }, 2500);
+    })
+    .catch(() => {
+      bouton.textContent = "Erreur, réessaie";
+      bouton.disabled = false;
+    });
+}
+
+(() => {
+  const bouton = document.createElement("button");
+  bouton.type = "button";
+  bouton.id = "diagnostic-bouton-signaler";
+  bouton.className = "diagnostic-bouton-signaler";
+  bouton.textContent = "🐞 Signaler l'affichage";
+  bouton.addEventListener("click", () => signalerAffichageIncorrect(bouton));
+  document.body.appendChild(bouton);
+})();
+
 document.querySelectorAll("[data-groupe-toggle]").forEach((bouton) => {
   bouton.addEventListener("click", () => {
     const groupe = bouton.closest(".cab-sidebar-groupe");

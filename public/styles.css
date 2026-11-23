@@ -1138,6 +1138,27 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 .morgane-bulle-ouvrir:hover { opacity: 0.9; }
 .morgane-bulle-ouvrir svg { width: 24px; height: 24px; }
 
+/* Bouton de diagnostic TEMPORAIRE (voir navigation.js:signalerAffichageIncorrect)
+   - a retirer une fois le "fondu" resolu. Volontairement voyant (couleur
+   d'alerte) pour rester facile a retrouver, oppose a Morgane (en bas a
+   droite) pour ne jamais se chevaucher. */
+.diagnostic-bouton-signaler {
+  position: fixed;
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  left: max(20px, env(safe-area-inset-left, 0px));
+  z-index: 60;
+  background: var(--critical);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.diagnostic-bouton-signaler:disabled { opacity: 0.7; cursor: default; }
+
 .morgane-panneau-flottant {
   position: fixed;
   z-index: 29;

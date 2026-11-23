@@ -2,6 +2,7 @@ import { Router, Request } from "express";
 import multer from "multer";
 import { PrismaClient } from "@prisma/client";
 import { receiveCsv } from "../services/importService";
+import { logEvenement } from "../services/journalService";
 import { getDashboardSummary, getCaSerieTemporelle, getImpayesSerieTemporelle, GranulariteCa } from "../services/dashboardService";
 import {
   synchroniserGmail,
@@ -604,6 +605,22 @@ export function buildRouter(prisma: PrismaClient): Router {
   router.get("/journal", async (_req, res) => {
     const journal = await prisma.journalEvenement.findMany({ orderBy: { horodatage: "desc" }, take: 200 });
     res.json(journal);
+  });
+
+  // Outil de diagnostic temporaire (bouton "signaler un affichage incorrect",
+  // voir public/app.js:signalerAffichageIncorrect) - enregistre tel quel,
+  // sans interpretation, ce que le navigateur de l'utilisateur voit
+  // reellement a l'instant T (styles calcules, empilement des elements a
+  // un point donne) : seule facon fiable de diagnostiquer un rendu qui ne
+  // se reproduit ni localement ni en emulation mobile Playwright.
+  router.post("/diagnostic-affichage", async (req, res) => {
+    await logEvenement(prisma, {
+      evenement: "diagnostic_affichage",
+      action: `Signalement d'affichage incorrect depuis ${req.body?.url || "URL inconnue"}`,
+      resultat: `${Array.isArray(req.body?.elementsSuspects) ? req.body.elementsSuspects.length : 0} element(s) suspect(s) detecte(s).`,
+      details: req.body,
+    });
+    res.status(204).end();
   });
 
   router.get("/dashboard/summary", async (_req, res) => {
