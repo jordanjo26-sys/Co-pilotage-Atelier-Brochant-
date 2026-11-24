@@ -2,6 +2,26 @@ const fmtMontant = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", cu
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "—");
 const echapper = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+// Justification d'une proposition IA (Google Ads/Reseaux sociaux/PagesJaunes,
+// cartes .decision-carte) : tronquee avec un "Voir plus" au-dela d'un seuil
+// de longueur, demande explicite de l'utilisateur ("juste la justification
+// trop longue"). Aucune donnee/statut/action n'est modifiee, seul l'affichage
+// du texte de justification change - le texte complet reste toujours dans
+// le DOM (jamais coupe cote serveur), juste visuellement replie par defaut.
+const SEUIL_JUSTIFICATION_LONGUE = 140;
+function rendreJustification(texte) {
+  const brut = texte || "";
+  if (brut.length <= SEUIL_JUSTIFICATION_LONGUE) {
+    return `<div class="anomalie-meta">${echapper(brut)}</div>`;
+  }
+  return `<div class="anomalie-meta justification-tronquee">${echapper(brut)}</div><button type="button" class="ghost bouton-lien" onclick="justificationBasculerTexte(this)">Voir plus</button>`;
+}
+window.justificationBasculerTexte = function (bouton) {
+  const bloc = bouton.previousElementSibling;
+  const tronque = bloc.classList.toggle("justification-tronquee");
+  bouton.textContent = tronque ? "Voir plus" : "Voir moins";
+};
+
 // Fiche mobile generique (finition mobile V2) : remplace une ligne de tableau
 // par une carte compacte - fournisseur/tiers, montant, puis une ligne meta
 // (date + statut). Reutilisee par tous les ecrans de factures/mouvements
@@ -1653,7 +1673,7 @@ async function chargerPropositionsAds() {
         <span class="relance-retard">${echapper(p.campagneNom)}</span>
         <span class="badge ${badge}">${echapper(libelleStatut)}</span>
       </div>
-      <div class="anomalie-meta">${echapper(p.justification)}</div>
+      ${rendreJustification(p.justification)}
       ${detailsCreation}
       <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}</div>
       ${p.erreur ? `<div class="anomalie-meta" style="color:var(--critical)">${echapper(p.erreur)}</div>` : ""}
@@ -1837,7 +1857,7 @@ async function chargerPropositionsReseauxSociaux() {
       </div>
       <div class="anomalie-meta">${echapper(p.texte)}</div>
       ${p.cheminMedia ? `<img src="/${echapper(p.cheminMedia)}" alt="Photo" style="max-width:160px;max-height:160px;border-radius:8px;margin:6px 0" />` : ""}
-      <div class="anomalie-meta">${echapper(p.justification)}</div>
+      ${rendreJustification(p.justification)}
       <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}</div>
       ${p.erreur ? `<div class="anomalie-meta" style="color:var(--critical)">${echapper(p.erreur)}</div>` : ""}
       ${actions}
@@ -2068,7 +2088,7 @@ async function chargerPropositionsPagesJaunes() {
           <span class="badge ${badge}">${echapper(libelleStatut)}</span>
         </div>
         ${rendreContenuPropositionPagesJaunes(p)}
-        <div class="anomalie-meta">${echapper(p.justification)}</div>
+        ${rendreJustification(p.justification)}
         <div class="anomalie-meta">Déposée le ${fmtDate(p.creeLe)}${p.decideLe ? ` · décidée le ${fmtDate(p.decideLe)}` : ""}${p.publieeLe ? ` · publiée le ${fmtDate(p.publieeLe)}` : ""}</div>
         ${actions}
       </div>`;

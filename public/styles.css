@@ -611,6 +611,15 @@ button:disabled { opacity: 0.4; cursor: default; }
 .anomalie-meta { font-size: 12.5px; color: var(--ink-2); margin-top: 7px; line-height: 1.55; }
 .anomalie-meta:first-of-type { margin-top: 4px; }
 .anomalie-meta strong { color: var(--ink); font-weight: 700; }
+/* Justification repliee d'une proposition IA (Google Ads/Reseaux sociaux/
+   PagesJaunes) - demande explicite de l'utilisateur, texte toujours present
+   dans le DOM, seul l'affichage est replie (voir rendreJustification). */
+.anomalie-meta.justification-tronquee {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .anomalie-actions { display: flex; flex-direction: column; gap: 6px; flex: none; margin-top: 2px; }
 .anomalie-actions .ghost, .anomalie-actions .bouton-lien { text-align: center; }
 .bouton-lien {
