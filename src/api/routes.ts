@@ -1088,6 +1088,8 @@ export function buildRouter(prisma: PrismaClient): Router {
       recherche: typeof req.query.recherche === "string" ? req.query.recherche : undefined,
       fournisseurNom: typeof req.query.fournisseurNom === "string" ? req.query.fournisseurNom : undefined,
       anneeMois: typeof req.query.anneeMois === "string" ? req.query.anneeMois : undefined,
+      dateDebut: typeof req.query.dateDebut === "string" ? req.query.dateDebut : undefined,
+      dateFin: typeof req.query.dateFin === "string" ? req.query.dateFin : undefined,
       statut,
       page: req.query.page ? Number(req.query.page) : undefined,
       parPage: req.query.parPage ? Number(req.query.parPage) : undefined,

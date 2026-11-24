@@ -476,23 +476,28 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-radius: 12px;
   padding: 12px 14px;
   overflow: hidden;
-  /* "Fondu" assombri persistant signale par l'utilisateur sur Accueil et
-     Factures fournisseurs - SEULS deux ecrans utilisant .grille-cockpit/
-     .tuile (#cockpit, #ff-kpis) : trouve et reproduit de facon fiable (hors
-     ligne, dans Chromium ET dans le navigateur reel) apres une recherche
-     methodique par bisection. Cause reelle : .tuile::before ci-dessous (la
-     teinte de fond a faible opacite par tuile) peut, lorsque ces tuiles sont
-     (re)injectees dynamiquement via innerHTML (chargerCockpit), se peindre
-     une premiere fois avec un bloc de positionnement/decoupe incorrect avant
-     qu'une passe de mise en page ulterieure ne le corrige - l'etat final,
-     lui, est toujours correct (getComputedStyle ne montre jamais rien
-     d'anormal, d'ou l'echec de tous les outils de diagnostic bases sur le
-     DOM, y compris le notre : un ::before n'est meme pas visible par
-     querySelectorAll). Si ce premier rendu incorrect est mis en cache par
-     le compositeur, le voile reste affiche indefiniment malgre un DOM/CSS
-     par ailleurs tout a fait normal. "contain" force le navigateur a traiter
-     .tuile comme sa propre frontiere de mise en page/peinture des sa
-     creation, sans dependre d'une passe de correction ulterieure. */
+  /* "Fondu" assombri persistant signale par l'utilisateur (vu sur Accueil,
+     Factures fournisseurs, puis a nouveau sur Factures impayees - toute
+     tuile .grille-cockpit/.tuile re-injectee dynamiquement via innerHTML
+     peut etre touchee, pas seulement un ecran particulier) : trouve et
+     reproduit de facon fiable (hors ligne, dans Chromium ET dans le
+     navigateur reel) apres une recherche methodique par bisection. Cause
+     reelle : .tuile::before ci-dessous (la teinte de fond a faible opacite
+     par tuile) peut, lorsqu'une tuile est (re)injectee dynamiquement via
+     innerHTML, se peindre une premiere fois avec un bloc de positionnement/
+     decoupe incorrect avant qu'une passe de mise en page ulterieure ne le
+     corrige - l'etat final, lui, est toujours correct (getComputedStyle ne
+     montre jamais rien d'anormal, d'ou l'echec de tous les outils de
+     diagnostic bases sur le DOM, y compris le notre : un ::before n'est
+     meme pas visible par querySelectorAll). Si ce premier rendu incorrect
+     est mis en cache par le compositeur, le voile reste affiche
+     indefiniment malgre un DOM/CSS par ailleurs tout a fait normal.
+     "contain" force le navigateur a traiter .tuile comme sa propre
+     frontiere de mise en page/peinture des sa creation, sans dependre d'une
+     passe de correction ulterieure - applique automatiquement a toute
+     tuile par le MutationObserver global pose dans app.js, plutot que par
+     un appel explicite a chaque site d'insertion (voir le commentaire a cet
+     endroit : un site avait ete oublie). */
   contain: layout paint;
 }
 .tuile::before {

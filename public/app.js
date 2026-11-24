@@ -239,13 +239,29 @@ try {
 // vrai via la feuille de style, mais le simple fait de le re-ecrire ici
 // force Chromium/WebKit a refaire cette etape de mise en page/peinture
 // correctement) corrige le rendu de facon fiable.
-function corrigerRenduTuiles(conteneur) {
-  if (!conteneur) return;
-  conteneur.querySelectorAll(".tuile").forEach((tuile) => {
-    tuile.style.contain = "layout paint";
-    void tuile.offsetHeight;
-  });
-}
+// Corrige automatiquement TOUTE tuile inseree n'importe ou dans le DOM,
+// plutot que de compter sur chaque ecran pour appeler explicitement un
+// correctif apres son propre rendu (oubli reel constate : #resume-
+// factures-impayees construisait sa tuile via innerHTML exactement comme
+// #cockpit/#ff-kpis mais sans jamais re-appliquer "contain" - meme bug de
+// fondu assombri persistant, visible sur Factures impayees). Un seul
+// observateur, pose une fois, elimine toute la classe de bug plutot que de
+// la corriger site par site.
+new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      if (node.classList?.contains("tuile")) {
+        node.style.contain = "layout paint";
+        void node.offsetHeight;
+      }
+      node.querySelectorAll?.(".tuile").forEach((tuile) => {
+        tuile.style.contain = "layout paint";
+        void tuile.offsetHeight;
+      });
+    }
+  }
+}).observe(document.body, { childList: true, subtree: true });
 
 async function chargerCockpit() {
   const res = await fetch("/api/dashboard/summary");
@@ -257,7 +273,6 @@ async function chargerCockpit() {
     <div class="tuile tuile-imports"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${data.aValiderImports}</div><div class="label">Imports à vérifier</div></div>
     <div class="tuile tuile-anomalies${data.anomaliesOuvertes > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${data.anomaliesOuvertes}</div><div class="label">Anomalies ouvertes</div></div>
   `;
-  corrigerRenduTuiles(cockpit);
   etatIndicateurs.aValiderImports = data.aValiderImports;
   mettreAJourBadges();
 }
@@ -2954,6 +2969,157 @@ function creerPanneauDetail(prefixe, { chargerDetail, rendu, chargerDocument }) 
   return { ouvrir, fermer, basculerOnglet, initialiserFermeture };
 }
 
+/**
+ * Selecteur de periode generique (Mois en cours/Mois precedent/Mois et
+ * annee/Trimestre/Annee en cours/Annee precedente/Periode personnalisee/
+ * Toutes les periodes) - construit une seule fois, reutilise par tout
+ * ecran filtrant sur une date metier reelle (date de facturation/de
+ * mouvement, jamais la date d'import). Resout chaque type en
+ * {dateDebut, dateFin} (AAAA-MM-JJ, bornes incluses) ou null ("Toutes les
+ * periodes") - calcul pur cote client, aucun aller-retour serveur requis
+ * juste pour determiner les bornes.
+ */
+const LIBELLES_TYPE_PERIODE = {
+  mois_courant: "Mois en cours",
+  mois_precedent: "Mois précédent",
+  mois_annee: "Mois et année…",
+  trimestre: "Trimestre",
+  annee_courante: "Année en cours",
+  annee_precedente: "Année précédente…",
+  personnalisee: "Période personnalisée",
+  toutes: "Toutes les périodes",
+};
+
+function fmtDateISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function anneesRecentesDisponibles() {
+  const anneeCourante = new Date().getFullYear();
+  const annees = [];
+  for (let a = anneeCourante; a >= anneeCourante - 6; a--) annees.push(a);
+  return annees;
+}
+
+function resoudrePeriode(type, valeurs) {
+  const maintenant = new Date();
+  const anneeCourante = maintenant.getFullYear();
+  const moisCourant = maintenant.getMonth();
+  switch (type) {
+    case "mois_courant":
+      return { dateDebut: fmtDateISO(new Date(anneeCourante, moisCourant, 1)), dateFin: fmtDateISO(new Date(anneeCourante, moisCourant + 1, 0)) };
+    case "mois_precedent":
+      return { dateDebut: fmtDateISO(new Date(anneeCourante, moisCourant - 1, 1)), dateFin: fmtDateISO(new Date(anneeCourante, moisCourant, 0)) };
+    case "mois_annee": {
+      if (!valeurs.anneeMois) return null;
+      const [a, m] = valeurs.anneeMois.split("-").map(Number);
+      return { dateDebut: fmtDateISO(new Date(a, m - 1, 1)), dateFin: fmtDateISO(new Date(a, m, 0)) };
+    }
+    case "trimestre": {
+      if (!valeurs.trimestre) return null;
+      const [a, t] = valeurs.trimestre.split("-T").map(Number);
+      const moisDebut = (t - 1) * 3;
+      return { dateDebut: fmtDateISO(new Date(a, moisDebut, 1)), dateFin: fmtDateISO(new Date(a, moisDebut + 3, 0)) };
+    }
+    case "annee_courante":
+      return { dateDebut: fmtDateISO(new Date(anneeCourante, 0, 1)), dateFin: fmtDateISO(new Date(anneeCourante, 11, 31)) };
+    case "annee_precedente": {
+      if (!valeurs.annee) return null;
+      const a = Number(valeurs.annee);
+      return { dateDebut: fmtDateISO(new Date(a, 0, 1)), dateFin: fmtDateISO(new Date(a, 11, 31)) };
+    }
+    case "personnalisee":
+      if (!valeurs.dateDebut && !valeurs.dateFin) return null;
+      return { dateDebut: valeurs.dateDebut || null, dateFin: valeurs.dateFin || null };
+    case "toutes":
+    default:
+      return null;
+  }
+}
+
+function creerSelecteurPeriode(prefixe, { onChange, defaut = "mois_courant" } = {}) {
+  const typeSelect = document.getElementById(`${prefixe}-periode-type`);
+  const secondaire = document.getElementById(`${prefixe}-periode-secondaire`);
+  if (!typeSelect || !secondaire) return null;
+
+  const etat = { type: defaut, anneeMois: "", trimestre: "", annee: "", dateDebut: "", dateFin: "" };
+
+  function declencher() {
+    if (onChange) onChange(resoudrePeriode(etat.type, etat), etat.type);
+  }
+
+  function rendreSecondaire() {
+    if (etat.type === "mois_annee") {
+      secondaire.innerHTML = `<input type="month" id="${prefixe}-periode-mois-annee" value="${echapper(etat.anneeMois)}" />`;
+      document.getElementById(`${prefixe}-periode-mois-annee`).addEventListener("change", (e) => {
+        etat.anneeMois = e.target.value;
+        declencher();
+      });
+    } else if (etat.type === "trimestre") {
+      const anneeCourante = new Date().getFullYear();
+      const [anneeChoisie, trimestreChoisi] = etat.trimestre
+        ? etat.trimestre.split("-T").map(Number)
+        : [anneeCourante, Math.floor(new Date().getMonth() / 3) + 1];
+      secondaire.innerHTML = `
+        <select id="${prefixe}-periode-trimestre-num">${[1, 2, 3, 4].map((t) => `<option value="${t}" ${t === trimestreChoisi ? "selected" : ""}>T${t}</option>`).join("")}</select>
+        <select id="${prefixe}-periode-trimestre-annee">${anneesRecentesDisponibles().map((a) => `<option value="${a}" ${a === anneeChoisie ? "selected" : ""}>${a}</option>`).join("")}</select>`;
+      etat.trimestre = etat.trimestre || `${anneeChoisie}-T${trimestreChoisi}`;
+      const maj = () => {
+        etat.trimestre = `${document.getElementById(`${prefixe}-periode-trimestre-annee`).value}-T${document.getElementById(`${prefixe}-periode-trimestre-num`).value}`;
+        declencher();
+      };
+      document.getElementById(`${prefixe}-periode-trimestre-num`).addEventListener("change", maj);
+      document.getElementById(`${prefixe}-periode-trimestre-annee`).addEventListener("change", maj);
+    } else if (etat.type === "annee_precedente") {
+      const anneeCourante = new Date().getFullYear();
+      etat.annee = etat.annee || String(anneeCourante - 1);
+      secondaire.innerHTML = `<select id="${prefixe}-periode-annee">${anneesRecentesDisponibles()
+        .filter((a) => a !== anneeCourante)
+        .map((a) => `<option value="${a}" ${String(a) === etat.annee ? "selected" : ""}>${a}</option>`)
+        .join("")}</select>`;
+      document.getElementById(`${prefixe}-periode-annee`).addEventListener("change", (e) => {
+        etat.annee = e.target.value;
+        declencher();
+      });
+    } else if (etat.type === "personnalisee") {
+      secondaire.innerHTML = `
+        <label class="aide-inline">Du <input type="date" id="${prefixe}-periode-debut" value="${echapper(etat.dateDebut)}" /></label>
+        <label class="aide-inline">au <input type="date" id="${prefixe}-periode-fin" value="${echapper(etat.dateFin)}" /></label>`;
+      document.getElementById(`${prefixe}-periode-debut`).addEventListener("change", (e) => {
+        etat.dateDebut = e.target.value;
+        declencher();
+      });
+      document.getElementById(`${prefixe}-periode-fin`).addEventListener("change", (e) => {
+        etat.dateFin = e.target.value;
+        declencher();
+      });
+    } else {
+      secondaire.innerHTML = "";
+    }
+  }
+
+  typeSelect.innerHTML = Object.entries(LIBELLES_TYPE_PERIODE)
+    .map(([valeur, libelle]) => `<option value="${valeur}">${echapper(libelle)}</option>`)
+    .join("");
+  typeSelect.value = defaut;
+  typeSelect.addEventListener("change", () => {
+    etat.type = typeSelect.value;
+    rendreSecondaire();
+    declencher();
+  });
+  rendreSecondaire();
+
+  return {
+    resoudre: () => resoudrePeriode(etat.type, etat),
+    obtenirEtat: () => ({ ...etat }),
+    restaurerEtat: (nouvelEtat) => {
+      Object.assign(etat, nouvelEtat);
+      typeSelect.value = etat.type;
+      rendreSecondaire();
+    },
+  };
+}
+
 const ffEtat = { page: 1, parPage: 25, statut: "", recherche: "", fournisseurNom: "", anneeMois: "", detailId: null, detailOnglet: "details" };
 let ffFournisseursChoixCharges = false;
 
@@ -2998,7 +3164,6 @@ async function chargerFacturesFournisseursUnifiees() {
       <div class="tuile" style="--tuile-couleur: var(--good);"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${resultat.compteurs.validees}</div><div class="label">Validées</div></div>
       <div class="tuile" style="--tuile-couleur: var(--warning);"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${resultat.compteurs.aCorriger}</div><div class="label">À corriger</div></div>
       <div class="tuile" style="--tuile-couleur: var(--brand-violet);"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${fmtMontant(resultat.montantTotalTTC)}</div><div class="label">Montant total</div></div>`;
-    corrigerRenduTuiles(kpis);
   }
 
   document.getElementById("ff-compte-toutes").textContent = `(${resultat.compteurs.toutes})`;

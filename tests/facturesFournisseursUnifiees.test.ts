@@ -150,6 +150,69 @@ test("Ecran unifie 'Factures fournisseurs' (V2) — fusion DocumentFournisseur +
     assert.notDeepEqual(page1.factures.map((f) => f.id), page2.factures.map((f) => f.id));
   });
 
+  await t.test("dateDebut/dateFin filtrent par date de facturation, et 'a corriger' reste toujours accessible hors periode", async () => {
+    // Une facture validee en dehors de la periode testee (janvier) : ne doit
+    // pas apparaitre dans le filtre de periode.
+    await prisma.documentFournisseur.create({
+      data: {
+        type: "facture",
+        fichierNom: "hors-periode.pdf",
+        numero: "FA-HP",
+        date: new Date("2026-03-15"),
+        montantTTC: 999,
+        statutDext: "envoye",
+      },
+    });
+    // Une facture "a corriger" (archive incomplete) hors de la meme periode :
+    // doit rester visible via son propre segment malgre la periode.
+    await prisma.archiveComptable.create({
+      data: {
+        fichierNom: "a-corriger-hors-periode.pdf",
+        cheminFichier: "/tmp/inexistant-corriger.pdf",
+        mimeType: "application/pdf",
+        fournisseurNom: "Fournisseur Incomplet",
+        numero: null,
+        montantHT: null,
+        montantTTC: null,
+        dateFacture: new Date("2026-03-20"),
+        statut: "a_verifier", // -> statut unifie "a_corriger"
+        origine: "zip_manuel",
+      },
+    });
+    // Une facture sans date du tout : ne doit jamais etre masquee par un
+    // filtre de periode, meme si elle n'est pas "a corriger".
+    await prisma.documentFournisseur.create({
+      data: { type: "facture", fichierNom: "sans-date.pdf", numero: "FA-SD", date: null, montantTTC: 55, statutDext: "envoye" },
+    });
+
+    const periodeJanvier = await listerFacturesFournisseursUnifiees(prisma, { dateDebut: "2026-01-01", dateFin: "2026-01-31" });
+    assert.ok(
+      !periodeJanvier.factures.some((f) => f.fichierNom === "hors-periode.pdf"),
+      "une facture datee de mars doit etre exclue d'un filtre sur janvier"
+    );
+    assert.ok(
+      periodeJanvier.factures.some((f) => f.fichierNom === "sans-date.pdf"),
+      "une facture sans date ne doit jamais etre masquee par un filtre de periode"
+    );
+
+    // Le segment "a corriger" ignore totalement la periode : la facture
+    // incomplete de mars doit y rester visible meme filtre sur janvier.
+    const aCorrigerJanvier = await listerFacturesFournisseursUnifiees(prisma, {
+      dateDebut: "2026-01-01",
+      dateFin: "2026-01-31",
+      statut: "a_corriger",
+    });
+    assert.ok(
+      aCorrigerJanvier.factures.some((f) => f.fichierNom === "a-corriger-hors-periode.pdf"),
+      "une facture a corriger doit rester accessible quelle que soit la periode"
+    );
+
+    // Le compteur aCorriger est lui aussi toujours sur l'integralite des
+    // donnees, jamais borne par la periode affichee.
+    const compteurSansPeriode = await listerFacturesFournisseursUnifiees(prisma);
+    assert.equal(periodeJanvier.compteurs.aCorriger, compteurSansPeriode.compteurs.aCorriger, "le compteur 'a corriger' ne varie jamais avec la periode");
+  });
+
   await t.test("obtenirDetailFactureFournisseurUnifiee : detail reel pour chaque source, jamais d'historique invente", async () => {
     const document = await prisma.documentFournisseur.findFirst({ where: { numero: "FA-2" } });
     const detailDocument = await obtenirDetailFactureFournisseurUnifiee(prisma, `document:${document!.id}`);

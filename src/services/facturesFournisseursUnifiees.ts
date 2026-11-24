@@ -46,7 +46,9 @@ export interface FiltresFacturesFournisseursUnifiees {
   recherche?: string;
   fournisseurNom?: string;
   statut?: StatutFactureUnifiee;
-  anneeMois?: string; // "AAAA-MM"
+  anneeMois?: string; // "AAAA-MM" - raccourci, equivalent a dateDebut/dateFin du meme mois
+  dateDebut?: string; // "AAAA-MM-JJ"
+  dateFin?: string; // "AAAA-MM-JJ"
   page?: number;
   parPage?: number;
 }
@@ -74,22 +76,54 @@ function statutArchiveComptable(statut: string): { statut: StatutFactureUnifiee;
 
 const PAR_PAGE_DEFAUT = 25;
 
+/**
+ * Bornes de periode resolues depuis soit le raccourci anneeMois, soit des
+ * dates libres dateDebut/dateFin (jamais les deux a la fois - anneeMois
+ * est prioritaire s'il est fourni). Retourne undefined si aucune borne
+ * n'est demandee ("Toutes les periodes").
+ */
+function resoudreBornesPeriode(filtres: FiltresFacturesFournisseursUnifiees): { debut?: Date; fin?: Date } | undefined {
+  if (filtres.anneeMois) {
+    const [annee, mois] = filtres.anneeMois.split("-").map(Number);
+    return { debut: new Date(annee, mois - 1, 1), fin: new Date(annee, mois, 0, 23, 59, 59, 999) };
+  }
+  if (filtres.dateDebut || filtres.dateFin) {
+    return {
+      debut: filtres.dateDebut ? new Date(`${filtres.dateDebut}T00:00:00`) : undefined,
+      fin: filtres.dateFin ? new Date(`${filtres.dateFin}T23:59:59.999`) : undefined,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Une facture est "dans la periode" si sa date tombe dans les bornes - OU
+ * si elle n'a tout simplement pas de date lisible : une date manquante ou
+ * incorrecte ne doit JAMAIS faire disparaitre silencieusement une facture
+ * d'une periode donnee (demande explicite de l'utilisateur) - elle reste
+ * visible dans n'importe quelle periode plutot que de ne plus etre
+ * trouvable nulle part.
+ */
+function estDansPeriode(date: Date | null, bornes: { debut?: Date; fin?: Date } | undefined): boolean {
+  if (!bornes) return true;
+  if (!date) return true;
+  if (bornes.debut && date < bornes.debut) return false;
+  if (bornes.fin && date > bornes.fin) return false;
+  return true;
+}
+
 export async function listerFacturesFournisseursUnifiees(
   prisma: PrismaClient,
   filtres: FiltresFacturesFournisseursUnifiees = {}
 ): Promise<ResultatFacturesFournisseursUnifiees> {
-  let debutMois: Date | undefined;
-  let finMois: Date | undefined;
-  if (filtres.anneeMois) {
-    const [annee, mois] = filtres.anneeMois.split("-").map(Number);
-    debutMois = new Date(annee, mois - 1, 1);
-    finMois = new Date(annee, mois, 0, 23, 59, 59, 999);
-  }
-
-  const whereDocument: Prisma.DocumentFournisseurWhereInput = {
-    type: "facture",
-    ...(filtres.anneeMois ? { date: { gte: debutMois, lte: finMois } } : {}),
-  };
+  // Le filtre de periode est applique en memoire (pas dans la requete
+  // Prisma) : necessaire pour que les factures "a corriger" restent
+  // TOUJOURS accessibles quelle que soit la periode (voir plus bas), et
+  // pour qu'une date manquante/incorrecte ne masque jamais une facture
+  // (estDansPeriode ci-dessus) - volumes reels (quelques centaines de
+  // factures) largement dans les clous pour un filtrage en memoire, comme
+  // le reste de cette fonction (recherche/fournisseurNom) le fait deja.
+  const whereDocument: Prisma.DocumentFournisseurWhereInput = { type: "facture" };
   const whereArchive: Prisma.ArchiveComptableWhereInput = {
     // { origine: { not: "dext_copie" } } exclurait aussi, par semantique SQL
     // standard (NULL != x est inconnu, jamais vrai), les lignes anterieures
@@ -97,7 +131,6 @@ export async function listerFacturesFournisseursUnifiees(
     // voir le commentaire en tete de fichier. Forme explicite ci-dessous :
     // exclut uniquement une valeur exactement egale a "dext_copie".
     OR: [{ origine: null }, { origine: { not: "dext_copie" } }],
-    ...(filtres.anneeMois ? { dateFacture: { gte: debutMois, lte: finMois } } : {}),
   };
 
   const [documents, archives] = await Promise.all([
@@ -170,15 +203,27 @@ export async function listerFacturesFournisseursUnifiees(
 
   factures.sort((a, b) => (b.date?.getTime() ?? b.createdAt.getTime()) - (a.date?.getTime() ?? a.createdAt.getTime()));
 
+  // "A corriger" (factures necessitant une intervention) reste TOUJOURS
+  // accessible et compte sur l'integralite des donnees, quelle que soit la
+  // periode choisie (demande explicite de l'utilisateur) - jamais filtre
+  // par periode, ni dans son compteur ni dans sa propre liste.
+  const bornesPeriode = resoudreBornesPeriode(filtres);
+  const facturesPeriode = bornesPeriode ? factures.filter((f) => estDansPeriode(f.date, bornesPeriode)) : factures;
+
   const compteurs = {
-    toutes: factures.length,
-    aTraiter: factures.filter((f) => f.statut === "a_traiter").length,
-    validees: factures.filter((f) => f.statut === "validee").length,
+    toutes: facturesPeriode.length,
+    aTraiter: facturesPeriode.filter((f) => f.statut === "a_traiter").length,
+    validees: facturesPeriode.filter((f) => f.statut === "validee").length,
     aCorriger: factures.filter((f) => f.statut === "a_corriger").length,
   };
-  const montantTotalTTC = factures.reduce((somme, f) => somme + (f.montantTTC ?? 0), 0);
+  const montantTotalTTC = facturesPeriode.reduce((somme, f) => somme + (f.montantTTC ?? 0), 0);
 
-  const facturesFiltreesParStatut = filtres.statut ? factures.filter((f) => f.statut === filtres.statut) : factures;
+  const facturesFiltreesParStatut =
+    filtres.statut === "a_corriger"
+      ? factures.filter((f) => f.statut === "a_corriger")
+      : filtres.statut
+        ? facturesPeriode.filter((f) => f.statut === filtres.statut)
+        : facturesPeriode;
 
   const parPage = filtres.parPage && filtres.parPage > 0 ? filtres.parPage : PAR_PAGE_DEFAUT;
   const page = filtres.page && filtres.page > 0 ? filtres.page : 1;
