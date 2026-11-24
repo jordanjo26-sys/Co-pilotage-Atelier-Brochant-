@@ -2737,6 +2737,7 @@ async function envoyerFactureFournisseurVersDext(id, bouton) {
       throw new Error(data.erreur || "Envoi impossible.");
     }
     await Promise.all([chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees()]);
+    if (typeof encoursPanneau !== "undefined") encoursPanneau?.fermer();
   } catch (err) {
     bouton.disabled = false;
     bouton.textContent = texteInitial;
@@ -2767,9 +2768,40 @@ function libelleJour(date) {
 // permet de retrouver un fournisseur sans tout faire defiler a la main.
 let facturesDextEnvoyeesBrutes = [];
 
+// Statut point generique reutilise ici (voir ffRenduStatutPoint, defini plus
+// bas - fonctions "function" hoisted, disponible des l'execution reelle) :
+// "Envoyées à Dext" est toujours au statut unifie "validee", "Factures en
+// cours" toujours "a_traiter" - seul le detail ("classé par IA...") varie.
+function dextenvConstruireLigneTable(d) {
+  const fournisseurNom = d.fournisseur ? d.fournisseur.nom : d.gmailExpediteur || "Expéditeur inconnu";
+  return `
+    <tr class="cab-ligne-cliquable" onclick="dextenvOuvrirDetail('${d.id}')">
+      <td>${fmtDate(d.createdAt)}</td>
+      <td><span class="cab-ligne-fournisseur"><span class="cab-avatar-cercle" style="background:${couleurAvatarFournisseur(fournisseurNom)}">${echapper(initialesFournisseur(fournisseurNom))}</span>${echapper(fournisseurNom)}</span></td>
+      <td>${echapper(d.numero || "—")}</td>
+      <td class="num">${d.montantTTC != null ? fmtMontant(d.montantTTC) : "—"}</td>
+      <td>${ffRenduStatutPoint("validee", d.classifiePar === "ia" ? "Classé par IA, à vérifier" : undefined)}</td>
+    </tr>`;
+}
+
+function dextenvConstruireCarteLigne(d) {
+  const fournisseurNom = d.fournisseur ? d.fournisseur.nom : d.gmailExpediteur || "Expéditeur inconnu";
+  return construireCarteLigne({
+    titre: echapper(fournisseurNom),
+    avatarTexte: initialesFournisseur(fournisseurNom),
+    avatarCouleur: couleurAvatarFournisseur(fournisseurNom),
+    montant: d.montantTTC != null ? echapper(fmtMontant(d.montantTTC)) : "—",
+    metaGauche: `${echapper(fmtDate(d.createdAt))}${d.numero ? ` · ${echapper(d.numero)}` : ""}`,
+    statutHtml: ffRenduStatutPoint("validee", d.classifiePar === "ia" ? "Classé par IA, à vérifier" : undefined),
+    onclick: `dextenvOuvrirDetail('${d.id}')`,
+  });
+}
+
 function afficherFacturesDextEnvoyeesFiltrees() {
-  const conteneur = document.getElementById("liste-factures-dext-envoyees");
-  if (!conteneur) return;
+  const tbody = document.getElementById("dextenv-tbody");
+  const cartes = document.getElementById("dextenv-cartes");
+  const vide = document.getElementById("dextenv-vide");
+  if (!tbody) return;
 
   const recherche = (document.getElementById("filtre-dext-fournisseur")?.value || "").trim().toLowerCase();
   const documents = recherche
@@ -2780,15 +2812,18 @@ function afficherFacturesDextEnvoyeesFiltrees() {
     : facturesDextEnvoyeesBrutes;
 
   if (documents.length === 0) {
-    conteneur.innerHTML = `<p class="liste-vide">${facturesDextEnvoyeesBrutes.length === 0 ? "Aucune facture envoyée à Dext pour le moment." : "Aucune facture ne correspond à cette recherche."}</p>`;
+    tbody.innerHTML = "";
+    cartes.innerHTML = "";
+    vide.hidden = false;
+    vide.querySelector(".cab-etat-titre").textContent =
+      facturesDextEnvoyeesBrutes.length === 0 ? "Aucune facture envoyée à Dext pour le moment." : "Aucune facture ne correspond à cette recherche.";
     return;
   }
+  vide.hidden = true;
 
   // Deja triees du plus recent au plus ancien par le serveur (voir
   // /documents-fournisseurs) : les groupes par jour apparaissent eux aussi
-  // du plus recent au plus ancien dans l'ordre ou Map les rencontre. Seul
-  // le jour le plus recent est ouvert par defaut (<details open> sur le
-  // premier uniquement) pour ne pas noyer la page sous l'historique complet.
+  // du plus recent au plus ancien dans l'ordre ou Map les rencontre.
   const groupes = new Map();
   for (const d of documents) {
     const cle = libelleJour(d.createdAt);
@@ -2796,27 +2831,18 @@ function afficherFacturesDextEnvoyeesFiltrees() {
     groupes.get(cle).push(d);
   }
 
-  conteneur.innerHTML = [...groupes.entries()]
+  tbody.innerHTML = [...groupes.entries()]
     .map(
-      ([jour, docs], index) => `
-    <details class="fournisseur-documents fournisseur-documents-encadre"${index === 0 ? " open" : ""}>
-      <summary>${echapper(jour)} <span class="groupe-mois-compte">${docs.length}</span></summary>
-      <div class="fournisseur-documents-liste">
-        ${docs
-          .map(
-            (d) => `
-        <div class="fournisseur-document-ligne" id="document-ligne-${d.id}">
-          <span><span class="fournisseur-nom-icone">📄</span>${echapper(d.fichierNom || "Document")}</span>
-          <span class="anomalie-meta"><span class="fournisseur-nom-resolu-${d.id}">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}</span> · ${new Date(d.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
-          ${!d.fournisseur ? `<button type="button" class="ghost bouton-lien" onclick="corrigerFournisseurDocument('${d.id}', this)">Corriger le fournisseur</button>` : ""}
-          ${renduMontantFacture(d)}
-          <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
-          <button type="button" class="ghost bouton-lien" onclick="supprimerDocumentFournisseur('${d.id}', this, true)">Supprimer</button>
-        </div>`
-          )
-          .join("")}
-      </div>
-    </details>`
+      ([jour, docs]) => `
+    <tr class="archive-v2-ligne-groupe-mois"><td colspan="5">${echapper(jour)} <span class="groupe-mois-compte">${docs.length}</span></td></tr>
+    ${docs.map((d) => dextenvConstruireLigneTable(d)).join("")}`
+    )
+    .join("");
+  cartes.innerHTML = [...groupes.entries()]
+    .map(
+      ([jour, docs]) => `
+    <div class="cab-carte-ligne-entete-groupe">${echapper(jour)} <span class="groupe-mois-compte">${docs.length}</span></div>
+    ${docs.map((d) => dextenvConstruireCarteLigne(d)).join("")}`
     )
     .join("");
 }
@@ -3429,18 +3455,52 @@ async function chargerFacturesDextEnvoyees() {
   }
 }
 
+// Factures en cours (statutDext=a_valider) - meme pattern table+fiches+panneau
+// que Factures fournisseurs/Comptabilite (voir creerPanneauDetail) ; chaque
+// ecran garde son propre filtre serveur, jamais fusionne.
+function encoursConstruireLigneTable(d) {
+  const fournisseurNom = d.fournisseur ? d.fournisseur.nom : d.gmailExpediteur || "Expéditeur inconnu";
+  return `
+    <tr class="cab-ligne-cliquable" onclick="encoursOuvrirDetail('${d.id}')">
+      <td>${fmtDate(d.dateReceptionMail || d.createdAt)}</td>
+      <td><span class="cab-ligne-fournisseur"><span class="cab-avatar-cercle" style="background:${couleurAvatarFournisseur(fournisseurNom)}">${echapper(initialesFournisseur(fournisseurNom))}</span>${echapper(fournisseurNom)}</span></td>
+      <td>${echapper(d.numero || "—")}</td>
+      <td class="num">${d.montantTTC != null ? fmtMontant(d.montantTTC) : "—"}</td>
+      <td>${ffRenduStatutPoint("a_traiter", d.classifiePar === "ia" ? "Classé par IA, à vérifier" : undefined)}</td>
+    </tr>`;
+}
+
+function encoursConstruireCarteLigne(d) {
+  const fournisseurNom = d.fournisseur ? d.fournisseur.nom : d.gmailExpediteur || "Expéditeur inconnu";
+  return construireCarteLigne({
+    titre: echapper(fournisseurNom),
+    avatarTexte: initialesFournisseur(fournisseurNom),
+    avatarCouleur: couleurAvatarFournisseur(fournisseurNom),
+    montant: d.montantTTC != null ? echapper(fmtMontant(d.montantTTC)) : "—",
+    metaGauche: `${echapper(fmtDate(d.dateReceptionMail || d.createdAt))}${d.numero ? ` · ${echapper(d.numero)}` : ""}`,
+    statutHtml: ffRenduStatutPoint("a_traiter", d.classifiePar === "ia" ? "Classé par IA, à vérifier" : undefined),
+    onclick: `encoursOuvrirDetail('${d.id}')`,
+  });
+}
+
 async function chargerFacturesFournisseurs() {
   const res = await fetch("/api/documents-fournisseurs?type=facture&statutDext=a_valider");
   const documents = await res.json();
-  const liste = document.getElementById("liste-factures-fournisseurs");
+  const tbody = document.getElementById("encours-tbody");
+  const cartes = document.getElementById("encours-cartes");
+  const vide = document.getElementById("encours-vide");
+  if (!tbody) return;
 
   etatIndicateurs.facturesFournisseurs = documents.length;
   mettreAJourBadges();
 
   if (documents.length === 0) {
-    liste.innerHTML = `<p class="liste-vide">Aucune facture fournisseur en attente d'envoi.</p>`;
+    tbody.innerHTML = "";
+    cartes.innerHTML = "";
+    vide.hidden = false;
     return;
   }
+  vide.hidden = true;
 
   // Regroupement automatique par mois de reception (demande explicite de
   // l'utilisateur : retrouver facilement "les factures d'octobre" sans
@@ -3456,35 +3516,197 @@ async function chargerFacturesFournisseurs() {
     groupes.get(cle).push(d);
   }
 
-  liste.innerHTML = [...groupes.entries()]
+  tbody.innerHTML = [...groupes.entries()]
     .map(
       ([mois, docs]) => `
-    <div class="groupe-mois">
-      <h3 class="groupe-mois-titre">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></h3>
-      ${docs
-        .map(
-          (d) => `
-      <div class="fournisseur-carte">
-        <div class="fournisseur-nom"><span class="fournisseur-nom-icone">📄</span>${echapper(d.fichierNom || "Document")}</div>
-        <div class="anomalie-meta">
-          <span class="fournisseur-nom-resolu-${d.id}">${d.fournisseur ? echapper(d.fournisseur.nom) : echapper(d.gmailExpediteur || "Expéditeur inconnu")}</span>
-          ${!d.fournisseur ? `<button type="button" class="ghost bouton-lien" onclick="corrigerFournisseurDocument('${d.id}', this)">Corriger le fournisseur</button>` : ""}
-          ${d.dateReceptionMail ? ` · reçu le ${fmtDate(d.dateReceptionMail)}` : ""}
-          ${d.numero ? ` · n° ${echapper(d.numero)}` : ""}
-          ${d.classifiePar === "ia" ? ` · <span class="badge badge-palier-ambre">classé par IA, à vérifier</span>` : ""}
-        </div>
-        <div class="fournisseur-actions fournisseur-actions-ligne" id="document-ligne-${d.id}">
-          ${renduMontantFacture(d)}
-          <button type="button" class="ghost bouton-lien" onclick="voirDocument('/api/documents-fournisseurs/${d.id}/document')">Voir</button>
-          <button type="button" class="ghost" onclick="envoyerFactureFournisseurVersDext('${d.id}', this)">Envoyer à Dext</button>
-        </div>
-      </div>`
-        )
-        .join("")}
-    </div>`
+    <tr class="archive-v2-ligne-groupe-mois"><td colspan="5">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></td></tr>
+    ${docs.map((d) => encoursConstruireLigneTable(d)).join("")}`
+    )
+    .join("");
+  cartes.innerHTML = [...groupes.entries()]
+    .map(
+      ([mois, docs]) => `
+    <div class="cab-carte-ligne-entete-groupe">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></div>
+    ${docs.map((d) => encoursConstruireCarteLigne(d)).join("")}`
     )
     .join("");
 }
+
+/**
+ * Panneaux de detail Factures en cours / Envoyees a Dext - meme factory que
+ * Factures fournisseurs/Comptabilite (creerPanneauDetail), jamais les memes
+ * listes : chaque ecran garde son propre endpoint /api/documents-fournisseurs
+ * filtre par statutDext ; seul le DETAIL d'une ligne individuelle reutilise
+ * la route de detail unifiee deja existante (/api/factures-fournisseurs/
+ * document:<id>/detail), deja capable de servir n'importe quel
+ * DocumentFournisseur par id - aucune route nouvelle, aucune fusion de liste.
+ */
+let encoursDetailCourant = null;
+let dextenvDetailCourant = null;
+
+const encoursPanneau = creerPanneauDetail("encours", {
+  chargerDetail: async (id) => {
+    const res = await fetch(`/api/factures-fournisseurs/${encodeURIComponent(`document:${id}`)}/detail`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Facture introuvable.");
+    const detail = await res.json();
+    encoursDetailCourant = detail;
+    return detail;
+  },
+  rendu: (detail) => encoursRenduDetail(detail),
+  chargerDocument: () => encoursChargerDocumentDetail(),
+});
+
+const dextenvPanneau = creerPanneauDetail("dextenv", {
+  chargerDetail: async (id) => {
+    const res = await fetch(`/api/factures-fournisseurs/${encodeURIComponent(`document:${id}`)}/detail`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Facture introuvable.");
+    const detail = await res.json();
+    dextenvDetailCourant = detail;
+    return detail;
+  },
+  rendu: (detail) => dextenvRenduDetail(detail),
+  chargerDocument: () => dextenvChargerDocumentDetail(),
+});
+
+function encoursBasculerOngletDetail(nom) {
+  encoursPanneau.basculerOnglet(nom);
+}
+window.encoursBasculerOngletDetail = encoursBasculerOngletDetail;
+
+function encoursOuvrirDetail(id) {
+  encoursPanneau.ouvrir(id);
+}
+window.encoursOuvrirDetail = encoursOuvrirDetail;
+
+function encoursFermerDetail() {
+  encoursDetailCourant = null;
+  encoursPanneau.fermer();
+}
+window.encoursFermerDetail = encoursFermerDetail;
+
+function dextenvBasculerOngletDetail(nom) {
+  dextenvPanneau.basculerOnglet(nom);
+}
+window.dextenvBasculerOngletDetail = dextenvBasculerOngletDetail;
+
+function dextenvOuvrirDetail(id) {
+  dextenvPanneau.ouvrir(id);
+}
+window.dextenvOuvrirDetail = dextenvOuvrirDetail;
+
+function dextenvFermerDetail() {
+  dextenvDetailCourant = null;
+  dextenvPanneau.fermer();
+}
+window.dextenvFermerDetail = dextenvFermerDetail;
+
+// corrigerFournisseurDocument/saisirMontantFacture (definies plus bas,
+// "function" hoisted) patchent le DOM via les classes/ids
+// `.fournisseur-nom-resolu-${id}`/`#document-ligne-${id}` - absents de ce
+// panneau generique : on les laisse agir (le nom se met a jour si une ligne
+// correspondante existe ailleurs dans le DOM), puis on rafraichit
+// explicitement la liste et on rouvre le panneau pour refleter le resultat,
+// plutot que de dupliquer leur logique serveur.
+async function encoursCorrigerFournisseur(id, bouton) {
+  await corrigerFournisseurDocument(id, bouton);
+  await chargerFacturesFournisseurs();
+  if (!document.getElementById("encours-detail-panneau").hidden) encoursPanneau.ouvrir(`document:${id}`);
+}
+window.encoursCorrigerFournisseur = encoursCorrigerFournisseur;
+
+async function encoursSaisirMontant(id, bouton, montantHTActuel, montantTTCActuel) {
+  await saisirMontantFacture(id, bouton, montantHTActuel, montantTTCActuel);
+  await chargerFacturesFournisseurs();
+  if (!document.getElementById("encours-detail-panneau").hidden) encoursPanneau.ouvrir(`document:${id}`);
+}
+window.encoursSaisirMontant = encoursSaisirMontant;
+
+async function dextenvSaisirMontant(id, bouton, montantHTActuel, montantTTCActuel) {
+  await saisirMontantFacture(id, bouton, montantHTActuel, montantTTCActuel);
+  await chargerFacturesDextEnvoyees();
+  if (!document.getElementById("dextenv-detail-panneau").hidden) dextenvPanneau.ouvrir(`document:${id}`);
+}
+window.dextenvSaisirMontant = dextenvSaisirMontant;
+
+function encoursRenduDetail(detail) {
+  document.getElementById("encours-detail-titre").textContent = detail.numero || detail.fichierNom || "Facture";
+  const statutSpan = document.getElementById("encours-detail-statut");
+  statutSpan.className = `cab-statut-point cab-statut-${detail.statut}`;
+  statutSpan.textContent = detail.statutDetail || LIBELLES_STATUT_FACTURE_UNIFIEE[detail.statut] || detail.statut;
+
+  const lignes = [
+    ["Fournisseur", `<span class="fournisseur-nom-resolu-${detail.sourceId}">${echapper(detail.fournisseurNom || "Expéditeur inconnu")}</span>`],
+    ["Reçue le", echapper(fmtDate(detail.dateReceptionMail || detail.date))],
+  ];
+  document.getElementById("encours-detail-details").innerHTML = `
+    ${lignes.map(([label, valeur]) => `<div class="cab-detail-ligne"><span>${label}</span><span>${valeur}</span></div>`).join("")}
+    <div class="cab-detail-ligne" id="document-ligne-${detail.sourceId}"><span>Montant</span><span>${renduMontantFacture({ type: "facture", id: detail.sourceId, montantHT: detail.montantHT, montantTTC: detail.montantTTC }).replace(/saisirMontantFacture\(/g, "encoursSaisirMontant(")}</span></div>`;
+
+  document.getElementById("encours-detail-historique").innerHTML = detail.historique.length
+    ? `<ul class="rapprochement-historique">${detail.historique.map((h) => `<li>${echapper(fmtDate(h.date))} — ${echapper(h.libelle)}</li>`).join("")}</ul>`
+    : `<p class="liste-vide">Aucun historique disponible.</p>`;
+
+  const actions = document.getElementById("encours-detail-actions");
+  actions.innerHTML = `<button type="button" id="encours-detail-btn-envoyer">✓ Envoyer à Dext</button><button type="button" class="ghost" onclick="encoursBasculerOngletDetail('document')">Voir le document</button>`;
+  if (!detail.fournisseurNom) {
+    actions.innerHTML += `<button type="button" class="ghost bouton-lien" onclick="encoursCorrigerFournisseur('${detail.sourceId}', this)">Corriger le fournisseur</button>`;
+  }
+  document.getElementById("encours-detail-btn-envoyer").addEventListener("click", (e) => envoyerFactureFournisseurVersDext(detail.sourceId, e.currentTarget));
+}
+
+function encoursChargerDocumentDetail() {
+  if (!encoursDetailCourant) return;
+  const conteneur = document.getElementById("encours-detail-document");
+  const url = `/api/documents-fournisseurs/${encoursDetailCourant.sourceId}/document`;
+  if (encoursDetailCourant.mimeType === "application/pdf") {
+    afficherPdfDansConteneur(conteneur, url, encoursDetailCourant.fichierNom);
+  } else {
+    conteneur.innerHTML = `<img src="${echapper(url)}" alt="Document" style="max-width:100%;border-radius:10px;border:1px solid var(--line);" />`;
+  }
+}
+
+function dextenvRenduDetail(detail) {
+  document.getElementById("dextenv-detail-titre").textContent = detail.numero || detail.fichierNom || "Facture";
+  const statutSpan = document.getElementById("dextenv-detail-statut");
+  statutSpan.className = `cab-statut-point cab-statut-${detail.statut}`;
+  statutSpan.textContent = detail.statutDetail || LIBELLES_STATUT_FACTURE_UNIFIEE[detail.statut] || detail.statut;
+
+  const lignes = [
+    ["Fournisseur", echapper(detail.fournisseurNom || detail.gmailExpediteur || "Expéditeur inconnu")],
+    ["Envoyée le", echapper(fmtDate(detail.createdAt))],
+  ];
+  document.getElementById("dextenv-detail-details").innerHTML = `
+    ${lignes.map(([label, valeur]) => `<div class="cab-detail-ligne"><span>${label}</span><span>${valeur}</span></div>`).join("")}
+    <div class="cab-detail-ligne" id="document-ligne-${detail.sourceId}"><span>Montant</span><span>${renduMontantFacture({ type: "facture", id: detail.sourceId, montantHT: detail.montantHT, montantTTC: detail.montantTTC }).replace(/saisirMontantFacture\(/g, "dextenvSaisirMontant(")}</span></div>`;
+
+  document.getElementById("dextenv-detail-historique").innerHTML = detail.historique.length
+    ? `<ul class="rapprochement-historique">${detail.historique.map((h) => `<li>${echapper(fmtDate(h.date))} — ${echapper(h.libelle)}</li>`).join("")}</ul>`
+    : `<p class="liste-vide">Aucun historique disponible.</p>`;
+
+  document.getElementById("dextenv-detail-actions").innerHTML = `<button type="button" class="ghost" onclick="dextenvBasculerOngletDetail('document')">Voir le document</button>`;
+}
+
+function dextenvChargerDocumentDetail() {
+  if (!dextenvDetailCourant) return;
+  const conteneur = document.getElementById("dextenv-detail-document");
+  const url = `/api/documents-fournisseurs/${dextenvDetailCourant.sourceId}/document`;
+  if (dextenvDetailCourant.mimeType === "application/pdf") {
+    afficherPdfDansConteneur(conteneur, url, dextenvDetailCourant.fichierNom);
+  } else {
+    conteneur.innerHTML = `<img src="${echapper(url)}" alt="Document" style="max-width:100%;border-radius:10px;border:1px solid var(--line);" />`;
+  }
+}
+
+(function initialiserPanneauxDetailFacturesEnCoursEtDext() {
+  encoursPanneau.initialiserFermeture();
+  document.getElementById("encours-detail-panneau")?.querySelectorAll(".cab-detail-onglet").forEach((bouton) => {
+    bouton.addEventListener("click", () => encoursBasculerOngletDetail(bouton.dataset.detailOnglet));
+  });
+  dextenvPanneau.initialiserFermeture();
+  document.getElementById("dextenv-detail-panneau")?.querySelectorAll(".cab-detail-onglet").forEach((bouton) => {
+    bouton.addEventListener("click", () => dextenvBasculerOngletDetail(bouton.dataset.detailOnglet));
+  });
+})();
 
 // --- Dépenses par fournisseur ----------------------------------------------
 //

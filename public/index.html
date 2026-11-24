@@ -248,8 +248,15 @@
 
       <section class="carte accent-teal">
         <h2>Factures fournisseurs reçues</h2>
-        <p class="aide">Factures reconnues par e-mail mais pas encore transmises à Dext — transfert automatique en pause ou envoi manuel groupé en fin de mois. "Voir" prévisualise le document, "Envoyer à Dext" le transmet tout de suite.</p>
-        <div id="liste-factures-fournisseurs"></div>
+        <p class="aide">Factures reconnues par e-mail mais pas encore transmises à Dext — transfert automatique en pause ou envoi manuel groupé en fin de mois.</p>
+        <div class="table-scroll cab-desktop-seul">
+          <table>
+            <thead><tr><th>Date</th><th>Fournisseur</th><th>Référence</th><th>Montant</th><th>Statut</th></tr></thead>
+            <tbody id="encours-tbody"></tbody>
+          </table>
+        </div>
+        <div id="encours-cartes" class="cab-cartes-liste"></div>
+        <div id="encours-vide" class="cab-etat" hidden><p class="cab-etat-titre">Aucune facture fournisseur en attente d'envoi.</p></div>
       </section>
 
       <section class="carte accent-violet">
@@ -316,11 +323,18 @@
       <div data-souspanneau-contenu="dext" hidden>
       <section class="carte accent-teal">
         <h2>Factures envoyées à Dext</h2>
-        <p class="aide">Historique jour par jour de ce que Morgane a déjà transmis à Dext, pour vérifier en un coup d'œil ce qui est parti.</p>
+        <p class="aide">Historique de ce que Morgane a déjà transmis à Dext, pour vérifier en un coup d'œil ce qui est parti.</p>
         <div class="barre-filtres">
           <input id="filtre-dext-fournisseur" placeholder="Rechercher un fournisseur ou un fichier…" />
         </div>
-        <div id="liste-factures-dext-envoyees"></div>
+        <div class="table-scroll cab-desktop-seul">
+          <table>
+            <thead><tr><th>Date</th><th>Fournisseur</th><th>Référence</th><th>Montant</th><th>Statut</th></tr></thead>
+            <tbody id="dextenv-tbody"></tbody>
+          </table>
+        </div>
+        <div id="dextenv-cartes" class="cab-cartes-liste"></div>
+        <div id="dextenv-vide" class="cab-etat" hidden><p class="cab-etat-titre">Aucune facture envoyée à Dext pour le moment.</p></div>
       </section>
       </div>
 
@@ -895,6 +909,47 @@
       <div data-detail-panneau="historique" id="archv2-detail-historique" hidden></div>
     </div>
     <div class="cab-detail-pied" id="archv2-detail-actions"></div>
+  </aside>
+
+  <!-- Panneaux de detail Factures en cours / Envoyees a Dext - meme mecanique generique (creerPanneauDetail), donnees jamais fusionnees : chaque ecran garde son propre endpoint /api/documents-fournisseurs filtre par statutDext. -->
+  <div class="cab-overlay" id="encours-detail-overlay" hidden></div>
+  <aside class="cab-detail-panneau" id="encours-detail-panneau" hidden aria-label="Détail de la facture">
+    <div class="cab-detail-entete">
+      <h3 id="encours-detail-titre">—</h3>
+      <span class="cab-statut-point" id="encours-detail-statut"></span>
+      <button type="button" class="cab-detail-fermer" id="encours-detail-fermer" aria-label="Fermer le détail">✕</button>
+    </div>
+    <div class="cab-detail-onglets">
+      <button type="button" class="cab-detail-onglet actif" data-detail-onglet="details">Détails</button>
+      <button type="button" class="cab-detail-onglet" data-detail-onglet="document">Document</button>
+      <button type="button" class="cab-detail-onglet" data-detail-onglet="historique">Historique</button>
+    </div>
+    <div class="cab-detail-corps">
+      <div data-detail-panneau="details" id="encours-detail-details"></div>
+      <div data-detail-panneau="document" id="encours-detail-document" hidden></div>
+      <div data-detail-panneau="historique" id="encours-detail-historique" hidden></div>
+    </div>
+    <div class="cab-detail-pied" id="encours-detail-actions"></div>
+  </aside>
+
+  <div class="cab-overlay" id="dextenv-detail-overlay" hidden></div>
+  <aside class="cab-detail-panneau" id="dextenv-detail-panneau" hidden aria-label="Détail de la facture">
+    <div class="cab-detail-entete">
+      <h3 id="dextenv-detail-titre">—</h3>
+      <span class="cab-statut-point" id="dextenv-detail-statut"></span>
+      <button type="button" class="cab-detail-fermer" id="dextenv-detail-fermer" aria-label="Fermer le détail">✕</button>
+    </div>
+    <div class="cab-detail-onglets">
+      <button type="button" class="cab-detail-onglet actif" data-detail-onglet="details">Détails</button>
+      <button type="button" class="cab-detail-onglet" data-detail-onglet="document">Document</button>
+      <button type="button" class="cab-detail-onglet" data-detail-onglet="historique">Historique</button>
+    </div>
+    <div class="cab-detail-corps">
+      <div data-detail-panneau="details" id="dextenv-detail-details"></div>
+      <div data-detail-panneau="document" id="dextenv-detail-document" hidden></div>
+      <div data-detail-panneau="historique" id="dextenv-detail-historique" hidden></div>
+    </div>
+    <div class="cab-detail-pied" id="dextenv-detail-actions"></div>
   </aside>
 
   <!-- Visualiseur en page (PDF/image) pour le module Comptabilité - evite de quitter l'application pour consulter une facture. -->
