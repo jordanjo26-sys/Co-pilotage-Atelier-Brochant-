@@ -100,6 +100,16 @@
       <h1>Prospection commerciale</h1>
       <p class="aide">Sourcing, mini-CRM et campagnes d'e-mails — syndics/gestionnaires et assurances.</p>
     </div>
+
+    <div class="cab-segments cab-sousnav" data-sousnav="prospection" role="tablist" aria-label="Section de la prospection">
+      <button type="button" class="cab-segment actif" data-souspanneau="tableau-de-bord" role="tab" aria-selected="true">Tableau de bord</button>
+      <button type="button" class="cab-segment" data-souspanneau="contacts" role="tab" aria-selected="false">Contacts</button>
+      <button type="button" class="cab-segment" data-souspanneau="campagnes" role="tab" aria-selected="false">Campagnes</button>
+      <button type="button" class="cab-segment" data-souspanneau="modeles" role="tab" aria-selected="false">Modèles de mail</button>
+      <button type="button" class="cab-segment" data-souspanneau="relances" role="tab" aria-selected="false">Relances</button>
+    </div>
+
+    <div data-souspanneau-contenu="tableau-de-bord">
     <section class="carte accent-bleu">
       <h2>Tableau de bord</h2>
       <div id="tuiles-statuts" class="tuile-statuts"></div>
@@ -113,7 +123,9 @@
       </div>
       <div id="campagnes-cartes" class="cab-cartes-liste"></div>
     </section>
+    </div>
 
+    <div data-souspanneau-contenu="contacts" hidden>
     <section class="carte accent-teal">
       <h2>Sourcing — ajouter des prospects</h2>
       <p class="aide">Import CSV (colonnes : entreprise, type, contact, fonction, email, téléphone, site web, adresse, code postal, ville, marque, service, notes) ou ajout manuel. La recherche automatisée par API (Google Places) reste à activer avec une clé (voir README).</p>
@@ -175,7 +187,9 @@
       <div id="prospects-cartes" class="cab-cartes-liste"></div>
       <div id="fiche-prospect"></div>
     </section>
+    </div>
 
+    <div data-souspanneau-contenu="modeles" hidden>
     <section class="carte accent-bleu">
       <h2>Modèles de mail</h2>
       <div id="liste-templates"></div>
@@ -198,7 +212,9 @@
         </form>
       </details>
     </section>
+    </div>
 
+    <div data-souspanneau-contenu="campagnes" hidden>
     <section class="carte accent-ambre">
       <h2>Campagnes</h2>
       <div id="liste-campagnes"></div>
@@ -228,12 +244,15 @@
         </form>
       </details>
     </section>
+    </div>
 
+    <div data-souspanneau-contenu="relances" hidden>
     <section class="carte accent-critique">
       <h2>Relances dues</h2>
       <p class="aide">Prospects contactés il y a plus longtemps que le délai de relance de leur campagne, sans réponse reçue. L'envoi reste un geste volontaire, comme pour les relances de facture.</p>
       <div id="liste-relances-dues"></div>
     </section>
+    </div>
   </main>
 
   <footer class="pied">Copilote de gestion Atelier Brochant — Prospection</footer>
@@ -286,7 +305,7 @@
     <a class="cab-feuille-bas-lien" href="/index.html#reseaux-sociaux">Réseaux sociaux</a>
   </div>
 
-  <script src="/prospection.js?v=2"></script>
+  <script src="/prospection.js?v=3"></script>
   <script src="/navigation.js?v=4"></script>
   <script src="/morgane.js?v=3"></script>
 </body>

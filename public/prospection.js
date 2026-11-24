@@ -1,6 +1,51 @@
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "—");
 const echapper = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+/**
+ * Sous-onglets Tableau de bord/Contacts/Campagnes/Modeles de mail/Relances
+ * (demande explicite de l'utilisateur : eviter une seule longue page a
+ * faire defiler). Meme mecanique que initialiserSousNav() dans app.js
+ * (meme classes CSS .cab-sousnav/.cab-segment/[data-souspanneau-contenu],
+ * meme persistance localStorage) - portee ici car prospection.html est une
+ * page autonome qui ne charge pas app.js. Simplifiee d'un point : cette
+ * page n'a qu'un seul groupe de sous-onglets, donc pas besoin de chercher
+ * un ".onglet-panneau" parent precis comme dans l'original, tout le
+ * document suffit.
+ */
+function initialiserSousNavProspection() {
+  const nav = document.querySelector('.cab-sousnav[data-sousnav="prospection"]');
+  if (!nav) return;
+
+  const activer = (sousNomCible) => {
+    nav.querySelectorAll(".cab-segment").forEach((b) => {
+      const actif = b.dataset.souspanneau === sousNomCible;
+      b.classList.toggle("actif", actif);
+      b.setAttribute("aria-selected", actif ? "true" : "false");
+    });
+    document.querySelectorAll("[data-souspanneau-contenu]").forEach((c) => {
+      c.hidden = c.dataset.souspanneauContenu !== sousNomCible;
+    });
+    try {
+      localStorage.setItem("copilote_sousnav_prospection", sousNomCible);
+    } catch {
+      // stockage indisponible (navigation privee...) : le choix reste valable pour la session en cours seulement
+    }
+  };
+
+  nav.querySelectorAll(".cab-segment").forEach((bouton) => {
+    bouton.addEventListener("click", () => activer(bouton.dataset.souspanneau));
+  });
+
+  let dernier = null;
+  try {
+    dernier = localStorage.getItem("copilote_sousnav_prospection");
+  } catch {
+    // ignore
+  }
+  if (dernier && nav.querySelector(`.cab-segment[data-souspanneau="${dernier}"]`)) activer(dernier);
+}
+initialiserSousNavProspection();
+
 const LIBELLE_STATUT = {
   a_contacter: "À contacter",
   contacte: "Contacté",
