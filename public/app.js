@@ -4780,13 +4780,54 @@ let archivesComptablesFiltreesCourantes = [];
 let categoriesFactureDisponibles = [];
 
 const ID_FILTRES_ARCHIVE_COMPTABLE = [
-  "filtre-archive-date-debut",
-  "filtre-archive-date-fin",
   "filtre-archive-fournisseur",
   "filtre-archive-montant-min",
   "filtre-archive-montant-max",
   "filtre-archive-categorie",
 ];
+
+// Etat du selecteur de periode commun des Archives (Fondation B) - defaut
+// "toutes les periodes" pour conserver exactement le comportement actuel
+// (aucun filtre de date par defaut, contrairement a "Mois en cours" ci-
+// dessous qui, lui, demarre bien sur le mois en cours).
+const archv2Etat = { dateDebut: "", dateFin: "" };
+let archv2PeriodeSelecteur = null;
+
+function archv2InitialiserPeriode() {
+  const periodeType = document.getElementById("archv2-periode-type");
+  if (!periodeType || periodeType.dataset.initialise) return;
+  archv2PeriodeSelecteur = creerSelecteurPeriode("archv2", {
+    defaut: "toutes",
+    onChange: (bornes) => {
+      archv2Etat.dateDebut = bornes?.dateDebut || "";
+      archv2Etat.dateFin = bornes?.dateFin || "";
+      afficherArchivesComptablesFiltrees();
+    },
+  });
+  periodeType.dataset.initialise = "1";
+}
+
+// Etat du selecteur de periode commun de "Factures en cours" (Mois en cours
+// par defaut, coherent avec le comportement actuel de cette vue).
+const archvmcEtat = { dateDebut: "", dateFin: "" };
+let archvmcPeriodeSelecteur = null;
+
+function archvmcInitialiserPeriode() {
+  const periodeType = document.getElementById("archvmc-periode-type");
+  if (!periodeType || periodeType.dataset.initialise) return;
+  archvmcPeriodeSelecteur = creerSelecteurPeriode("archvmc", {
+    defaut: "mois_courant",
+    onChange: (bornes) => {
+      archvmcEtat.dateDebut = bornes?.dateDebut || "";
+      archvmcEtat.dateFin = bornes?.dateFin || "";
+      chargerArchivesMoisCourant();
+    },
+  });
+  const bornesInitiales = archvmcPeriodeSelecteur?.resoudre();
+  archvmcEtat.dateDebut = bornesInitiales?.dateDebut || "";
+  archvmcEtat.dateFin = bornesInitiales?.dateFin || "";
+  periodeType.dataset.initialise = "1";
+}
 
 /**
  * Detecte les doublons probables parmi TOUTES les archives (pas seulement
@@ -5009,8 +5050,8 @@ function afficherArchivesComptablesFiltrees() {
   const vide = document.getElementById("archive-v2-archives-vide");
   if (!tbody) return;
 
-  const dateDebut = document.getElementById("filtre-archive-date-debut").value;
-  const dateFin = document.getElementById("filtre-archive-date-fin").value;
+  const dateDebut = archv2Etat.dateDebut;
+  const dateFin = archv2Etat.dateFin;
   const fournisseurRecherche = document.getElementById("filtre-archive-fournisseur").value.trim().toLowerCase();
   const montantMinBrut = document.getElementById("filtre-archive-montant-min").value;
   const montantMaxBrut = document.getElementById("filtre-archive-montant-max").value;
@@ -5124,7 +5165,7 @@ async function chargerArchivesComptables() {
   // toutes les 2 minutes par rafraichirTout) : re-filtre a la volee a chaque
   // changement, sans bouton "Appliquer" a cliquer - meme principe que les
   // filtres de factures impayees ci-dessus.
-  if (!document.getElementById("filtre-archive-date-debut").dataset.initialise) {
+  if (!document.getElementById("filtre-archive-fournisseur").dataset.initialise) {
     ID_FILTRES_ARCHIVE_COMPTABLE.forEach((id) => {
       document.getElementById(id).addEventListener("input", afficherArchivesComptablesFiltrees);
     });
@@ -5134,9 +5175,12 @@ async function chargerArchivesComptables() {
         document.getElementById(id).value = "";
       });
       document.getElementById("filtre-archive-doublons-uniquement").checked = false;
+      archv2PeriodeSelecteur?.restaurerEtat({ type: "toutes" });
+      archv2Etat.dateDebut = "";
+      archv2Etat.dateFin = "";
       afficherArchivesComptablesFiltrees();
     });
-    document.getElementById("filtre-archive-date-debut").dataset.initialise = "1";
+    document.getElementById("filtre-archive-fournisseur").dataset.initialise = "1";
   }
 
   const boutonReextraire = document.getElementById("btn-reextraire-archives");
@@ -5188,15 +5232,14 @@ async function chargerArchivesMoisCourant() {
   const tbody = document.getElementById("archive-v2-mois-courant-tbody");
   const cartes = document.getElementById("archive-v2-mois-courant-cartes");
   const vide = document.getElementById("archive-v2-mois-courant-vide");
-  const libelleEl = document.getElementById("archive-v2-mois-courant-libelle");
   if (!tbody) return;
 
-  const maintenant = new Date();
-  const anneeMois = `${maintenant.getFullYear()}-${String(maintenant.getMonth() + 1).padStart(2, "0")}`;
-  if (libelleEl) libelleEl.innerHTML = `${icone("calendrier")} Factures datées de ${echapper(libelleMoisAnnee(maintenant.toISOString()))}.`;
+  const params = new URLSearchParams();
+  if (archvmcEtat.dateDebut) params.set("dateDebut", archvmcEtat.dateDebut);
+  if (archvmcEtat.dateFin) params.set("dateFin", archvmcEtat.dateFin);
 
   try {
-    const res = await fetch(`/api/archives-comptables?anneeMois=${anneeMois}`);
+    const res = await fetch(`/api/archives-comptables?${params.toString()}`);
     const archives = await res.json();
     if (!res.ok) throw new Error(archives.erreur || "Chargement impossible.");
     const idsDoublons = detecterIdsDoublonsArchives(archives);
@@ -5204,7 +5247,7 @@ async function chargerArchivesMoisCourant() {
       tbody.innerHTML = "";
       cartes.innerHTML = "";
       vide.hidden = false;
-      vide.querySelector(".cab-etat-titre").textContent = "Aucune facture datée du mois en cours.";
+      vide.querySelector(".cab-etat-titre").textContent = "Aucune facture sur cette période.";
     } else {
       vide.hidden = true;
       tbody.innerHTML = archives.map((a) => archv2ConstruireLigneTable(a, { doublon: idsDoublons.has(a.id) })).join("");
@@ -5245,8 +5288,9 @@ async function chargerArchivesAnnees() {
         if (!select.value) return;
         const [annee, moisNum] = select.value.split("-").map(Number);
         const dernierJour = new Date(annee, moisNum, 0).getDate();
-        document.getElementById("filtre-archive-date-debut").value = `${select.value}-01`;
-        document.getElementById("filtre-archive-date-fin").value = `${select.value}-${String(dernierJour).padStart(2, "0")}`;
+        archv2Etat.dateDebut = `${select.value}-01`;
+        archv2Etat.dateFin = `${select.value}-${String(dernierJour).padStart(2, "0")}`;
+        archv2PeriodeSelecteur?.restaurerEtat({ type: "personnalisee", dateDebut: archv2Etat.dateDebut, dateFin: archv2Etat.dateFin });
         afficherArchivesComptablesFiltrees();
       });
       select.dataset.initialise = "1";
@@ -5733,6 +5777,8 @@ async function rafraichirTout() {
   mouvInitialiserPeriode();
   mouvPanneau.initialiserFermeture();
   suivimoisPanneau.initialiserFermeture();
+  archvmcInitialiserPeriode();
+  archv2InitialiserPeriode();
   initialiserSousNav("factures");
   initialiserSousNav("tresorerie");
   initialiserSousNav("marketing");

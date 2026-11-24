@@ -774,7 +774,11 @@
 
         <!-- Mois en cours (defaut) : classement selon dateFacture, pas la date d'import. -->
         <div class="archive-v2-sousvue" data-sousvue-panneau="mois-courant">
-          <p class="aide" id="archive-v2-mois-courant-libelle"></p>
+          <div class="graphique-entete">
+            <p class="aide" id="archive-v2-mois-courant-libelle">Factures dont la date de facturation tombe dans la période sélectionnée.</p>
+            <select id="archvmc-periode-type" title="Période" aria-label="Choisir la période"></select>
+            <span id="archvmc-periode-secondaire" class="cab-periode-secondaire"></span>
+          </div>
           <div class="table-scroll cab-desktop-seul">
             <table class="archive-v2-table">
               <thead><tr><th>Date</th><th>Fournisseur</th><th>Référence</th><th>Montant</th><th>Statut</th></tr></thead>
@@ -794,8 +798,8 @@
             <div class="archive-v2-filtres-avances-contenu">
               <div class="barre-filtres">
                 <label class="aide-inline">Aller à un mois <select id="archive-v2-mois-select"><option value="">— choisir —</option></select></label>
-                <label class="aide-inline">Du <input type="date" id="filtre-archive-date-debut" /></label>
-                <label class="aide-inline">au <input type="date" id="filtre-archive-date-fin" /></label>
+                <select id="archv2-periode-type" title="Période" aria-label="Choisir la période"></select>
+                <span id="archv2-periode-secondaire" class="cab-periode-secondaire"></span>
                 <input id="filtre-archive-fournisseur" placeholder="Rechercher un fournisseur…" />
                 <input type="number" id="filtre-archive-montant-min" step="0.01" min="0" placeholder="Montant min." />
                 <input type="number" id="filtre-archive-montant-max" step="0.01" min="0" placeholder="Montant max." />
