@@ -244,6 +244,22 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 #resultat-import { margin-top: 12px; font-size: 13.5px; }
 .ligne-boutons { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* Demandes clients : bouton "Enregistrer" toujours accessible sans
+   defiler jusqu'en bas du formulaire (demande explicite de l'utilisateur)
+   - scope au seul formulaire #form-demande, jamais aux autres formulaires
+   partageant .form-grille/.ligne-boutons ailleurs dans l'application. */
+.form-demande-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding: 10px 0 2px;
+  margin-top: 4px;
+  z-index: 1;
+}
+@media (max-width: 959px) {
+  .form-demande-actions { bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
+}
 .bloc-texte {
   margin-top: 12px;
   padding: 12px;
