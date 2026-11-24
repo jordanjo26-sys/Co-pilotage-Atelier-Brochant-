@@ -446,12 +446,25 @@
         <p class="aide">Connexions bancaires, imports de relevés et rapprochement automatique des mouvements.</p>
       </div>
       <div class="cab-segments cab-sousnav" data-sousnav="tresorerie" role="tablist" aria-label="Section de la trésorerie">
-        <button type="button" class="cab-segment actif" data-souspanneau="connexions" role="tab" aria-selected="true">Connexions</button>
+        <button type="button" class="cab-segment actif" data-souspanneau="synthese" role="tab" aria-selected="true">Synthèse</button>
+        <button type="button" class="cab-segment" data-souspanneau="connexions" role="tab" aria-selected="false">Connexions</button>
         <button type="button" class="cab-segment" data-souspanneau="mouvements" role="tab" aria-selected="false">Mouvements</button>
         <button type="button" class="cab-segment" data-souspanneau="rapprochement" role="tab" aria-selected="false">Rapprochement<span class="onglet-badge" data-badge="suivi-mensuel" hidden>0</span></button>
       </div>
 
-      <div data-souspanneau-contenu="connexions">
+      <div data-souspanneau-contenu="synthese">
+      <section class="carte accent-bleu">
+        <div class="graphique-entete">
+          <h2>Synthèse</h2>
+          <select id="tresorerie-synthese-periode-type" title="Période" aria-label="Choisir la période"></select>
+          <span id="tresorerie-synthese-periode-secondaire" class="cab-periode-secondaire"></span>
+        </div>
+        <p class="aide" id="tresorerie-synthese-avertissement" hidden></p>
+        <div id="tresorerie-synthese-tuiles" class="grille-cockpit"></div>
+      </section>
+      </div>
+
+      <div data-souspanneau-contenu="connexions" hidden>
       <section class="carte accent-teal">
         <h2>Stripe</h2>
         <div id="stripe-statut"></div>

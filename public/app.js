@@ -48,6 +48,8 @@ const ICONES_TUILE = {
   impayes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>',
   imports: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>',
   anomalies: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>',
+  encaissement: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7 7 7-7"/></svg>',
+  decaissement: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7-7 7 7"/></svg>',
 };
 
 // --- Navigation par onglets + indicateurs partages -------------------------
@@ -692,6 +694,140 @@ document.getElementById("btn-reinitialiser-filtre-mouvements")?.addEventListener
   if (filtreNonRapproches) filtreNonRapproches.checked = false;
   appliquerFiltreMouvementsBancaires();
 });
+
+// --- Tresorerie : Synthese ---------------------------------------------------
+//
+// Regroupement ergonomique demande par l'utilisateur : un point d'entree
+// unique avant Connexions/Mouvements/Rapprochement, qui ne montre QUE ce qui
+// est reellement disponible - jamais un "solde de tresorerie" invente
+// (aucun solde bancaire reel n'est capture nulle part dans l'application).
+// A la place : les encaissements/decaissements/variation nette des
+// MOUVEMENTS IMPORTES sur la periode, explicitement etiquetes comme tels
+// (jamais presentes comme un solde reel), plus l'etat du rapprochement.
+// Jamais de double comptage : uniquement les colonnes separees credit/debit
+// du releve (deja utilisees telles quelles par le tableau Mouvements
+// ci-dessous) - jamais le champ "montant" de MouvementBancaire (redondant,
+// reserve au moteur de rapprochement, voir rapprochementBancaire.ts).
+// La recuperation des veritables soldes bancaires depuis les relevés
+// importes est explicitement hors perimetre de cette mission (a developper
+// ulterieurement, decision de l'utilisateur).
+let tresorerieSynthesePeriodeSelecteur = null;
+const tresorerieSyntheseEtat = { dateDebut: "", dateFin: "" };
+
+function trBasculerSousOnglet(nom) {
+  basculerOnglet("tresorerie");
+  document.querySelector(`.cab-sousnav[data-sousnav="tresorerie"] .cab-segment[data-souspanneau="${nom}"]`)?.click();
+}
+window.trBasculerSousOnglet = trBasculerSousOnglet;
+
+/**
+ * Signal honnete (jamais invente) d'un historique importe potentiellement
+ * incomplet : soit un trou dans la suite des mois couverts par au moins un
+ * mouvement importe, soit une periode choisie qui commence avant le premier
+ * mois connu - dans les deux cas, les totaux ci-dessous ne portent que sur
+ * ce qui a reellement ete importe, jamais sur une periode comptable
+ * complete supposee.
+ */
+function trHistoriqueImporteIncomplet(periodesTriees, dateDebut) {
+  if (periodesTriees.length === 0) return false;
+  if (dateDebut && dateDebut.slice(0, 7) < periodesTriees[0]) return true;
+  for (let i = 1; i < periodesTriees.length; i++) {
+    const [aPrec, mPrec] = periodesTriees[i - 1].split("-").map(Number);
+    const [a, m] = periodesTriees[i].split("-").map(Number);
+    if ((a - aPrec) * 12 + (m - mPrec) > 1) return true;
+  }
+  return false;
+}
+
+async function chargerTresorerieSynthese() {
+  const conteneur = document.getElementById("tresorerie-synthese-tuiles");
+  if (!conteneur) return;
+
+  const [resMouvements, resSuivi] = await Promise.all([fetch("/api/mouvements-bancaires"), fetch("/api/suivi-mensuel")]);
+  const mouvements = await resMouvements.json();
+  const suivi = resSuivi.ok ? await resSuivi.json() : [];
+
+  const { dateDebut, dateFin } = tresorerieSyntheseEtat;
+  const mouvementsPeriode = mouvements.filter((m) => {
+    const d = String(m.date).slice(0, 10);
+    if (dateDebut && d < dateDebut) return false;
+    if (dateFin && d > dateFin) return false;
+    return true;
+  });
+  const encaissements = mouvementsPeriode.reduce((s, m) => s + (m.credit || 0), 0);
+  const decaissements = mouvementsPeriode.reduce((s, m) => s + (m.debit || 0), 0);
+  const variationNette = encaissements - decaissements;
+
+  const periodesPresentes = [...new Set(mouvements.map((m) => String(m.date).slice(0, 7)))].sort();
+  const avertissement = document.getElementById("tresorerie-synthese-avertissement");
+  if (trHistoriqueImporteIncomplet(periodesPresentes, dateDebut)) {
+    avertissement.hidden = false;
+    avertissement.innerHTML =
+      "⚠️ Historique importé potentiellement incomplet sur cette période (au moins un mois sans mouvement importé) — les montants ci-dessous ne portent que sur ce qui a réellement été importé.";
+  } else {
+    avertissement.hidden = true;
+  }
+
+  const suiviPeriode = suivi.filter((s) => (!dateDebut || s.periode >= dateDebut.slice(0, 7)) && (!dateFin || s.periode <= dateFin.slice(0, 7)));
+  const aRapprocher = suiviPeriode.reduce((s, p) => s + (p.nbMouvements - p.nbRapproches), 0);
+
+  const moisCourant = fmtDateISO(new Date()).slice(0, 7);
+  const suiviMoisCourant = suivi.find((s) => s.periode === moisCourant);
+  const statutMoisCourant = suiviMoisCourant ? LIBELLES_STATUT_MOIS[suiviMoisCourant.statut] || suiviMoisCourant.statut : "Aucun mouvement";
+
+  conteneur.innerHTML = `
+    <div class="tuile" style="--tuile-couleur: var(--good);" onclick="trBasculerSousOnglet('mouvements')" role="button" tabindex="0">
+      <div class="tuile-icone">${ICONES_TUILE.encaissement}</div>
+      <div class="valeur">${fmtMontant(encaissements)}</div>
+      <div class="label">Encaissements importés (période)</div>
+    </div>
+    <div class="tuile" style="--tuile-couleur: var(--critical);" onclick="trBasculerSousOnglet('mouvements')" role="button" tabindex="0">
+      <div class="tuile-icone">${ICONES_TUILE.decaissement}</div>
+      <div class="valeur">${fmtMontant(decaissements)}</div>
+      <div class="label">Décaissements importés (période)</div>
+    </div>
+    <div class="tuile" style="--tuile-couleur: var(--brand-violet);" onclick="trBasculerSousOnglet('mouvements')" role="button" tabindex="0">
+      <div class="tuile-icone">${ICONES_TUILE.ca}</div>
+      <div class="valeur">${fmtMontant(variationNette)}</div>
+      <div class="label">Variation nette importée (période) — jamais un solde bancaire réel</div>
+    </div>
+    <div class="tuile"${aRapprocher > 0 ? ' style="--tuile-couleur: var(--warning);"' : ""} onclick="trBasculerSousOnglet('rapprochement')" role="button" tabindex="0">
+      <div class="tuile-icone">${ICONES_TUILE.anomalies}</div>
+      <div class="valeur">${aRapprocher}</div>
+      <div class="label">Élément(s) restant à rapprocher (période)</div>
+    </div>
+    <div class="tuile" onclick="trBasculerSousOnglet('rapprochement')" role="button" tabindex="0">
+      <div class="tuile-icone">${ICONES_TUILE.imports}</div>
+      <div class="valeur" style="font-size: 18px;">${echapper(statutMoisCourant)}</div>
+      <div class="label">État du rapprochement — mois en cours</div>
+    </div>`;
+
+  conteneur.querySelectorAll('.tuile[role="button"]').forEach((el) => {
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        el.click();
+      }
+    });
+  });
+}
+
+function trInitialiserSynthesePeriode() {
+  const periodeType = document.getElementById("tresorerie-synthese-periode-type");
+  if (!periodeType || periodeType.dataset.initialise) return;
+  tresorerieSynthesePeriodeSelecteur = creerSelecteurPeriode("tresorerie-synthese", {
+    defaut: "mois_courant",
+    onChange: (bornes) => {
+      tresorerieSyntheseEtat.dateDebut = bornes?.dateDebut || "";
+      tresorerieSyntheseEtat.dateFin = bornes?.dateFin || "";
+      chargerTresorerieSynthese();
+    },
+  });
+  const bornesInitiales = tresorerieSynthesePeriodeSelecteur?.resoudre();
+  tresorerieSyntheseEtat.dateDebut = bornesInitiales?.dateDebut || "";
+  tresorerieSyntheseEtat.dateFin = bornesInitiales?.dateFin || "";
+  periodeType.dataset.initialise = "1";
+}
 
 /**
  * Lien "Voir les mouvements" depuis une carte du Suivi mensuel (demande
@@ -5487,10 +5623,11 @@ function forcerNouveauCalqueAffichage() {
 
 async function rafraichirTout() {
   ffInitialiserControles();
+  trInitialiserSynthesePeriode();
   initialiserSousNav("factures");
   initialiserSousNav("tresorerie");
   initialiserSousNav("marketing");
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerTresorerieSynthese(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
   requestAnimationFrame(forcerNouveauCalqueAffichage);
 }
 

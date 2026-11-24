@@ -466,8 +466,8 @@ button:disabled { opacity: 0.4; cursor: default; }
    qui donne envie"), voir public/app.js (chargerCockpit) pour les classes
    posees sur chaque tuile. Teinte en fond (::before a faible opacite)
    plutot qu'un fond plein : reste lisible, fonctionne pareil en mode
-   sombre (la couleur elle-meme change via les tokens --brand-*/--warning/
-   --critical, l'opacite reste la meme). */
+   sombre (la couleur elle-meme change via les tokens --brand-xxx, --warning,
+   --critical ; l'opacite reste la meme). */
 .tuile {
   --tuile-couleur: var(--brand-blue);
   position: relative;
@@ -531,6 +531,12 @@ button:disabled { opacity: 0.4; cursor: default; }
 .tuile-icone svg { width: 17px; height: 17px; }
 .tuile .valeur { position: relative; font-size: 22px; font-weight: 800; color: var(--tuile-couleur); font-family: "Manrope", sans-serif; line-height: 1.1; }
 .tuile .label { position: relative; font-size: 11px; color: var(--ink-muted); margin-top: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+/* Tuile cliquable (ex. Synthese Tresorerie : chaque indicateur renvoie vers
+   le sous-onglet correspondant) - demande explicite de l'utilisateur. */
+.tuile[role="button"] { cursor: pointer; transition: transform .1s ease, box-shadow .1s ease; }
+.tuile[role="button"]:hover { box-shadow: 0 2px 10px rgba(22,33,62,0.1); }
+.tuile[role="button"]:active { transform: scale(0.98); }
+.tuile[role="button"]:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: 2px; }
 
 /* ---------- Graphique du chiffre d'affaires ---------- */
 .graphique-entete { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
