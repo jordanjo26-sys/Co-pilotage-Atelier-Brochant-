@@ -1005,6 +1005,12 @@ document.getElementById("btn-relancer-rapprochement").addEventListener("click", 
 
 const LIBELLES_STATUT_MOIS = { en_cours: "En cours", a_verifier: "À vérifier", termine_valide: "Terminé et validé" };
 
+// Conserve le dernier resultat pour que le panneau de detail d'un mois
+// (suivimoisPanneau, ci-dessous) retrouve ses donnees sans nouvel appel
+// reseau - aucune route nouvelle, simple regroupement ergonomique des
+// donnees deja chargees par cet ecran.
+let suiviMensuelCache = [];
+
 async function chargerSuiviMensuel() {
   const conteneur = document.getElementById("suivi-mensuel-liste");
   if (!conteneur) return;
@@ -1012,35 +1018,38 @@ async function chargerSuiviMensuel() {
     const res = await fetch("/api/suivi-mensuel");
     const statuts = await res.json();
     if (!res.ok) throw new Error(statuts.erreur || "Chargement impossible.");
+    suiviMensuelCache = statuts;
 
     definirBadge("suivi-mensuel", statuts.filter((s) => s.statut === "a_verifier").length);
 
     conteneur.innerHTML = statuts.length
       ? statuts.map((s) => construireCarteSuiviMensuel(s)).join("")
       : `<p class="liste-vide">Aucun mouvement bancaire importé pour le moment.</p>`;
-
-    conteneur.querySelectorAll("[data-valider-periode]").forEach((bouton) => {
-      bouton.addEventListener("click", () => validerMoisDepuisUI(bouton.dataset.validerPeriode));
-    });
-    conteneur.querySelectorAll("[data-invalider-periode]").forEach((bouton) => {
-      bouton.addEventListener("click", () => invaliderMoisDepuisUI(bouton.dataset.invaliderPeriode));
+    conteneur.querySelectorAll(".suivi-mensuel-carte").forEach((carte) => {
+      carte.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          carte.click();
+        }
+      });
     });
   } catch (err) {
     conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
   }
 }
 
+/**
+ * Carte mensuelle compacte, entierement cliquable (ouvre le panneau de
+ * detail du mois, voir suivimoisPanneau ci-dessous) - les actions
+ * ("Voir les mouvements"/"Je valide ce mois"/"De-valider") ne sont plus
+ * repetees ici, elles vivent desormais dans ce panneau, demande explicite
+ * de l'utilisateur. Le resume (compteurs/barre/%) reste visible
+ * directement sur la carte.
+ */
 function construireCarteSuiviMensuel(s) {
   const libelleMois = libelleMoisAnnee(`${s.periode}-01`);
   const coche = s.statut === "termine_valide" ? "✓ " : "";
-  const driftHtml =
-    s.driftDetecte
-      ? `<span class="suivi-mensuel-drift">⚠ Des mouvements ont changé depuis la validation.</span> <button type="button" class="ghost bouton-lien" data-invalider-periode="${s.periode}">Dé-valider ce mois</button>`
-      : "";
-  const boutonValider =
-    s.statut !== "termine_valide"
-      ? `<button type="button" class="ghost" data-valider-periode="${s.periode}">Je valide ce mois</button>`
-      : "";
+  const driftHtml = s.driftDetecte ? `<span class="suivi-mensuel-drift">⚠ Des mouvements ont changé depuis la validation.</span>` : "";
   // Pourcentage de progression visuel (demande explicite de l'utilisateur,
   // voir maquette de reference) - purement indicatif, aucune incidence sur
   // le statut reel (toujours calcule cote serveur, voir suiviMensuel.ts).
@@ -1048,7 +1057,7 @@ function construireCarteSuiviMensuel(s) {
   const classeProgression = s.statut === "termine_valide" || pourcentage === 100 ? "suivi-mensuel-progression-ok" : s.nbAVerifier > 0 ? "suivi-mensuel-progression-attention" : "";
 
   return `
-    <div class="suivi-mensuel-carte">
+    <div class="suivi-mensuel-carte cab-ligne-cliquable" onclick="suivimoisOuvrirDetail('${s.periode}')" role="button" tabindex="0">
       <div class="suivi-mensuel-carte-entete">
         <span class="suivi-mensuel-mois">${echapper(libelleMois)}</span>
         <span class="badge suivi-mensuel-statut-${s.statut}">${coche}${echapper(LIBELLES_STATUT_MOIS[s.statut] || s.statut)}</span>
@@ -1059,11 +1068,77 @@ function construireCarteSuiviMensuel(s) {
       </div>
       <span class="suivi-mensuel-pourcentage">${pourcentage}&nbsp;%</span>
       ${driftHtml}
-      <div class="suivi-mensuel-carte-actions">
-        <button type="button" class="ghost" onclick="voirMouvementsDuMois('${s.periode}')">Voir les mouvements</button>
-        ${boutonValider}
-      </div>
     </div>`;
+}
+
+/**
+ * Panneau de detail d'un mois (creerPanneauDetail generique, comme partout
+ * ailleurs) : regroupe mouvements du mois + actions de rapprochement +
+ * "Je valide ce mois"/"De-valider", deplaces ici hors de la liste - vue
+ * uniquement ergonomique, aucune donnee/regle de validation fusionnee ou
+ * modifiee. "periode" (ex. "2026-11") sert d'identifiant, pas besoin de
+ * route nouvelle : les donnees viennent de suiviMensuelCache et
+ * mouvementsBancairesCache, deja charges par cet ecran.
+ */
+const suivimoisPanneau = creerPanneauDetail("suivimois", {
+  chargerDetail: async (periode) => {
+    const s = suiviMensuelCache.find((x) => x.periode === periode);
+    if (!s) throw new Error("Mois introuvable.");
+    return s;
+  },
+  rendu: (s) => suivimoisRenduDetail(s),
+  chargerDocument: () => {},
+});
+
+function suivimoisOuvrirDetail(periode) {
+  suivimoisPanneau.ouvrir(periode);
+}
+window.suivimoisOuvrirDetail = suivimoisOuvrirDetail;
+
+function suivimoisFermerDetail() {
+  suivimoisPanneau.fermer();
+}
+window.suivimoisFermerDetail = suivimoisFermerDetail;
+
+function suivimoisRenduDetail(s) {
+  document.getElementById("suivimois-detail-titre").textContent = libelleMoisAnnee(`${s.periode}-01`);
+  const statutSpan = document.getElementById("suivimois-detail-statut");
+  statutSpan.className = `badge suivi-mensuel-statut-${s.statut}`;
+  statutSpan.textContent = `${s.statut === "termine_valide" ? "✓ " : ""}${LIBELLES_STATUT_MOIS[s.statut] || s.statut}`;
+
+  const pourcentage = s.nbMouvements > 0 ? Math.round((s.nbRapproches / s.nbMouvements) * 100) : 0;
+  const classeProgression = s.statut === "termine_valide" || pourcentage === 100 ? "suivi-mensuel-progression-ok" : s.nbAVerifier > 0 ? "suivi-mensuel-progression-attention" : "";
+  const driftHtml = s.driftDetecte ? `<p class="suivi-mensuel-drift">⚠ Des mouvements ont changé depuis la validation.</p>` : "";
+
+  const mouvementsDuMois = mouvementsBancairesCache
+    .filter((m) => String(m.date).slice(0, 7) === s.periode)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  document.getElementById("suivimois-detail-details").innerHTML = `
+    <div class="cab-detail-ligne"><span>Mouvements rapprochés</span><span>${s.nbRapproches}/${s.nbMouvements}</span></div>
+    ${s.nbAVerifier > 0 ? `<div class="cab-detail-ligne"><span>À vérifier</span><span>${s.nbAVerifier}</span></div>` : ""}
+    <div class="suivi-mensuel-barre" role="progressbar" aria-valuenow="${pourcentage}" aria-valuemin="0" aria-valuemax="100">
+      <div class="suivi-mensuel-barre-remplissage ${classeProgression}" style="width:${pourcentage}%"></div>
+    </div>
+    <span class="suivi-mensuel-pourcentage">${pourcentage}&nbsp;%</span>
+    ${driftHtml}
+    <h4 style="margin-top:14px;">Mouvements du mois</h4>
+    ${
+      mouvementsDuMois.length
+        ? `<div class="cab-cartes-liste" style="display:flex;flex-direction:column;gap:8px;">${mouvementsDuMois.map((m) => mouvConstruireCarteLigne(m)).join("")}</div>`
+        : `<p class="liste-vide">Aucun mouvement ce mois-ci.</p>`
+    }`;
+
+  const actions = document.getElementById("suivimois-detail-actions");
+  actions.innerHTML = `<button type="button" class="ghost" onclick="suivimoisFermerDetail(); voirMouvementsDuMois('${s.periode}')">Voir dans Mouvements</button>`;
+  if (s.driftDetecte) {
+    actions.innerHTML += `<button type="button" class="ghost" id="suivimois-detail-btn-invalider">Dé-valider ce mois</button>`;
+  }
+  if (s.statut !== "termine_valide") {
+    actions.innerHTML += `<button type="button" id="suivimois-detail-btn-valider">✓ Je valide ce mois</button>`;
+  }
+  document.getElementById("suivimois-detail-btn-valider")?.addEventListener("click", () => validerMoisDepuisUI(s.periode));
+  document.getElementById("suivimois-detail-btn-invalider")?.addEventListener("click", () => invaliderMoisDepuisUI(s.periode));
 }
 
 async function validerMoisDepuisUI(periode) {
@@ -1084,6 +1159,7 @@ async function validerMoisDepuisUI(periode) {
       throw new Error(data.erreur || "Validation impossible.");
     }
     await chargerSuiviMensuel();
+    await suivimoisPanneau.ouvrir(periode);
   } catch (err) {
     alert(err.message);
   }
@@ -1099,6 +1175,7 @@ async function invaliderMoisDepuisUI(periode) {
       throw new Error(data.erreur || "Dé-validation impossible.");
     }
     await chargerSuiviMensuel();
+    await suivimoisPanneau.ouvrir(periode);
   } catch (err) {
     alert(err.message);
   }
@@ -5567,6 +5644,7 @@ async function rafraichirTout() {
   trInitialiserSynthesePeriode();
   mouvInitialiserPeriode();
   mouvPanneau.initialiserFermeture();
+  suivimoisPanneau.initialiserFermeture();
   initialiserSousNav("factures");
   initialiserSousNav("tresorerie");
   initialiserSousNav("marketing");
