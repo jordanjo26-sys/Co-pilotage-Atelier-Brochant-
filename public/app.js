@@ -4181,41 +4181,156 @@ function icone(nom, taille = 14) {
   return `<svg class="archive-v2-icone" width="${taille}" height="${taille}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${trace}</svg>`;
 }
 
-function construireCarteArchiveComptable(a, { doublon = false } = {}) {
-  const estPdf = a.mimeType === "application/pdf";
-  return `
-      <div class="archive-v2-carte" id="archive-comptable-${a.id}">
-        <div class="archive-v2-carte-entete">
-          <span class="archive-v2-carte-icone-fichier">
-            ${icone("fichier", 22)}
-            ${estPdf ? `<span class="archive-v2-ruban-pdf">PDF</span>` : ""}
-          </span>
-          <span class="archive-v2-carte-fournisseur">${echapper(a.fournisseurNom || "Fournisseur non identifié")}</span>
-          ${a.categorie ? `<span class="badge badge-categorie archive-v2-carte-categorie">${echapper(a.categorie)}</span>` : ""}
-        </div>
-        <div class="archive-v2-carte-fichier-nom">${echapper(a.fichierNom)}</div>
-        <div class="archive-v2-carte-meta">
-          ${a.dateFacture ? `<span>${icone("calendrier")} ${fmtDate(a.dateFacture)}</span>` : ""}
-          ${a.numero ? `<span>n° ${echapper(a.numero)}</span>` : ""}
-          ${a.statut === "a_verifier" ? `<span class="badge badge-palier-ambre">à vérifier</span>` : ""}
-          ${doublon ? `<span class="badge badge-palier-ambre">doublon possible</span>` : ""}
-          <span class="badge badge-${a.rapproche ? "rapproche" : "non_rapproche"} archive-v2-carte-badge-rapprochement">${icone(a.rapproche ? "bouclier" : "lien-casse")} ${a.rapproche ? "rapproché" : "non rapproché"}</span>
-        </div>
-        <div class="archive-v2-carte-montants">
-          ${a.montantHT != null ? `<span class="badge badge-ok">HT ${fmtMontant(a.montantHT)}</span>` : `<span class="alerte-montant-manquant">HT non renseigné</span>`}
-          ${a.montantTTC != null ? `<span class="badge badge-ok">TTC ${fmtMontant(a.montantTTC)}</span>` : `<span class="alerte-montant-manquant">TTC non renseigné</span>`}
-        </div>
-        <div class="archive-v2-carte-actions">
-          <button type="button" class="archive-v2-bouton-voir" onclick="ouvrirApercuDocument('/api/archives-comptables/${a.id}/fichier', '${echapper(a.mimeType || "")}', '${echapper(a.fichierNom || "")}')">${icone("oeil")} Voir</button>
-          <button type="button" class="archive-v2-bouton-corriger" onclick="ouvrirCorrectionArchive('${a.id}')">${icone("crayon")} Corriger</button>
-          <button type="button" class="archive-v2-bouton-supprimer" onclick="supprimerArchiveComptable('${a.id}', this)">${icone("corbeille")} Supprimer</button>
-        </div>
-      </div>`;
+/**
+ * Statut compact affiche sur chaque ligne/fiche (jamais plus que ca sur la
+ * ligne - le detail complet, dont le rapprochement bancaire, vit dans le
+ * panneau de detail, voir archv2RenduDetail). Reutilise les classes
+ * cab-statut-* deja partagees par l'ecran Factures fournisseurs plutot que
+ * d'en inventer de nouvelles : "validee" (vert) pour une facture complete,
+ * "a_verifier" (orange) pour une information manquante ou un doublon
+ * probable.
+ */
+function archv2InfosStatut(a, doublon) {
+  if (doublon) return { classe: "a_verifier", label: "Doublon possible" };
+  if (a.statut === "a_verifier") return { classe: "a_verifier", label: "À vérifier" };
+  return { classe: "validee", label: "Complète" };
 }
 
+function archv2ConstruireLigneTable(a, { doublon = false } = {}) {
+  const { classe, label } = archv2InfosStatut(a, doublon);
+  return `
+    <tr class="cab-ligne-cliquable" onclick="archv2OuvrirDetail('${a.id}')">
+      <td>${a.dateFacture ? fmtDate(a.dateFacture) : "—"}</td>
+      <td><span class="cab-ligne-fournisseur"><span class="cab-avatar-cercle" style="background:${couleurAvatarFournisseur(a.fournisseurNom)}">${echapper(initialesFournisseur(a.fournisseurNom))}</span>${echapper(a.fournisseurNom || "Fournisseur non identifié")}</span></td>
+      <td>${echapper(a.numero || "—")}</td>
+      <td class="num">${a.montantTTC != null ? fmtMontant(a.montantTTC) : "—"}</td>
+      <td><span class="cab-statut-point cab-statut-${classe}">${echapper(label)}</span></td>
+    </tr>`;
+}
+
+function archv2ConstruireCarteLigne(a, { doublon = false } = {}) {
+  const { classe, label } = archv2InfosStatut(a, doublon);
+  return construireCarteLigne({
+    titre: echapper(a.fournisseurNom || "Fournisseur non identifié"),
+    avatarTexte: initialesFournisseur(a.fournisseurNom),
+    avatarCouleur: couleurAvatarFournisseur(a.fournisseurNom),
+    montant: a.montantTTC != null ? echapper(fmtMontant(a.montantTTC)) : "—",
+    metaGauche: `${a.dateFacture ? echapper(fmtDate(a.dateFacture)) : "—"}${a.numero ? ` · ${echapper(a.numero)}` : ""}`,
+    statutHtml: `<span class="cab-statut-point cab-statut-${classe}">${echapper(label)}</span>`,
+    onclick: `archv2OuvrirDetail('${a.id}')`,
+  });
+}
+
+/**
+ * Panneau de detail des factures Comptabilite - meme factory que l'ecran
+ * Factures fournisseurs (creerPanneauDetail), jamais les memes donnees :
+ * la liste reste toujours chargee via les routes archives-comptables
+ * dediees (mois-courant/archives/a-verifier) ; seul le DETAIL d'une ligne
+ * individuelle reutilise la route de detail unifiee deja existante
+ * (/api/factures-fournisseurs/archive:<id>/detail, deja ecrite pour
+ * l'ecran Factures fournisseurs et deja capable de servir n'importe quelle
+ * ArchiveComptable par id - aucune route nouvelle, aucune fusion de liste).
+ */
+let archv2DetailCourant = null;
+
+const archv2Panneau = creerPanneauDetail("archv2", {
+  chargerDetail: async (id) => {
+    const res = await fetch(`/api/factures-fournisseurs/${encodeURIComponent(`archive:${id}`)}/detail`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Archive introuvable.");
+    const detail = await res.json();
+    archv2DetailCourant = detail;
+    return detail;
+  },
+  rendu: (detail) => archv2RenduDetail(detail),
+  chargerDocument: () => archv2ChargerDocumentDetail(),
+});
+
+function archv2BasculerOngletDetail(nom) {
+  archv2Panneau.basculerOnglet(nom);
+}
+window.archv2BasculerOngletDetail = archv2BasculerOngletDetail;
+
+function archv2OuvrirDetail(id) {
+  archv2Panneau.ouvrir(id);
+}
+window.archv2OuvrirDetail = archv2OuvrirDetail;
+
+function archv2FermerDetail() {
+  archv2DetailCourant = null;
+  archv2Panneau.fermer();
+}
+window.archv2FermerDetail = archv2FermerDetail;
+
+function archv2RenduDetail(detail) {
+  document.getElementById("archv2-detail-titre").textContent = detail.numero || detail.fichierNom || "Facture";
+  const statutSpan = document.getElementById("archv2-detail-statut");
+  statutSpan.className = `cab-statut-point cab-statut-${detail.statut}`;
+  statutSpan.textContent = detail.statutDetail || detail.statut;
+
+  const lignes = [
+    ["Fournisseur", echapper(detail.fournisseurNom || "—")],
+    ["Date de facture", echapper(fmtDate(detail.date))],
+    ["Montant HT", detail.montantHT != null ? echapper(fmtMontant(detail.montantHT)) : "—"],
+  ];
+  document.getElementById("archv2-detail-details").innerHTML = `
+    ${lignes.map(([label, valeur]) => `<div class="cab-detail-ligne"><span>${label}</span><span>${valeur}</span></div>`).join("")}
+    <div class="cab-detail-ligne cab-detail-ligne-forte"><span>Montant TTC</span><span>${detail.montantTTC != null ? echapper(fmtMontant(detail.montantTTC)) : "—"}</span></div>
+    ${detail.rapprochementStatut === "rapproche" ? `<div class="cab-detail-ligne"><span>Rapprochement bancaire</span><span><span class="badge badge-rapproche">Rapprochée</span></span></div>` : ""}
+    ${detail.categorie ? `<div class="cab-detail-ligne"><span>Catégorie</span><span>${echapper(detail.categorie)}</span></div>` : ""}
+    ${
+      detail.statut === "a_corriger"
+        ? `<div class="cab-encart-ia"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.4L20 10l-6.2 1.6L12 18l-1.8-6.4L4 10l6.2-1.6z"/></svg><div><strong>À vérifier :</strong><ul><li>Informations manquantes ou incertaines, à corriger manuellement.</li></ul></div></div>`
+        : ""
+    }`;
+
+  document.getElementById("archv2-detail-historique").innerHTML = detail.historique.length
+    ? `<ul class="rapprochement-historique">${detail.historique.map((h) => `<li>${echapper(fmtDate(h.date))} — ${echapper(h.libelle)}</li>`).join("")}</ul>`
+    : `<p class="liste-vide">Aucun historique disponible.</p>`;
+
+  const actions = document.getElementById("archv2-detail-actions");
+  actions.innerHTML = `<button type="button" class="ghost" onclick="archv2BasculerOngletDetail('document')">${icone("oeil")} Voir le document</button>`;
+  if (detail.statut === "a_corriger") {
+    actions.innerHTML += `<button type="button" id="archv2-detail-btn-corriger">${icone("crayon")} Corriger</button>`;
+  }
+  actions.innerHTML += `<button type="button" class="archive-v2-bouton-supprimer" id="archv2-detail-btn-supprimer">${icone("corbeille")} Supprimer</button>`;
+
+  const boutonCorriger = document.getElementById("archv2-detail-btn-corriger");
+  if (boutonCorriger) boutonCorriger.addEventListener("click", () => ouvrirCorrectionArchive(detail.sourceId));
+  document.getElementById("archv2-detail-btn-supprimer").addEventListener("click", async (e) => {
+    await supprimerArchiveComptable(detail.sourceId, e.currentTarget);
+    // supprimerArchiveComptable() redemande confirmation elle-meme (confirm()) :
+    // on ne ferme le panneau qu'apres une suppression reellement effectuee
+    // (ligne retiree du cache global), jamais si l'utilisateur a annule.
+    if (!archivesComptablesBrutes.some((a) => a.id === detail.sourceId)) archv2FermerDetail();
+  });
+}
+
+function archv2ChargerDocumentDetail() {
+  if (!archv2DetailCourant) return;
+  const conteneur = document.getElementById("archv2-detail-document");
+  const url = `/api/archives-comptables/${archv2DetailCourant.sourceId}/fichier`;
+  if (archv2DetailCourant.mimeType === "application/pdf") {
+    afficherPdfDansConteneur(conteneur, url, archv2DetailCourant.fichierNom);
+  } else {
+    conteneur.innerHTML = `<img src="${echapper(url)}" alt="Document" style="max-width:100%;border-radius:10px;border:1px solid var(--line);" />`;
+  }
+}
+
+(function initialiserPanneauDetailArchiveComptable() {
+  archv2Panneau.initialiserFermeture();
+  const panneau = document.getElementById("archv2-detail-panneau");
+  if (panneau) {
+    panneau.querySelectorAll(".cab-detail-onglet").forEach((bouton) => {
+      bouton.addEventListener("click", () => archv2BasculerOngletDetail(bouton.dataset.detailOnglet));
+    });
+  }
+})();
+
 function afficherArchivesComptablesFiltrees() {
-  const conteneur = document.getElementById("liste-archives-comptables");
-  if (!conteneur) return;
+  const tbody = document.getElementById("archive-v2-archives-tbody");
+  const cartes = document.getElementById("archive-v2-archives-cartes");
+  const vide = document.getElementById("archive-v2-archives-vide");
+  if (!tbody) return;
 
   const dateDebut = document.getElementById("filtre-archive-date-debut").value;
   const dateFin = document.getElementById("filtre-archive-date-fin").value;
@@ -4250,9 +4365,14 @@ function afficherArchivesComptablesFiltrees() {
       : `${archives.length} sur ${archivesComptablesBrutes.length} archive(s)`;
 
   if (archives.length === 0) {
-    conteneur.innerHTML = `<p class="liste-vide">Aucune archive${archivesComptablesBrutes.length > 0 ? " ne correspond a ces filtres" : " pour le moment"}.</p>`;
+    tbody.innerHTML = "";
+    cartes.innerHTML = "";
+    vide.hidden = false;
+    vide.querySelector(".cab-etat-titre").textContent =
+      archivesComptablesBrutes.length > 0 ? "Aucune archive ne correspond à ces filtres." : "Aucune archive pour le moment.";
     return;
   }
+  vide.hidden = true;
 
   // Deja triees du plus recent au plus ancien par le serveur (voir
   // listerArchivesComptables) : les groupes par mois apparaissent eux aussi
@@ -4271,19 +4391,24 @@ function afficherArchivesComptablesFiltrees() {
     groupes.set("Date inconnue", sansDate);
   }
 
-  conteneur.innerHTML = [...groupes.entries()]
+  tbody.innerHTML = [...groupes.entries()]
     .map(
       ([mois, docs]) => `
-    <div class="groupe-mois">
-      <h3 class="groupe-mois-titre">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></h3>
-      ${docs.map((a) => construireCarteArchiveComptable(a, { doublon: idsDoublons.has(a.id) })).join("")}
-    </div>`
+    <tr class="archive-v2-ligne-groupe-mois"><td colspan="5">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></td></tr>
+    ${docs.map((a) => archv2ConstruireLigneTable(a, { doublon: idsDoublons.has(a.id) })).join("")}`
+    )
+    .join("");
+  cartes.innerHTML = [...groupes.entries()]
+    .map(
+      ([mois, docs]) => `
+    <div class="cab-carte-ligne-entete-groupe">${echapper(mois)} <span class="groupe-mois-compte">${docs.length}</span></div>
+    ${docs.map((a) => archv2ConstruireCarteLigne(a, { doublon: idsDoublons.has(a.id) })).join("")}`
     )
     .join("");
 }
 
 async function chargerArchivesComptables() {
-  const conteneur = document.getElementById("liste-archives-comptables");
+  const conteneur = document.getElementById("archive-v2-archives-tbody");
   if (!conteneur) return;
 
   const selectCategorie = document.getElementById("filtre-archive-categorie");
@@ -4308,7 +4433,13 @@ async function chargerArchivesComptables() {
     if (!res.ok) throw new Error(archivesComptablesBrutes.erreur || "Chargement impossible.");
     afficherArchivesComptablesFiltrees();
   } catch (err) {
-    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+    const vide = document.getElementById("archive-v2-archives-vide");
+    conteneur.innerHTML = "";
+    document.getElementById("archive-v2-archives-cartes").innerHTML = "";
+    if (vide) {
+      vide.hidden = false;
+      vide.querySelector(".cab-etat-titre").textContent = `Erreur : ${err.message}`;
+    }
     return;
   }
 
@@ -4377,9 +4508,11 @@ document.querySelectorAll(".archive-v2-sousonglet").forEach((b) => {
  * reste consultable via l'onglet Archives (meme donnees, filtre different).
  */
 async function chargerArchivesMoisCourant() {
-  const conteneur = document.getElementById("archive-v2-mois-courant-liste");
+  const tbody = document.getElementById("archive-v2-mois-courant-tbody");
+  const cartes = document.getElementById("archive-v2-mois-courant-cartes");
+  const vide = document.getElementById("archive-v2-mois-courant-vide");
   const libelleEl = document.getElementById("archive-v2-mois-courant-libelle");
-  if (!conteneur) return;
+  if (!tbody) return;
 
   const maintenant = new Date();
   const anneeMois = `${maintenant.getFullYear()}-${String(maintenant.getMonth() + 1).padStart(2, "0")}`;
@@ -4390,12 +4523,21 @@ async function chargerArchivesMoisCourant() {
     const archives = await res.json();
     if (!res.ok) throw new Error(archives.erreur || "Chargement impossible.");
     const idsDoublons = detecterIdsDoublonsArchives(archives);
-    conteneur.innerHTML =
-      archives.length === 0
-        ? `<p class="liste-vide">Aucune facture datée du mois en cours pour le moment.</p>`
-        : archives.map((a) => construireCarteArchiveComptable(a, { doublon: idsDoublons.has(a.id) })).join("");
+    if (archives.length === 0) {
+      tbody.innerHTML = "";
+      cartes.innerHTML = "";
+      vide.hidden = false;
+      vide.querySelector(".cab-etat-titre").textContent = "Aucune facture datée du mois en cours.";
+    } else {
+      vide.hidden = true;
+      tbody.innerHTML = archives.map((a) => archv2ConstruireLigneTable(a, { doublon: idsDoublons.has(a.id) })).join("");
+      cartes.innerHTML = archives.map((a) => archv2ConstruireCarteLigne(a, { doublon: idsDoublons.has(a.id) })).join("");
+    }
   } catch (err) {
-    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+    tbody.innerHTML = "";
+    cartes.innerHTML = "";
+    vide.hidden = false;
+    vide.querySelector(".cab-etat-titre").textContent = `Erreur : ${err.message}`;
   }
 }
 
@@ -4450,8 +4592,8 @@ async function chargerArchivesAnnees() {
 let archivesAVerifierCache = [];
 
 async function chargerArchivesAVerifier() {
-  const conteneur = document.getElementById("archive-v2-a-verifier-liste");
-  if (!conteneur) return;
+  const tbody = document.getElementById("archive-v2-a-verifier-tbody");
+  if (!tbody) return;
   try {
     const res = await fetch("/api/archives-comptables/a-verifier");
     const archives = await res.json();
@@ -4460,13 +4602,19 @@ async function chargerArchivesAVerifier() {
     archivesAVerifierCache = archives;
     appliquerFiltreArchivesAVerifier();
   } catch (err) {
-    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+    tbody.innerHTML = "";
+    document.getElementById("archive-v2-a-verifier-cartes").innerHTML = "";
+    const vide = document.getElementById("archive-v2-a-verifier-vide");
+    vide.hidden = false;
+    vide.querySelector(".cab-etat-titre").textContent = `Erreur : ${err.message}`;
   }
 }
 
 function appliquerFiltreArchivesAVerifier() {
-  const conteneur = document.getElementById("archive-v2-a-verifier-liste");
-  if (!conteneur) return;
+  const tbody = document.getElementById("archive-v2-a-verifier-tbody");
+  const cartes = document.getElementById("archive-v2-a-verifier-cartes");
+  const vide = document.getElementById("archive-v2-a-verifier-vide");
+  if (!tbody) return;
   const fournisseurRecherche = document.getElementById("filtre-a-verifier-fournisseur")?.value.trim().toLowerCase() || "";
   const filtreRapprochement = document.getElementById("filtre-a-verifier-rapprochement")?.value || "";
 
@@ -4477,10 +4625,17 @@ function appliquerFiltreArchivesAVerifier() {
     return true;
   });
 
-  conteneur.innerHTML =
-    archives.length === 0
-      ? `<p class="liste-vide">${archivesAVerifierCache.length === 0 ? "Rien à vérifier pour le moment." : "Aucune facture ne correspond à ce filtre."}</p>`
-      : archives.map((a) => construireCarteArchiveComptable(a, { doublon: a.raisonAVerifier.startsWith("doublon") })).join("");
+  if (archives.length === 0) {
+    tbody.innerHTML = "";
+    cartes.innerHTML = "";
+    vide.hidden = false;
+    vide.querySelector(".cab-etat-titre").textContent =
+      archivesAVerifierCache.length === 0 ? "Rien à vérifier pour le moment." : "Aucune facture ne correspond à ce filtre.";
+  } else {
+    vide.hidden = true;
+    tbody.innerHTML = archives.map((a) => archv2ConstruireLigneTable(a, { doublon: a.raisonAVerifier.startsWith("doublon") })).join("");
+    cartes.innerHTML = archives.map((a) => archv2ConstruireCarteLigne(a, { doublon: a.raisonAVerifier.startsWith("doublon") })).join("");
+  }
 }
 
 document.getElementById("filtre-a-verifier-fournisseur")?.addEventListener("input", appliquerFiltreArchivesAVerifier);
@@ -4711,6 +4866,7 @@ function fermerCorrectionArchive() {
       chargerArchivesAVerifier();
       chargerFacturesFournisseursUnifiees();
       if (typeof ffFermerDetail === "function") ffFermerDetail();
+      if (typeof archv2FermerDetail === "function") archv2FermerDetail();
       fermerCorrectionArchive();
     } catch (err) {
       erreurDiv.textContent = err.message;
@@ -4718,6 +4874,32 @@ function fermerCorrectionArchive() {
     } finally {
       boutonValider.disabled = false;
     }
+  });
+})();
+
+// Import de l'archive Comptabilite en feuille/modale (bouton "+ Importer"
+// du header) - demande explicite de l'utilisateur : factures visibles
+// immediatement a l'arrivee sur l'ecran, plus precedees du bloc d'import
+// permanent. Contenu et comportement du formulaire inchanges, seule son
+// ouverture/fermeture est nouvelle (meme idiome que les modales existantes
+// de ce module : bouton, Echap, clic exterieur).
+function ouvrirImportArchiveComptable() {
+  document.getElementById("archive-v2-import-modal").hidden = false;
+}
+function fermerImportArchiveComptable() {
+  document.getElementById("archive-v2-import-modal").hidden = true;
+}
+(function initialiserImportArchiveModal() {
+  const modal = document.getElementById("archive-v2-import-modal");
+  const bouton = document.getElementById("btn-ouvrir-import-archive-comptable");
+  if (!modal || !bouton) return;
+  bouton.addEventListener("click", ouvrirImportArchiveComptable);
+  document.getElementById("archive-v2-import-fermer")?.addEventListener("click", fermerImportArchiveComptable);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) fermerImportArchiveComptable();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) fermerImportArchiveComptable();
   });
 })();
 

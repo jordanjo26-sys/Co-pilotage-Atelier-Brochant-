@@ -664,27 +664,13 @@
 
     <!-- ===== Comptabilité (archive de secours, independante de Factures fournisseurs/Dext) ===== -->
     <div class="onglet-panneau" data-panneau="comptabilite" hidden>
-      <div class="cab-page-entete">
-        <h1>Comptabilité</h1>
-        <p class="aide">Archive de secours des factures, indépendante du circuit Gmail/Dext.</p>
+      <div class="cab-page-entete cab-page-entete-avec-action">
+        <div>
+          <h1>Comptabilité</h1>
+          <p class="aide">Archive de secours des factures, indépendante du circuit Gmail/Dext.</p>
+        </div>
+        <button type="button" class="archive-v2-bouton-principal" id="btn-ouvrir-import-archive-comptable">+ Importer</button>
       </div>
-      <section class="carte accent-violet">
-        <h2>Importer l'archive de factures</h2>
-        <p class="aide">Module indépendant du circuit "Factures fournisseurs" (Dext) — pensé comme archive de secours en cas de contrôle fiscal. Chaque fichier est analysé automatiquement en arrière-plan (fournisseur, date, montants HT/TTC), sans jamais rien inventer — un fichier dont un champ n'est pas lisible reste simplement "à vérifier" pour une complétion manuelle.</p>
-        <div id="zone-depot-archive-comptable" class="zone-depot" tabindex="0" role="button" aria-label="Déposer ou choisir des fichiers à importer">
-          <input type="file" id="archive-comptable-entree" accept=".zip,.pdf,.jpg,.jpeg,.png" multiple hidden />
-          <p class="zone-depot-texte">
-            <strong>Glissez vos fichiers ici</strong><br />
-            PDF, JPEG, PNG — ou un ZIP contenant un export complet — ou cliquez pour parcourir.
-          </p>
-        </div>
-        <ul id="zone-depot-archive-comptable-liste" class="zone-depot-liste"></ul>
-        <div class="ligne-boutons" style="margin-top: 10px;">
-          <button type="button" id="btn-lancer-import-archive-comptable" disabled>Importer</button>
-          <button type="button" class="ghost" id="btn-vider-import-archive-comptable" disabled>Vider la sélection</button>
-        </div>
-        <div id="resultat-import-archive-comptable"></div>
-      </section>
 
       <section class="carte accent-brun">
         <div class="archive-v2-sousonglets" role="tablist" aria-label="Vue des factures d'achat">
@@ -706,7 +692,16 @@
         <!-- Mois en cours (defaut) : classement selon dateFacture, pas la date d'import. -->
         <div class="archive-v2-sousvue" data-sousvue-panneau="mois-courant">
           <p class="aide" id="archive-v2-mois-courant-libelle"></p>
-          <div id="archive-v2-mois-courant-liste"></div>
+          <div class="table-scroll cab-desktop-seul">
+            <table class="archive-v2-table">
+              <thead><tr><th>Date</th><th>Fournisseur</th><th>Référence</th><th>Montant</th><th>Statut</th></tr></thead>
+              <tbody id="archive-v2-mois-courant-tbody"></tbody>
+            </table>
+          </div>
+          <div id="archive-v2-mois-courant-cartes" class="cab-cartes-liste"></div>
+          <div id="archive-v2-mois-courant-vide" class="cab-etat" hidden>
+            <p class="cab-etat-titre">Aucune facture datée du mois en cours.</p>
+          </div>
         </div>
 
         <!-- Archives : recherche par filtre de dates (au choix de l'utilisateur) + recherche globale sur toutes les periodes. -->
@@ -734,7 +729,16 @@
             </div>
           </details>
           <div id="resultat-reextraction-archives"></div>
-          <div id="liste-archives-comptables"></div>
+          <div class="table-scroll cab-desktop-seul">
+            <table class="archive-v2-table">
+              <thead><tr><th>Date</th><th>Fournisseur</th><th>Référence</th><th>Montant</th><th>Statut</th></tr></thead>
+              <tbody id="archive-v2-archives-tbody"></tbody>
+            </table>
+          </div>
+          <div id="archive-v2-archives-cartes" class="cab-cartes-liste"></div>
+          <div id="archive-v2-archives-vide" class="cab-etat" hidden>
+            <p class="cab-etat-titre">Aucune archive pour le moment.</p>
+          </div>
         </div>
 
         <!-- À vérifier : doublons potentiels + informations manquantes (espace dedie). -->
@@ -751,7 +755,16 @@
             </select>
             <button type="button" class="ghost" id="btn-reinitialiser-filtre-a-verifier">Réinitialiser</button>
           </div>
-          <div id="archive-v2-a-verifier-liste"></div>
+          <div class="table-scroll cab-desktop-seul">
+            <table class="archive-v2-table">
+              <thead><tr><th>Date</th><th>Fournisseur</th><th>Référence</th><th>Montant</th><th>Statut</th></tr></thead>
+              <tbody id="archive-v2-a-verifier-tbody"></tbody>
+            </table>
+          </div>
+          <div id="archive-v2-a-verifier-cartes" class="cab-cartes-liste"></div>
+          <div id="archive-v2-a-verifier-vide" class="cab-etat" hidden>
+            <p class="cab-etat-titre">Rien à vérifier pour le moment.</p>
+          </div>
         </div>
       </section>
     </div>
@@ -828,6 +841,49 @@
       Réseaux sociaux
     </button>
   </div>
+
+  <!-- Import de l'archive Comptabilite (feuille/modale - bouton "+ Importer" du header, demande explicite : factures visibles immediatement a l'arrivee sur l'ecran, pas precedees du bloc d'import). Contenu identique a l'ancien bloc toujours visible, rien de supprime. -->
+  <div id="archive-v2-import-modal" class="archive-v2-modal" hidden>
+    <div class="archive-v2-modal-contenu archive-v2-modal-contenu-formulaire">
+      <button type="button" class="ghost archive-v2-modal-fermer" id="archive-v2-import-fermer" aria-label="Fermer l'import">✕ Fermer</button>
+      <h3>Importer l'archive de factures</h3>
+      <p class="aide">Module indépendant du circuit "Factures fournisseurs" (Dext) — pensé comme archive de secours en cas de contrôle fiscal. Chaque fichier est analysé automatiquement en arrière-plan (fournisseur, date, montants HT/TTC), sans jamais rien inventer — un fichier dont un champ n'est pas lisible reste simplement "à vérifier" pour une complétion manuelle.</p>
+      <div id="zone-depot-archive-comptable" class="zone-depot" tabindex="0" role="button" aria-label="Déposer ou choisir des fichiers à importer">
+        <input type="file" id="archive-comptable-entree" accept=".zip,.pdf,.jpg,.jpeg,.png" multiple hidden />
+        <p class="zone-depot-texte">
+          <strong>Glissez vos fichiers ici</strong><br />
+          PDF, JPEG, PNG — ou un ZIP contenant un export complet — ou cliquez pour parcourir.
+        </p>
+      </div>
+      <ul id="zone-depot-archive-comptable-liste" class="zone-depot-liste"></ul>
+      <div class="ligne-boutons" style="margin-top: 10px;">
+        <button type="button" id="btn-lancer-import-archive-comptable" disabled>Importer</button>
+        <button type="button" class="ghost" id="btn-vider-import-archive-comptable" disabled>Vider la sélection</button>
+      </div>
+      <div id="resultat-import-archive-comptable"></div>
+    </div>
+  </div>
+
+  <!-- Panneau de detail des factures Comptabilite (meme mecanique generique que #ff-detail-panneau, voir creerPanneauDetail dans app.js) - jamais fusionne avec les donnees de Factures fournisseurs, seule la presentation est partagee. -->
+  <div class="cab-overlay" id="archv2-detail-overlay" hidden></div>
+  <aside class="cab-detail-panneau" id="archv2-detail-panneau" hidden aria-label="Détail de la facture">
+    <div class="cab-detail-entete">
+      <h3 id="archv2-detail-titre">—</h3>
+      <span class="cab-statut-point" id="archv2-detail-statut"></span>
+      <button class="cab-detail-fermer" id="archv2-detail-fermer" aria-label="Fermer le détail">✕</button>
+    </div>
+    <div class="cab-detail-onglets">
+      <button class="cab-detail-onglet actif" data-detail-onglet="details">Détails</button>
+      <button class="cab-detail-onglet" data-detail-onglet="document">Document</button>
+      <button class="cab-detail-onglet" data-detail-onglet="historique">Historique</button>
+    </div>
+    <div class="cab-detail-corps">
+      <div data-detail-panneau="details" id="archv2-detail-details"></div>
+      <div data-detail-panneau="document" id="archv2-detail-document" hidden></div>
+      <div data-detail-panneau="historique" id="archv2-detail-historique" hidden></div>
+    </div>
+    <div class="cab-detail-pied" id="archv2-detail-actions"></div>
+  </aside>
 
   <!-- Visualiseur en page (PDF/image) pour le module Comptabilité - evite de quitter l'application pour consulter une facture. -->
   <div id="archive-v2-modal" class="archive-v2-modal" hidden>

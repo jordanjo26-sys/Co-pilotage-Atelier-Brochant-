@@ -702,110 +702,14 @@ button:disabled { opacity: 0.4; cursor: default; }
 #archive-v2-modal-corps .lecteur-pdf { width: 100%; height: 100%; border-radius: 0; border: none; }
 #archive-v2-modal-corps .lecteur-pdf-pages-conteneur { max-height: none; flex: 1; }
 
-/* ---------- Comptabilite : refonte visuelle des cartes facture ----------
-   Demande explicite de l'utilisateur (refonte premium, mobile-first) :
-   carte individuelle blanche a coins arrondis avec ombre legere, separation
-   claire entre factures, fournisseur en gras, nom de fichier sur sa propre
-   ligne (jamais de debordement horizontal), 3 actions regroupees sur une
-   meme ligne meme sur mobile. Prefixe isole "archive-v2-*" : ne touche
-   jamais .fournisseur-carte (toujours utilisee telle quelle par l'onglet
-   Fournisseurs). */
-.archive-v2-carte {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
-  padding: 14px;
-  margin-bottom: 10px;
-}
-.archive-v2-carte-entete {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.archive-v2-carte-icone-fichier {
-  position: relative;
-  display: inline-flex;
-  color: var(--ink-muted);
-  flex: none;
-}
-.archive-v2-ruban-pdf {
-  position: absolute;
-  left: -3px;
-  bottom: -5px;
-  background: var(--critical);
-  color: #fff;
-  font-size: 7px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  padding: 2px 3px;
-  border-radius: 3px;
-}
-.archive-v2-carte-fournisseur {
-  font-size: 14.5px;
-  font-weight: 800;
-  color: var(--ink);
-  flex: 1;
-}
-/* Categorie alignee a droite de l'entete (meme ligne que le fournisseur),
-   et badge de rapprochement pousse a droite de la ligne meta - demande
-   explicite de l'utilisateur (maquette fournie). */
-.archive-v2-carte-categorie { margin-left: auto; flex: none; }
-.archive-v2-carte-badge-rapprochement { margin-left: auto; }
-.archive-v2-carte-fichier-nom {
-  font-size: 12px;
-  color: var(--ink-muted);
-  margin-top: 3px;
-  /* Jamais de debordement horizontal, meme pour un nom de fichier tres long. */
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
+/* ---------- Comptabilite : harmonisation sur le patron Factures fournisseurs ----------
+   Les factures se presentent desormais en table (desktop)/fiches
+   cab-carte-ligne (mobile) + panneau de detail lateral, comme l'ecran
+   Factures fournisseurs (voir archv2* dans app.js et creerPanneauDetail) -
+   les anciennes grandes cartes "archive-v2-carte" (3 boutons permanents par
+   ligne) ont ete retirees. Seuls les boutons encore utilises (dans le
+   panneau de detail et le header) restent stylés ici. */
 .archive-v2-icone { flex: none; vertical-align: -2px; }
-.archive-v2-carte-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--ink-2);
-}
-.archive-v2-carte-montants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-.archive-v2-carte-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-.archive-v2-carte-actions button {
-  flex: 1 1 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 40px;
-  padding: 8px 6px;
-  border-radius: 10px;
-  font-size: 12.5px;
-  font-weight: 700;
-  border: none;
-  cursor: pointer;
-  /* Touche confortable au doigt, jamais de texte coupe meme sur un tres
-     petit ecran (iPhone SE ~375px) : 3 boutons egaux sur une seule ligne. */
-  white-space: nowrap;
-}
-.archive-v2-bouton-voir,
-.archive-v2-bouton-corriger {
-  background: var(--brand-blue-soft);
-  color: var(--brand-blue);
-}
-.archive-v2-bouton-voir:hover,
-.archive-v2-bouton-corriger:hover { background: var(--brand-blue); color: #fff; }
 .archive-v2-bouton-supprimer {
   background: var(--critical-soft);
   color: var(--critical);
@@ -817,6 +721,35 @@ button:disabled { opacity: 0.4; cursor: default; }
   border: none;
 }
 .archive-v2-bouton-principal:hover { filter: brightness(1.08); }
+.cab-page-entete-avec-action {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+/* Ligne separatrice de mois dans la table/les fiches de l'onglet Archives
+   (remplace le groupe .groupe-mois/.groupe-mois-titre, specifique a
+   l'onglet Fournisseurs) - meme habillage visuel (.groupe-mois-compte
+   reutilisee telle quelle) sans dupliquer de nouvelle pastille. */
+tr.archive-v2-ligne-groupe-mois td {
+  background: var(--surface-2);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+  white-space: normal;
+}
+.cab-carte-ligne-entete-groupe {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+  margin: 14px 0 2px;
+}
+.cab-carte-ligne-entete-groupe:first-child { margin-top: 0; }
 
 /* ---------- Comptabilite : filtres avances repliables ---------- */
 .archive-v2-filtres-avances {
