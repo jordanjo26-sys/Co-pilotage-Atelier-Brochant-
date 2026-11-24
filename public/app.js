@@ -2857,6 +2857,83 @@ function initialesFournisseur(nom) {
   return nom.trim().charAt(0).toUpperCase();
 }
 
+/**
+ * Factory du panneau de detail lateral (ecran flagship "Factures
+ * fournisseurs", voir .cab-detail-panneau dans styles.css) - genere a
+ * partir du marquage #<prefixe>-detail-panneau/-overlay/-titre/-statut/
+ * -details/-document/-historique/-actions/-fermer, present une fois par
+ * ecran qui veut ce panneau (ex. "ff" ici, "archv2" pour Comptabilite).
+ * Centralise uniquement la mecanique generique (ouverture/fermeture avec
+ * la transition CSS, bascule d'onglet) - jamais le rendu metier (fourni
+ * par l'ecran via chargerDetail/rendu/chargerDocument), pour que chaque
+ * ecran garde sa propre source de donnees (jamais de fusion entre
+ * DocumentFournisseur/ArchiveComptable/etc. a ce niveau).
+ * Les requetes DOM de bascule d'onglet sont scopees au panneau de CET
+ * appel (jamais `document.querySelectorAll` global) : plusieurs panneaux
+ * (un par ecran) peuvent coexister dans le DOM sans jamais s'influencer,
+ * meme si un seul est ouvert a la fois.
+ */
+function creerPanneauDetail(prefixe, { chargerDetail, rendu, chargerDocument }) {
+  const el = (suffixe) => document.getElementById(`${prefixe}-detail-${suffixe}`);
+
+  function basculerOnglet(nom) {
+    const panneau = el("panneau");
+    panneau.querySelectorAll(".cab-detail-onglet").forEach((b) => b.classList.toggle("actif", b.dataset.detailOnglet === nom));
+    panneau.querySelectorAll("[data-detail-panneau]").forEach((p) => {
+      p.hidden = p.dataset.detailPanneau !== nom;
+    });
+    if (nom === "document") chargerDocument();
+  }
+
+  async function ouvrir(id) {
+    const panneau = el("panneau");
+    const overlay = el("overlay");
+    panneau.hidden = false;
+    overlay.hidden = false;
+    requestAnimationFrame(() => panneau.classList.add("ouvert"));
+    basculerOnglet("details");
+
+    el("titre").textContent = "Chargement…";
+    el("statut").innerHTML = "";
+    el("details").innerHTML = "";
+    el("document").innerHTML = "";
+    el("actions").innerHTML = "";
+
+    try {
+      const detail = await chargerDetail(id);
+      rendu(detail);
+    } catch (err) {
+      el("titre").textContent = "Erreur";
+      el("details").innerHTML = `<p class="liste-vide">${echapper(err.message)}</p>`;
+    }
+  }
+
+  function fermer() {
+    const panneau = el("panneau");
+    const overlay = el("overlay");
+    panneau.classList.remove("ouvert");
+    overlay.hidden = true;
+    setTimeout(() => {
+      if (!panneau.classList.contains("ouvert")) panneau.hidden = true;
+    }, 200);
+  }
+
+  function initialiserFermeture() {
+    const fermerBtn = el("fermer");
+    if (fermerBtn && !fermerBtn.dataset.initialise) {
+      fermerBtn.addEventListener("click", fermer);
+      fermerBtn.dataset.initialise = "1";
+    }
+    const overlay = el("overlay");
+    if (overlay && !overlay.dataset.initialise) {
+      overlay.addEventListener("click", fermer);
+      overlay.dataset.initialise = "1";
+    }
+  }
+
+  return { ouvrir, fermer, basculerOnglet, initialiserFermeture };
+}
+
 const ffEtat = { page: 1, parPage: 25, statut: "", recherche: "", fournisseurNom: "", anneeMois: "", detailId: null, detailOnglet: "details" };
 let ffFournisseursChoixCharges = false;
 
@@ -3021,72 +3098,47 @@ function ffInitialiserControles() {
     filtreFournisseur.dataset.initialise = "1";
   }
 
-  const fermer = document.getElementById("ff-detail-fermer");
-  if (fermer && !fermer.dataset.initialise) {
-    fermer.addEventListener("click", ffFermerDetail);
-    fermer.dataset.initialise = "1";
+  ffPanneau.initialiserFermeture();
+  const panneauFf = document.getElementById("ff-detail-panneau");
+  if (panneauFf) {
+    panneauFf.querySelectorAll(".cab-detail-onglet").forEach((bouton) => {
+      if (bouton.dataset.initialise) return;
+      bouton.addEventListener("click", () => ffBasculerOngletDetail(bouton.dataset.detailOnglet));
+      bouton.dataset.initialise = "1";
+    });
   }
-  const overlay = document.getElementById("ff-detail-overlay");
-  if (overlay && !overlay.dataset.initialise) {
-    overlay.addEventListener("click", ffFermerDetail);
-    overlay.dataset.initialise = "1";
-  }
-  document.querySelectorAll(".cab-detail-onglet").forEach((bouton) => {
-    if (bouton.dataset.initialise) return;
-    bouton.addEventListener("click", () => ffBasculerOngletDetail(bouton.dataset.detailOnglet));
-    bouton.dataset.initialise = "1";
-  });
-}
-
-function ffBasculerOngletDetail(nom) {
-  ffEtat.detailOnglet = nom;
-  document.querySelectorAll(".cab-detail-onglet").forEach((b) => b.classList.toggle("actif", b.dataset.detailOnglet === nom));
-  document.querySelectorAll("[data-detail-panneau]").forEach((p) => {
-    p.hidden = p.dataset.detailPanneau !== nom;
-  });
-  if (nom === "document") ffChargerDocumentDetail();
 }
 
 let ffDetailCourant = null;
 
-async function ffOuvrirDetail(id) {
-  ffEtat.detailId = id;
-  const panneau = document.getElementById("ff-detail-panneau");
-  const overlay = document.getElementById("ff-detail-overlay");
-  panneau.hidden = false;
-  overlay.hidden = false;
-  requestAnimationFrame(() => panneau.classList.add("ouvert"));
-  ffBasculerOngletDetail("details");
-
-  document.getElementById("ff-detail-titre").textContent = "Chargement…";
-  document.getElementById("ff-detail-statut").innerHTML = "";
-  document.getElementById("ff-detail-details").innerHTML = "";
-  document.getElementById("ff-detail-document").innerHTML = "";
-  document.getElementById("ff-detail-actions").innerHTML = "";
-
-  try {
+const ffPanneau = creerPanneauDetail("ff", {
+  chargerDetail: async (id) => {
     const res = await fetch(`/api/factures-fournisseurs/${encodeURIComponent(id)}/detail`);
     if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Facture introuvable.");
     const detail = await res.json();
     ffDetailCourant = detail;
-    ffRenduDetail(detail);
-  } catch (err) {
-    document.getElementById("ff-detail-titre").textContent = "Erreur";
-    document.getElementById("ff-detail-details").innerHTML = `<p class="liste-vide">${echapper(err.message)}</p>`;
-  }
+    return detail;
+  },
+  rendu: (detail) => ffRenduDetail(detail),
+  chargerDocument: () => ffChargerDocumentDetail(),
+});
+
+function ffBasculerOngletDetail(nom) {
+  ffEtat.detailOnglet = nom;
+  ffPanneau.basculerOnglet(nom);
+}
+
+function ffOuvrirDetail(id) {
+  ffEtat.detailId = id;
+  ffEtat.detailOnglet = "details";
+  ffPanneau.ouvrir(id);
 }
 window.ffOuvrirDetail = ffOuvrirDetail;
 
 function ffFermerDetail() {
-  const panneau = document.getElementById("ff-detail-panneau");
-  const overlay = document.getElementById("ff-detail-overlay");
-  panneau.classList.remove("ouvert");
-  overlay.hidden = true;
   ffEtat.detailId = null;
   ffDetailCourant = null;
-  setTimeout(() => {
-    if (!panneau.classList.contains("ouvert")) panneau.hidden = true;
-  }, 200);
+  ffPanneau.fermer();
 }
 
 function ffRenduDetail(detail) {
