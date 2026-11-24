@@ -543,157 +543,147 @@ async function chargerMouvementsBancaires() {
   appliquerFiltreMouvementsBancaires();
 }
 
-function appliquerFiltreMouvementsBancaires() {
-  const filtreMois = document.getElementById("filtre-mois-mouvements")?.value || "";
-  const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements")?.checked || false;
+// Etat des filtres Mouvements (periode commune + recherche + non-rapproches
+// seulement) - meme pattern que ffEtat : la liste reste en cache cote
+// client, le filtrage se fait sans nouvelle requete serveur.
+const mouvEtat = { dateDebut: "", dateFin: "", recherche: "" };
+let mouvPeriodeSelecteur = null;
 
-  const mouvements = mouvementsBancairesCache.filter((m) => {
-    if (filtreMois && !String(m.date).startsWith(filtreMois)) return false;
-    if (filtreNonRapproches && m.rapprochementStatut === "rapproche") return false;
-    return true;
-  });
-
-  const tbody = document.querySelector("#table-mouvements-bancaires tbody");
-  tbody.innerHTML = mouvements.length
-    ? mouvements
-        .map(
-          (m) => `
-    <tr class="${classeLigneRapprochement(m.rapprochementStatut)}">
+function mouvConstruireLigneTable(m) {
+  return `
+    <tr class="cab-ligne-cliquable ${classeLigneRapprochement(m.rapprochementStatut)}" onclick="mouvOuvrirDetail('${m.id}')">
       <td>${fmtDate(m.date)}</td>
       <td>${echapper(m.libelle)}</td>
       <td>${m.debit > 0 ? fmtMontant(m.debit) : ""}</td>
       <td>${m.credit > 0 ? fmtMontant(m.credit) : ""}</td>
       <td><span class="badge badge-${m.rapprochementStatut}">${m.rapprochementStatut === "rapproche" ? "✓ " : ""}${echapper(m.rapprochementStatut.replace(/_/g, " "))}</span></td>
-      <td><button type="button" class="ghost bouton-lien" onclick="basculerDetailMouvement('${m.id}', this)">Détail</button></td>
-    </tr>
-    <tr class="rapprochement-detail-ligne" data-detail-pour="${m.id}" hidden>
-      <td colspan="6"><div class="rapprochement-detail"></div></td>
-    </tr>`
-        )
-        .join("")
-    : `<tr><td colspan="6" class="liste-vide">Aucun mouvement pour ce filtre.</td></tr>`;
+    </tr>`;
+}
+
+function mouvConstruireCarteLigne(m) {
+  return construireCarteLigne({
+    titre: echapper(m.libelle),
+    montant: m.debit > 0 ? `-${echapper(fmtMontant(m.debit))}` : m.credit > 0 ? `+${echapper(fmtMontant(m.credit))}` : "",
+    metaGauche: echapper(fmtDate(m.date)),
+    statutHtml: `<span class="badge badge-${m.rapprochementStatut}">${m.rapprochementStatut === "rapproche" ? "✓ " : ""}${echapper(m.rapprochementStatut.replace(/_/g, " "))}</span>`,
+    onclick: `mouvOuvrirDetail('${m.id}')`,
+  });
+}
+
+function appliquerFiltreMouvementsBancaires() {
+  const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements")?.checked || false;
+  const recherche = mouvEtat.recherche.trim().toLowerCase();
+
+  const mouvements = mouvementsBancairesCache.filter((m) => {
+    const d = String(m.date).slice(0, 10);
+    if (mouvEtat.dateDebut && d < mouvEtat.dateDebut) return false;
+    if (mouvEtat.dateFin && d > mouvEtat.dateFin) return false;
+    if (filtreNonRapproches && m.rapprochementStatut === "rapproche") return false;
+    if (recherche && !(m.libelle || "").toLowerCase().includes(recherche)) return false;
+    return true;
+  });
+
+  const tbody = document.querySelector("#table-mouvements-bancaires tbody");
+  tbody.innerHTML = mouvements.length
+    ? mouvements.map((m) => mouvConstruireLigneTable(m)).join("")
+    : `<tr><td colspan="5" class="liste-vide">Aucun mouvement pour ce filtre.</td></tr>`;
 
   const cartes = document.getElementById("mouvements-cartes");
   if (cartes) {
     cartes.innerHTML = mouvements.length
-      ? mouvements
-          .map(
-            (m) => `
-      <div class="cab-carte-ligne">
-        <div class="cab-carte-ligne-entete">
-          <span class="cab-carte-ligne-titre"><span class="texte">${echapper(m.libelle)}</span></span>
-          <span class="cab-carte-ligne-montant">${m.debit > 0 ? "-" + fmtMontant(m.debit) : m.credit > 0 ? "+" + fmtMontant(m.credit) : ""}</span>
-        </div>
-        <div class="cab-carte-ligne-meta">
-          <span>${echapper(fmtDate(m.date))}</span>
-          <span class="badge badge-${m.rapprochementStatut}">${m.rapprochementStatut === "rapproche" ? "✓ " : ""}${echapper(m.rapprochementStatut.replace(/_/g, " "))}</span>
-        </div>
-        <button type="button" class="ghost" onclick="basculerDetailMouvementCarte('${m.id}', this)">Détail</button>
-        <div class="cab-carte-detail" hidden></div>
-      </div>`
-          )
-          .join("")
+      ? mouvements.map((m) => mouvConstruireCarteLigne(m)).join("")
       : `<p class="liste-vide">Aucun mouvement pour ce filtre.</p>`;
   }
 }
 
-/** Equivalent mobile de basculerDetailMouvement/rafraichirDetailMouvement -
- * meme construireDetailMouvementHtml (pure, sans etat), mais conteneur et
- * gestionnaires d'action propres : jamais de selecteur global partage avec
- * la table desktop (qui reste, elle, entierement inchangee). */
-async function basculerDetailMouvementCarte(id, bouton) {
-  const carte = bouton.closest(".cab-carte-ligne");
-  const conteneur = carte?.querySelector(".cab-carte-detail");
-  if (!conteneur) return;
-  if (!conteneur.hidden) {
-    conteneur.hidden = true;
-    bouton.textContent = "Détail";
-    return;
-  }
-  bouton.textContent = "Masquer";
-  conteneur.hidden = false;
-  conteneur.innerHTML = `<p class="aide-inline">Chargement…</p>`;
-  try {
+function mouvInitialiserPeriode() {
+  const periodeType = document.getElementById("mouvements-periode-type");
+  if (!periodeType || periodeType.dataset.initialise) return;
+  mouvPeriodeSelecteur = creerSelecteurPeriode("mouvements", {
+    defaut: "toutes",
+    onChange: (bornes) => {
+      mouvEtat.dateDebut = bornes?.dateDebut || "";
+      mouvEtat.dateFin = bornes?.dateFin || "";
+      appliquerFiltreMouvementsBancaires();
+    },
+  });
+  const bornesInitiales = mouvPeriodeSelecteur?.resoudre();
+  mouvEtat.dateDebut = bornesInitiales?.dateDebut || "";
+  mouvEtat.dateFin = bornesInitiales?.dateFin || "";
+  periodeType.dataset.initialise = "1";
+}
+
+document.getElementById("filtre-recherche-mouvements")?.addEventListener("input", (e) => {
+  mouvEtat.recherche = e.target.value;
+  appliquerFiltreMouvementsBancaires();
+});
+document.getElementById("filtre-non-rapproches-mouvements")?.addEventListener("change", appliquerFiltreMouvementsBancaires);
+document.getElementById("btn-reinitialiser-filtre-mouvements")?.addEventListener("click", () => {
+  const filtreRecherche = document.getElementById("filtre-recherche-mouvements");
+  const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements");
+  if (filtreRecherche) filtreRecherche.value = "";
+  if (filtreNonRapproches) filtreNonRapproches.checked = false;
+  mouvEtat.recherche = "";
+  mouvPeriodeSelecteur?.restaurerEtat({ type: "toutes" });
+  mouvEtat.dateDebut = "";
+  mouvEtat.dateFin = "";
+  appliquerFiltreMouvementsBancaires();
+});
+
+/**
+ * Panneau de detail des mouvements bancaires - meme factory generique que
+ * Factures fournisseurs/Comptabilite (creerPanneauDetail), mais un seul
+ * onglet "Details" (pas de document/PDF associe a un mouvement bancaire) :
+ * construireDetailMouvementHtml/attacherActionsDetailMouvement (pures,
+ * deja existantes) y sont reutilisees telles quelles plutot que dupliquees
+ * en variantes desktop/mobile comme avant.
+ */
+let mouvDetailCourant = null;
+
+const mouvPanneau = creerPanneauDetail("mouv", {
+  chargerDetail: async (id) => {
     const res = await fetch(`/api/mouvements-bancaires/${id}/detail`);
     const detail = await res.json();
     if (!res.ok) throw new Error(detail.erreur || "Chargement impossible.");
-    let candidats = { archives: [], documents: [] };
-    if (detail.mouvement.rapprochementStatut !== "rapproche") {
-      const resCandidats = await fetch(`/api/mouvements-bancaires/${id}/candidats`);
-      if (resCandidats.ok) candidats = await resCandidats.json();
-    }
-    conteneur.innerHTML = construireDetailMouvementHtml(detail, candidats);
-    attacherActionsDetailMouvementCarte(conteneur, id);
-  } catch (err) {
-    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
-  }
-}
-window.basculerDetailMouvementCarte = basculerDetailMouvementCarte;
-
-function attacherActionsDetailMouvementCarte(conteneur, id) {
-  const boutonAnnuler = conteneur.querySelector('[data-action="annuler"]');
-  if (boutonAnnuler) {
-    boutonAnnuler.addEventListener("click", async () => {
-      if (!confirm("Annuler ce rapprochement ? La ou les factures redeviendront disponibles pour un nouveau rattachement.")) return;
-      boutonAnnuler.disabled = true;
-      try {
-        const res = await fetch(`/api/mouvements-bancaires/${id}/annuler`, { method: "POST" });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.erreur || "Annulation impossible.");
-        }
-        await chargerMouvementsBancaires();
-        await chargerSuiviMensuel();
-      } catch (err) {
-        alert(err.message);
-        boutonAnnuler.disabled = false;
-      }
-    });
-  }
-
-  const boutonValider = conteneur.querySelector('[data-action="valider"]');
-  if (boutonValider) {
-    boutonValider.addEventListener("click", async () => {
-      const lignes = [...conteneur.querySelectorAll(".rapprochement-picker-ligne")];
-      const cibles = lignes
-        .filter((ligne) => ligne.querySelector("input[type=checkbox]").checked)
-        .map((ligne) => ({
-          type: ligne.querySelector("input[type=checkbox]").dataset.cibleType,
-          id: ligne.querySelector("input[type=checkbox]").dataset.cibleId,
-          montantAffecte: Number(ligne.querySelector(".rapprochement-picker-montant").value),
-        }));
-      if (cibles.length === 0) {
-        alert("Cochez au moins une facture à rattacher.");
-        return;
-      }
-      boutonValider.disabled = true;
-      try {
-        const res = await fetch(`/api/mouvements-bancaires/${id}/valider`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cibles }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.erreur || "Validation impossible.");
-        await chargerMouvementsBancaires();
-        await chargerSuiviMensuel();
-      } catch (err) {
-        alert(err.message);
-        boutonValider.disabled = false;
-      }
-    });
-  }
-}
-
-document.getElementById("filtre-mois-mouvements")?.addEventListener("change", appliquerFiltreMouvementsBancaires);
-document.getElementById("filtre-non-rapproches-mouvements")?.addEventListener("change", appliquerFiltreMouvementsBancaires);
-document.getElementById("btn-reinitialiser-filtre-mouvements")?.addEventListener("click", () => {
-  const filtreMois = document.getElementById("filtre-mois-mouvements");
-  const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements");
-  if (filtreMois) filtreMois.value = "";
-  if (filtreNonRapproches) filtreNonRapproches.checked = false;
-  appliquerFiltreMouvementsBancaires();
+    mouvDetailCourant = detail;
+    return detail;
+  },
+  rendu: (detail) => mouvRenduDetail(detail),
+  chargerDocument: () => {},
 });
+
+function mouvOuvrirDetail(id) {
+  mouvPanneau.ouvrir(id);
+}
+window.mouvOuvrirDetail = mouvOuvrirDetail;
+
+function mouvFermerDetail() {
+  mouvDetailCourant = null;
+  mouvPanneau.fermer();
+}
+window.mouvFermerDetail = mouvFermerDetail;
+
+async function mouvRenduDetail(detail) {
+  const { mouvement } = detail;
+  document.getElementById("mouv-detail-titre").textContent = mouvement.libelle;
+  const statutSpan = document.getElementById("mouv-detail-statut");
+  statutSpan.className = `badge badge-${mouvement.rapprochementStatut}`;
+  statutSpan.textContent = `${mouvement.rapprochementStatut === "rapproche" ? "✓ " : ""}${mouvement.rapprochementStatut.replace(/_/g, " ")}`;
+
+  const conteneur = document.getElementById("mouv-detail-details");
+  conteneur.innerHTML = `
+    <div class="cab-detail-ligne"><span>Date</span><span>${echapper(fmtDate(mouvement.date))}</span></div>
+    <div class="cab-detail-ligne"><span>Débit</span><span>${mouvement.debit > 0 ? echapper(fmtMontant(mouvement.debit)) : "—"}</span></div>
+    <div class="cab-detail-ligne"><span>Crédit</span><span>${mouvement.credit > 0 ? echapper(fmtMontant(mouvement.credit)) : "—"}</span></div>`;
+
+  let candidats = { archives: [], documents: [] };
+  if (mouvement.rapprochementStatut !== "rapproche") {
+    const resCandidats = await fetch(`/api/mouvements-bancaires/${mouvement.id}/candidats`);
+    if (resCandidats.ok) candidats = await resCandidats.json();
+  }
+  conteneur.innerHTML += construireDetailMouvementHtml(detail, candidats);
+  attacherActionsDetailMouvement(conteneur, mouvement.id, detail);
+}
 
 // --- Tresorerie : Synthese ---------------------------------------------------
 //
@@ -839,64 +829,15 @@ function trInitialiserSynthesePeriode() {
 function voirMouvementsDuMois(periode) {
   basculerOnglet("tresorerie");
   document.querySelector('.cab-sousnav[data-sousnav="tresorerie"] .cab-segment[data-souspanneau="mouvements"]')?.click();
-  const filtreMois = document.getElementById("filtre-mois-mouvements");
   const filtreNonRapproches = document.getElementById("filtre-non-rapproches-mouvements");
-  if (filtreMois) filtreMois.value = periode;
+  mouvPeriodeSelecteur?.restaurerEtat({ type: "mois_annee", anneeMois: periode });
+  mouvEtat.dateDebut = mouvPeriodeSelecteur?.resoudre()?.dateDebut || "";
+  mouvEtat.dateFin = mouvPeriodeSelecteur?.resoudre()?.dateFin || "";
   if (filtreNonRapproches) filtreNonRapproches.checked = true;
   appliquerFiltreMouvementsBancaires();
   document.getElementById("table-mouvements-bancaires")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 window.voirMouvementsDuMois = voirMouvementsDuMois;
-
-/**
- * Detail depliable d'un mouvement (facture(s) liee(s), historique, et selon
- * son statut un outil de rattachement manuel ou un bouton d'annulation) -
- * charge a la demande (pas de pre-chargement pour chaque ligne : la table
- * peut compter plusieurs milliers de mouvements).
- */
-async function basculerDetailMouvement(id, bouton) {
-  const ligneDetail = document.querySelector(`tr.rapprochement-detail-ligne[data-detail-pour="${id}"]`);
-  if (!ligneDetail) return;
-  if (!ligneDetail.hidden) {
-    ligneDetail.hidden = true;
-    bouton.textContent = "Détail";
-    return;
-  }
-  bouton.textContent = "Masquer";
-  ligneDetail.hidden = false;
-  await rafraichirDetailMouvement(id);
-}
-
-async function rafraichirDetailMouvement(id) {
-  const ligneDetail = document.querySelector(`tr.rapprochement-detail-ligne[data-detail-pour="${id}"]`);
-  const conteneur = ligneDetail?.querySelector(".rapprochement-detail");
-  if (!conteneur) return;
-  // chargerMouvementsBancaires (appelee juste avant par les actions
-  // valider/annuler ci-dessous) reconstruit toute la table, donc une
-  // ligne de detail precedemment ouverte revient fermee par defaut - on la
-  // rouvre ici pour que l'utilisateur voie immediatement le resultat de son
-  // action, sans avoir a recliquer sur "Detail".
-  ligneDetail.hidden = false;
-  const boutonDetail = document.querySelector(`tr[class] button[onclick*="basculerDetailMouvement('${id}'"]`);
-  if (boutonDetail) boutonDetail.textContent = "Masquer";
-  conteneur.innerHTML = `<p class="aide-inline">Chargement…</p>`;
-  try {
-    const res = await fetch(`/api/mouvements-bancaires/${id}/detail`);
-    const detail = await res.json();
-    if (!res.ok) throw new Error(detail.erreur || "Chargement impossible.");
-
-    let candidats = { archives: [], documents: [] };
-    if (detail.mouvement.rapprochementStatut !== "rapproche") {
-      const resCandidats = await fetch(`/api/mouvements-bancaires/${id}/candidats`);
-      if (resCandidats.ok) candidats = await resCandidats.json();
-    }
-
-    conteneur.innerHTML = construireDetailMouvementHtml(detail, candidats);
-    attacherActionsDetailMouvement(conteneur, id, detail);
-  } catch (err) {
-    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
-  }
-}
 
 function libelleCible(cible) {
   if (!cible.detail) return `${cible.cibleType} ${cible.cibleId}`;
@@ -984,7 +925,7 @@ function attacherActionsDetailMouvement(conteneur, id, detail) {
         }
         await chargerMouvementsBancaires();
         await chargerSuiviMensuel();
-        await rafraichirDetailMouvement(id);
+        await mouvPanneau.ouvrir(id);
       } catch (err) {
         alert(err.message);
         boutonAnnuler.disabled = false;
@@ -1018,7 +959,7 @@ function attacherActionsDetailMouvement(conteneur, id, detail) {
         if (!res.ok) throw new Error(data.erreur || "Validation impossible.");
         await chargerMouvementsBancaires();
         await chargerSuiviMensuel();
-        await rafraichirDetailMouvement(id);
+        await mouvPanneau.ouvrir(id);
       } catch (err) {
         alert(err.message);
         boutonValider.disabled = false;
@@ -5624,6 +5565,8 @@ function forcerNouveauCalqueAffichage() {
 async function rafraichirTout() {
   ffInitialiserControles();
   trInitialiserSynthesePeriode();
+  mouvInitialiserPeriode();
+  mouvPanneau.initialiserFermeture();
   initialiserSousNav("factures");
   initialiserSousNav("tresorerie");
   initialiserSousNav("marketing");

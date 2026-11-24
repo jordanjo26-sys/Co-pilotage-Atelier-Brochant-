@@ -533,15 +533,16 @@
         <button type="button" id="btn-relancer-rapprochement">Relancer le rapprochement</button>
         <div id="resultat-rapprochement"></div>
         <div class="filtre-mouvements-ligne">
-          <label for="filtre-mois-mouvements">Filtrer par mois :</label>
-          <input type="month" id="filtre-mois-mouvements" />
+          <input type="search" id="filtre-recherche-mouvements" placeholder="Rechercher un libellé…" />
+          <select id="mouvements-periode-type" title="Période" aria-label="Choisir la période"></select>
+          <span id="mouvements-periode-secondaire" class="cab-periode-secondaire"></span>
           <label><input type="checkbox" id="filtre-non-rapproches-mouvements" /> Uniquement non rapprochés/à vérifier</label>
           <button type="button" class="ghost" id="btn-reinitialiser-filtre-mouvements">Réinitialiser</button>
         </div>
         <div class="table-scroll cab-desktop-seul">
           <table id="table-mouvements-bancaires">
             <thead>
-              <tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Rapprochement</th><th>Actions</th></tr>
+              <tr><th>Date</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Rapprochement</th></tr>
             </thead>
             <tbody></tbody>
           </table>
@@ -549,6 +550,21 @@
         <div id="mouvements-cartes" class="cab-cartes-liste"></div>
       </section>
       </div>
+
+      <div class="cab-overlay" id="mouv-detail-overlay" hidden></div>
+      <aside class="cab-detail-panneau" id="mouv-detail-panneau" hidden aria-label="Détail du mouvement bancaire">
+        <div class="cab-detail-entete">
+          <h3 id="mouv-detail-titre">—</h3>
+          <span class="cab-statut-point" id="mouv-detail-statut"></span>
+          <button type="button" class="cab-detail-fermer" id="mouv-detail-fermer" aria-label="Fermer le détail">✕</button>
+        </div>
+        <div class="cab-detail-corps">
+          <div data-detail-panneau="details" id="mouv-detail-details"></div>
+          <div data-detail-panneau="document" id="mouv-detail-document" hidden></div>
+          <div data-detail-panneau="historique" id="mouv-detail-historique" hidden></div>
+        </div>
+        <div class="cab-detail-pied" id="mouv-detail-actions"></div>
+      </aside>
 
       <div data-souspanneau-contenu="rapprochement" hidden>
       <section class="carte accent-teal" id="suivi-mensuel">
