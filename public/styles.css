@@ -1140,27 +1140,29 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 }
 .morgane-bulle-ouvrir:hover { opacity: 0.9; }
 .morgane-bulle-ouvrir svg { width: 24px; height: 24px; }
+/* Moins intrusive pendant la consultation d'un PDF/document ou la saisie
+   d'un formulaire (demande explicite de l'utilisateur) - reduite, jamais
+   masquee : reste accessible au survol/focus. Ne s'applique qu'a la bulle
+   fermee (voir morgane.js:recalculerDiscretionMorgane), jamais au panneau
+   de conversation si l'utilisateur l'a lui-meme ouvert. */
+#morgane-flottante.morgane-discrete .morgane-bulle-ouvrir {
+  opacity: 0.35;
+  transform: scale(0.8);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+#morgane-flottante.morgane-discrete .morgane-bulle-ouvrir:hover,
+#morgane-flottante.morgane-discrete .morgane-bulle-ouvrir:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
 
 /* Bouton de diagnostic TEMPORAIRE (voir navigation.js:signalerAffichageIncorrect)
-   - a retirer une fois le "fondu" resolu. Volontairement voyant (couleur
-   d'alerte) pour rester facile a retrouver, oppose a Morgane (en bas a
-   droite) pour ne jamais se chevaucher. */
-.diagnostic-bouton-signaler {
-  position: fixed;
-  bottom: max(20px, env(safe-area-inset-bottom, 0px));
-  left: max(20px, env(safe-area-inset-left, 0px));
-  z-index: 60;
-  background: var(--critical);
-  color: #fff;
-  border: none;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: var(--shadow);
-  cursor: pointer;
-}
-.diagnostic-bouton-signaler:disabled { opacity: 0.7; cursor: default; }
+   - a retirer une fois le "fondu" resolu. N'est plus un bouton flottant
+   permanent (demande explicite de l'utilisateur, "moins encombrant") :
+   vit desormais dans le menu "Plus" (mobile, .cab-feuille-bas-lien) et
+   la barre laterale (desktop, .cab-sidebar-lien), dont il reprend le
+   style - seul l'etat "disabled" pendant l'analyse reste specifique. */
+[data-signaler-affichage]:disabled { opacity: 0.7; cursor: default; }
 
 .morgane-panneau-flottant {
   position: fixed;
@@ -1203,14 +1205,10 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 
 /* Remonte la bulle/le panneau Morgane au-dessus de la nouvelle barre mobile
    basse (.cab-bottomnav, ~56px de haut) introduite par la refonte V2 :
-   sans ca, la bulle flottante chevauche l'onglet "Plus" de la barre. Meme
-   correctif pour le bouton de diagnostic temporaire (signale par
-   l'utilisateur : il recouvrait "Accueil"/"Gestion" en bas de l'ecran,
-   les rendant impossibles a toucher). */
+   sans ca, la bulle flottante chevauche l'onglet "Plus" de la barre. */
 @media (max-width: 959px) {
   .morgane-bulle-ouvrir { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 76px)); }
   .morgane-panneau-flottant { bottom: max(140px, calc(env(safe-area-inset-bottom, 0px) + 140px)); }
-  .diagnostic-bouton-signaler { bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 76px)); }
 }
 
 .barre-filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }

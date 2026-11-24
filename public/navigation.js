@@ -107,15 +107,15 @@ function signalerAffichageIncorrect(bouton) {
     });
 }
 
-(() => {
-  const bouton = document.createElement("button");
-  bouton.type = "button";
-  bouton.id = "diagnostic-bouton-signaler";
-  bouton.className = "diagnostic-bouton-signaler";
-  bouton.textContent = "🐞 Signaler l'affichage";
+// Le bouton n'est plus flottant en permanence (demande explicite de
+// l'utilisateur - "moins encombrant") : il vit desormais dans le menu
+// "Plus" (mobile) et dans la barre laterale (desktop), chaque page pouvant
+// en avoir zero, une ou plusieurs instances (balisees par un attribut
+// plutot qu'un id, pour eviter tout doublon d'id si plusieurs existent sur
+// une meme page) - toutes appellent la meme fonction.
+document.querySelectorAll("[data-signaler-affichage]").forEach((bouton) => {
   bouton.addEventListener("click", () => signalerAffichageIncorrect(bouton));
-  document.body.appendChild(bouton);
-})();
+});
 
 document.querySelectorAll("[data-groupe-toggle]").forEach((bouton) => {
   bouton.addEventListener("click", () => {

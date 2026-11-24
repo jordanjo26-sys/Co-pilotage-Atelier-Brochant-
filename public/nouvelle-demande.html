@@ -74,6 +74,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
           Système &amp; Paramètres
         </a>
+
+        <button type="button" class="cab-sidebar-lien" data-signaler-affichage>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          Signaler l'affichage
+        </button>
       </nav>
       <div class="cab-sidebar-pied">
         <span class="cab-sidebar-avatar">AB</span>
@@ -194,10 +199,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
       <span>Marketing</span>
     </button>
-    <a href="/accueil.html" class="cab-bottomnav-lien">
+    <button type="button" class="cab-bottomnav-lien" data-feuille="plus">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
       <span>Plus</span>
-    </a>
+    </button>
   </nav>
 
   <div class="cab-overlay cab-overlay-feuille" id="cab-feuille-overlay" hidden></div>
@@ -221,6 +226,12 @@
     <div class="cab-feuille-bas-poignee"></div>
     <a class="cab-feuille-bas-lien" href="/index.html#google-ads">Google Ads</a>
     <a class="cab-feuille-bas-lien" href="/index.html#reseaux-sociaux">Réseaux sociaux</a>
+  </div>
+
+  <div class="cab-feuille-bas" id="cab-feuille-plus" hidden>
+    <div class="cab-feuille-bas-poignee"></div>
+    <a class="cab-feuille-bas-lien" href="/accueil.html">Voir tous les pôles</a>
+    <button type="button" class="cab-feuille-bas-lien" data-signaler-affichage>🐞 Signaler l'affichage</button>
   </div>
 
   <script src="/nouvelle-demande.js?v=5"></script>

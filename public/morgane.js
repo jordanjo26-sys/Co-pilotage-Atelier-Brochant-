@@ -93,6 +93,26 @@
     // ignore
   }
 
+  // Bulle moins intrusive (demande explicite de l'utilisateur) pendant la
+  // consultation d'un document (onglet "Document" d'un panneau de detail,
+  // ex. lecteur PDF) ou la saisie d'un formulaire : reduite en opacite/
+  // taille plutot que masquee (toujours accessible au survol/focus, jamais
+  // retiree). Ne s'applique qu'a la bulle FERMEE - si l'utilisateur a
+  // lui-meme ouvert la conversation, elle reste pleinement visible.
+  function recalculerDiscretionMorgane() {
+    const actif = document.activeElement;
+    const champFormulaireActif = Boolean(actif && ["INPUT", "TEXTAREA", "SELECT"].includes(actif.tagName) && !conteneur.contains(actif));
+    const documentOuvert = Boolean(document.querySelector('.cab-detail-panneau.ouvert [data-detail-panneau="document"]:not([hidden])'));
+    conteneur.classList.toggle("morgane-discrete", champFormulaireActif || documentOuvert);
+  }
+  document.addEventListener("focusin", recalculerDiscretionMorgane);
+  document.addEventListener("focusout", recalculerDiscretionMorgane);
+  new MutationObserver(recalculerDiscretionMorgane).observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class", "hidden"],
+    subtree: true,
+  });
+
   // --- Conversation : meme logique que l'ancienne carte integree au tableau de bord ---
   const MORGANE_CLE_SESSION = "copilote_morgane_historique";
 
