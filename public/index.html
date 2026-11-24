@@ -344,25 +344,32 @@
           <h2>Factures impayées</h2>
           <div id="resume-factures-impayees" class="grille-cockpit-compacte"></div>
         </div>
-        <div id="graphique-impayes" class="graphique-ca"></div>
-        <p class="aide">Montant restant dû, regroupé par mois d'émission (12 derniers mois) — Synec ne transmet pas de date d'échéance.</p>
+        <div class="cab-repli-mobile">
+          <button type="button" class="cab-repli-mobile-bouton" id="impayes-repli-bouton" aria-expanded="false" aria-controls="impayes-repli-corps">
+            Graphique et filtres détaillés
+          </button>
+          <div class="cab-repli-mobile-corps" id="impayes-repli-corps" hidden>
+            <div id="graphique-impayes" class="graphique-ca"></div>
+            <p class="aide">Montant restant dû, regroupé par mois d'émission (12 derniers mois) — Synec ne transmet pas de date d'échéance.</p>
 
-        <div class="barre-filtres">
-          <label class="aide-inline">Émise du <input type="date" id="filtre-facture-date-debut" /></label>
-          <label class="aide-inline">au <input type="date" id="filtre-facture-date-fin" /></label>
-          <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" placeholder="Montant min." />
-          <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" placeholder="Montant max." />
-          <input id="filtre-facture-client" placeholder="Rechercher un client…" />
-          <select id="filtre-facture-statut">
-            <option value="">Impayées et partiellement payées</option>
-            <option value="impayee">Impayées seulement</option>
-            <option value="partiellement_payee">Partiellement payées seulement</option>
-          </select>
-        </div>
-        <div class="ligne-boutons" style="margin-bottom: 10px;">
-          <button type="button" class="ghost" id="btn-reinitialiser-filtres-factures">Réinitialiser les filtres</button>
-          <a class="ghost bouton-lien" href="/api/factures/export-pdf">Exporter en PDF</a>
-          <span class="aide-inline" id="compte-factures-filtrees" style="margin-left: auto;"></span>
+            <div class="barre-filtres">
+              <label class="aide-inline">Émise du <input type="date" id="filtre-facture-date-debut" /></label>
+              <label class="aide-inline">au <input type="date" id="filtre-facture-date-fin" /></label>
+              <input type="number" id="filtre-facture-montant-min" step="0.01" min="0" placeholder="Montant min." />
+              <input type="number" id="filtre-facture-montant-max" step="0.01" min="0" placeholder="Montant max." />
+              <input id="filtre-facture-client" placeholder="Rechercher un client…" />
+              <select id="filtre-facture-statut">
+                <option value="">Impayées et partiellement payées</option>
+                <option value="impayee">Impayées seulement</option>
+                <option value="partiellement_payee">Partiellement payées seulement</option>
+              </select>
+            </div>
+            <div class="ligne-boutons" style="margin-bottom: 10px;">
+              <button type="button" class="ghost" id="btn-reinitialiser-filtres-factures">Réinitialiser les filtres</button>
+              <a class="ghost bouton-lien" href="/api/factures/export-pdf">Exporter en PDF</a>
+              <span class="aide-inline" id="compte-factures-filtrees" style="margin-left: auto;"></span>
+            </div>
+          </div>
         </div>
         <div class="table-scroll cab-desktop-seul">
           <table id="table-factures">

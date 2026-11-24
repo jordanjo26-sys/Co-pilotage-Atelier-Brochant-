@@ -1144,11 +1144,18 @@ async function chargerFacturesImpayees() {
   await chargerGraphiqueImpayes();
 
   const montantTotal = facturesImpayeesBrutes.reduce((somme, f) => somme + Math.max(f.montantTTC - (f.montantRegle || 0), 0), 0);
+  // Le rouge (classe .alerte) est reserve a un vrai signal - une facture
+  // impayee n'est pas en soi une alerte, seule une echeance deja depassee
+  // (dateEcheance, deja utilisee par le moteur de relances - voir
+  // relances.ts) en est une. Sans echeance connue, la tuile reste au
+  // "warning" ambre par defaut (.tuile-impayes), jamais au rouge "critique".
+  const maintenant = new Date();
+  const facturesEnRetard = facturesImpayeesBrutes.filter((f) => f.dateEcheance && new Date(f.dateEcheance) < maintenant);
   document.getElementById("resume-factures-impayees").innerHTML = `
-    <div class="tuile tuile-impayes${facturesImpayeesBrutes.length > 0 ? " alerte" : ""}">
+    <div class="tuile tuile-impayes${facturesEnRetard.length > 0 ? " alerte" : ""}">
       <div class="tuile-icone">${ICONES_TUILE.impayes}</div>
       <div class="valeur">${facturesImpayeesBrutes.length}</div>
-      <div class="label">facture(s) · ${fmtMontant(montantTotal)}</div>
+      <div class="label">facture(s) · ${fmtMontant(montantTotal)}${facturesEnRetard.length > 0 ? ` · ${facturesEnRetard.length} en retard` : ""}</div>
     </div>`;
 
   // Ecouteurs attaches une seule fois (chargerFacturesImpayees n'est
@@ -1165,6 +1172,18 @@ async function chargerFacturesImpayees() {
       afficherFacturesImpayeesFiltrees();
     });
     document.getElementById("filtre-facture-date-debut").dataset.initialise = "1";
+  }
+
+  const boutonRepliImpayes = document.getElementById("impayes-repli-bouton");
+  if (boutonRepliImpayes && !boutonRepliImpayes.dataset.initialise) {
+    boutonRepliImpayes.addEventListener("click", () => {
+      const corps = document.getElementById("impayes-repli-corps");
+      const ouvert = corps.hidden;
+      corps.hidden = !ouvert;
+      boutonRepliImpayes.setAttribute("aria-expanded", String(ouvert));
+      boutonRepliImpayes.textContent = ouvert ? "Masquer le graphique et les filtres détaillés" : "Graphique et filtres détaillés";
+    });
+    boutonRepliImpayes.dataset.initialise = "1";
   }
 }
 
