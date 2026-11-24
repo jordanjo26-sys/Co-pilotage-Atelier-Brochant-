@@ -1238,7 +1238,7 @@ async function chargerStatutStripe() {
     <p class="aide-inline">Alimente uniquement le rapprochement bancaire (payout ↔ relevé) — jamais directement le statut payée/impayée d'une facture client, qui vient exclusivement du champ "règlements" de l'export Synec.</p>
     <button type="button" id="btn-sync-stripe" class="ghost">Synchroniser maintenant</button>
     <div id="resultat-sync-stripe"></div>
-    <details class="fournisseur-documents">
+    <details class="cab-details-techniques">
       <summary>Synchronisation historique (au-delà des 30 derniers jours)</summary>
       <p class="aide-inline">La synchronisation automatique ne regarde que les 30 derniers jours : un paiement plus ancien que ça n'a jamais été récupéré s'il datait d'avant la mise en route de Stripe sur cette application. Pour le faire venir, choisis une date de départ et synchronise une fois.</p>
       <div class="ligne-boutons" style="margin: 10px 0; flex-wrap: wrap; align-items: center; gap: 8px;">
@@ -1247,7 +1247,7 @@ async function chargerStatutStripe() {
       </div>
       <div id="resultat-sync-stripe-historique"></div>
     </details>
-    <details class="fournisseur-documents">
+    <details class="cab-details-techniques">
       <summary>Voir les paiements captés</summary>
       <div class="ligne-boutons" style="margin: 10px 0; flex-wrap: wrap; align-items: center; gap: 8px;">
         <label class="aide-inline">Du <input type="date" id="paiements-stripe-depuis" /></label>
