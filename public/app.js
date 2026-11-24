@@ -2488,12 +2488,20 @@ function scanEstimerArrierePlan(canvasSource, largeur, hauteur) {
  * Corrige l'eclairage inegal (division par le fond local estime ci-dessus,
  * canal par canal - corrige aussi une dominante de couleur chaude due a
  * l'eclairage, pas seulement les ombres), etire ensuite le contraste
- * (percentile 1-99) et blanchit franchement ce qui est deja tres clair
- * (le fond, une fois l'eclairage corrige, doit tourner autour de 255
- * partout - le seuil nettoie le grain photo residuel). En mode noir et
- * blanc, repasse en niveaux de gris avec un contraste accentue en plus.
+ * (percentile 1-99) et blanchit franchement ce qui est deja tres clair (le
+ * fond, une fois l'eclairage corrige, doit tourner autour de 255 partout -
+ * le seuil nettoie le grain photo residuel). Toujours en niveaux de gris
+ * avec un contraste accentue : demande explicite de l'utilisateur ("toujours
+ * sur un fond blanc. Net.", meme a partir d'une feuille abimee/dechiree/
+ * jaunie) - plus aucun choix laisse a l'utilisateur (ancienne case "Noir et
+ * blanc" retiree), ce resultat devant toujours s'appliquer, jamais
+ * seulement sur demande. Verifie que l'ancien reglage (seuil 235, percentile
+ * 1-99, contraste x1.35) suffisait deja a obtenir un fond blanc pur meme sur
+ * un fond tres fonce/jauni d'origine - durcir ces valeurs plus que ca
+ * amplifiait au contraire un bruit/grain visible (motif de bandes) sur un
+ * fond par ailleurs propre, sans gain reel : jamais change ci-dessous.
  */
-function scanAmeliorerPixels(data, arrierePlan, noirEtBlanc) {
+function scanAmeliorerPixels(data, arrierePlan) {
   for (let i = 0; i < data.length; i += 4) {
     for (let c = 0; c < 3; c++) {
       const fond = Math.max(arrierePlan[i + c], 1);
@@ -2533,20 +2541,12 @@ function scanAmeliorerPixels(data, arrierePlan, noirEtBlanc) {
   const SEUIL_BLANCHIMENT = 235;
 
   for (let i = 0; i < data.length; i += 4) {
-    if (noirEtBlanc) {
-      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      let v = (lum - p1) * facteur;
-      v = (v - 128) * 1.35 + 128; // accentue le contraste autour du milieu (texte plus net)
-      v = Math.max(0, Math.min(255, v));
-      if (v >= SEUIL_BLANCHIMENT) v = 255;
-      data[i] = data[i + 1] = data[i + 2] = v;
-    } else {
-      for (let c = 0; c < 3; c++) {
-        let v = Math.max(0, Math.min(255, (data[i + c] - p1) * facteur));
-        if (v >= SEUIL_BLANCHIMENT) v = 255;
-        data[i + c] = v;
-      }
-    }
+    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    let v = (lum - p1) * facteur;
+    v = (v - 128) * 1.35 + 128; // accentue le contraste autour du milieu (texte plus net)
+    v = Math.max(0, Math.min(255, v));
+    if (v >= SEUIL_BLANCHIMENT) v = 255;
+    data[i] = data[i + 1] = data[i + 2] = v;
   }
 }
 
@@ -2570,9 +2570,8 @@ function scanAppliquerRognageEtAmelioration() {
   ctx.drawImage(scanImage, sx, sy, sw, sh, 0, 0, outW, outH);
 
   const arrierePlan = scanEstimerArrierePlan(canvasResultat, outW, outH);
-  const noirEtBlanc = document.getElementById("scan-noir-blanc").checked;
   const imageData = ctx.getImageData(0, 0, outW, outH);
-  scanAmeliorerPixels(imageData.data, arrierePlan, noirEtBlanc);
+  scanAmeliorerPixels(imageData.data, arrierePlan);
   ctx.putImageData(imageData, 0, 0);
 
   document.getElementById("scan-zone-edition").hidden = true;
@@ -2649,9 +2648,6 @@ if (btnScanReprendre) {
     document.getElementById("scan-zone-edition").hidden = false;
   });
 }
-
-const caseScanNoirEtBlanc = document.getElementById("scan-noir-blanc");
-if (caseScanNoirEtBlanc) caseScanNoirEtBlanc.addEventListener("change", scanAppliquerRognageEtAmelioration);
 
 const formScanDocument = document.getElementById("form-scan-document");
 if (formScanDocument) {
