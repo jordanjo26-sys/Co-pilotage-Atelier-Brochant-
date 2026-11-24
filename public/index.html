@@ -170,6 +170,7 @@
       </div>
       <div class="cab-segments cab-sousnav" data-sousnav="factures" role="tablist" aria-label="Section des factures">
         <button type="button" class="cab-segment actif" data-souspanneau="fournisseurs" role="tab" aria-selected="true">Fournisseurs</button>
+        <button type="button" class="cab-segment" data-souspanneau="scanner" role="tab" aria-selected="false">Scanner</button>
         <button type="button" class="cab-segment" data-souspanneau="dext" role="tab" aria-selected="false">Envoyées à Dext</button>
         <button type="button" class="cab-segment" data-souspanneau="clients" role="tab" aria-selected="false">Impayées clients</button>
       </div>
@@ -239,9 +240,27 @@
         <div class="cab-detail-pied" id="ff-detail-actions"></div>
       </aside>
 
+      <section class="carte accent-teal">
+        <h2>Factures fournisseurs reçues</h2>
+        <p class="aide">Factures reconnues par e-mail mais pas encore transmises à Dext — transfert automatique en pause ou envoi manuel groupé en fin de mois. "Voir" prévisualise le document, "Envoyer à Dext" le transmet tout de suite.</p>
+        <div id="liste-factures-fournisseurs"></div>
+      </section>
+
+      <section class="carte accent-violet">
+        <h2>Bilan de santé</h2>
+        <p class="aide">Synthèse de l'activité : chiffre d'affaires, impayés par ancienneté, documents fournisseurs en attente, points de vigilance.</p>
+        <div class="ligne-boutons">
+          <button type="button" class="ghost" id="btn-generer-bilan">Générer le bilan</button>
+          <button type="button" class="ghost" id="btn-envoyer-bilan">Envoyer par e-mail</button>
+        </div>
+        <pre id="contenu-bilan" class="bloc-texte" hidden></pre>
+      </section>
+      </div>
+
+      <div data-souspanneau-contenu="scanner" hidden>
       <section class="carte accent-violet">
         <h2>Scanner un document papier</h2>
-        <p class="aide">Facture, avoir, bon ou relevé reçu en papier : prends-le en photo, recadre-le et améliore le contraste ci-dessous — le document rejoint ensuite "Factures fournisseurs reçues" juste en dessous, comme un document reçu par e-mail.</p>
+        <p class="aide">Facture, avoir, bon ou relevé reçu en papier : prends-le en photo, recadre-le et améliore le contraste ci-dessous — le document rejoint ensuite "Factures fournisseurs reçues" (onglet Fournisseurs), comme un document reçu par e-mail.</p>
         <input type="file" id="scan-fichier-photo" accept="image/*" />
         <div id="scan-resultat-envoi"></div>
 
@@ -286,22 +305,6 @@
             <button type="submit">Enregistrer</button>
           </form>
         </div>
-      </section>
-
-      <section class="carte accent-teal">
-        <h2>Factures fournisseurs reçues</h2>
-        <p class="aide">Factures reconnues par e-mail mais pas encore transmises à Dext — transfert automatique en pause ou envoi manuel groupé en fin de mois. "Voir" prévisualise le document, "Envoyer à Dext" le transmet tout de suite.</p>
-        <div id="liste-factures-fournisseurs"></div>
-      </section>
-
-      <section class="carte accent-violet">
-        <h2>Bilan de santé</h2>
-        <p class="aide">Synthèse de l'activité : chiffre d'affaires, impayés par ancienneté, documents fournisseurs en attente, points de vigilance.</p>
-        <div class="ligne-boutons">
-          <button type="button" class="ghost" id="btn-generer-bilan">Générer le bilan</button>
-          <button type="button" class="ghost" id="btn-envoyer-bilan">Envoyer par e-mail</button>
-        </div>
-        <pre id="contenu-bilan" class="bloc-texte" hidden></pre>
       </section>
       </div>
 
