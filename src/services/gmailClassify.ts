@@ -481,32 +481,79 @@ function trouverMontantPourMotif(texte: string, motif: RegExp): number | null {
       continue;
     }
 
-    // Sinon, en-tete de tableau sur sa propre ligne : cherche dans la
-    // prochaine ligne non vide le nombre le plus proche, en colonne, a
-    // partir de la position du libelle (jamais avant, voir le
-    // commentaire ci-dessus).
-    for (let j = i + 1; j < Math.min(i + 4, lignes.length); j++) {
+    // Sinon, en-tete de tableau sur sa propre ligne : cherche dans les
+    // lignes suivantes le nombre en colonne, a partir de la position du
+    // libelle (jamais avant, voir le commentaire ci-dessus). Fenetre large
+    // (16, pas 4 comme avant) ET garde le plus GRAND montant trouve dans le
+    // bloc plutot que de s'arreter a la toute premiere ligne reussie : bug
+    // reel constate en production (vraie facture VW Rent/Chardon
+    // Automobiles) - "Total HT"/"Total TTC" ne sont imprimes qu'une fois,
+    // comme en-tetes d'un tableau de plusieurs lignes d'articles (Location,
+    // Km Sup, Pack Rachat...), chacune ayant son propre total en colonne ;
+    // s'arreter a la toute premiere ligne (la moins eloignee) ne retrouve
+    // alors que le total de la PREMIERE ligne d'article, jamais le vrai
+    // sous-total/total general affiche plus bas (parfois separe par des
+    // lignes vides, voire - meme document - avec son libelle recapitulatif
+    // APRES les montants plutot qu'avant). Un total general etant par
+    // construction la somme de ses lignes, il est necessairement le plus
+    // grand montant trouve dans cette colonne - retenir le plus grand
+    // plutot que le plus proche retrouve donc toujours le bon total, y
+    // compris sur une simple facture a une seule ligne (un seul candidat,
+    // le "plus grand" ne change alors rien).
+    //
+    // S'arrete des qu'une ligne de la fenetre evoque un reste a payer APRES
+    // deduction (acompte/paiement deja recu), jamais le total HT/TTC de la
+    // facture elle-meme (ex. meme vraie facture VW Rent/Chardon Automobiles :
+    // "Déduction des paiements : 0,00 €" puis "TOTAL NET DU : 82,00 €" juste
+    // apres le vrai total recherche, sans aucune ligne vide entre les deux -
+    // sans cet arret, la fenetre large continuerait dans cette section sans
+    // rapport et son propre montant, plus grand par hasard, l'emporterait a
+    // tort sur le vrai total). Une ligne d'article sans valeur dans cette
+    // colonne precise (ex. "Electrique" ci-dessus, qui n'a pas de quantite
+    // facturee donc pas de total) n'est PAS un arret : simplement aucun
+    // candidat sur cette ligne, la fenetre continue normalement.
+    const MOTIF_FIN_RECAP_PAIEMENT = /d[ée]duction|paiement|acompte|reste\s*[aà]\s*payer|net\s*d[ûu]|\bsolde\b/i;
+    let meilleurFenetre: number | null = null;
+    // Position reelle (pas celle, plus laxiste, du libelle lui-meme) de la
+    // toute premiere valeur trouvee dans la fenetre : verrouille la colonne
+    // du tableau en cours. Regression reelle en production (vraie facture
+    // Leroy Merlin) : la fenetre large (16 lignes) peut retomber, plus bas,
+    // sur un tableau totalement different (ex. moyen de paiement/montant
+    // regle) dont un montant tombe par coincidence dans les 160 caracteres
+    // du libelle d'origine - sans ce verrou, son montant (parfois le plus
+    // grand) l'emportait a tort. Tolerance de 20 caracteres (pas 0) : un
+    // nombre plus court (ex. "0,00" vs "54,17") se termine quelques
+    // caracteres plus tot sur une colonne pourtant bien alignee a droite
+    // (vraie facture VW Rent/Chardon Automobiles : derive de 1 a 3
+    // caracteres seulement entre les lignes d'un meme tableau).
+    let colonneReference: number | null = null;
+    for (let j = i + 1; j < Math.min(i + 16, lignes.length); j++) {
       if (!lignes[j].trim()) continue;
-      let meilleur: { valeur: string; distance: number } | null = null;
+      if (MOTIF_FIN_RECAP_PAIEMENT.test(lignes[j])) break;
+      // Le plus PROCHE d'abord (comme avant), ligne par ligne : identifie
+      // la bonne colonne sur CETTE ligne (le total HT d'un article, jamais
+      // sa TVA/son TTC, plus loin a droite sur la meme ligne) - seule la
+      // comparaison ENTRE lignes se fait ensuite par le plus grand montant,
+      // jamais entre colonnes d'une meme ligne.
+      let plusProcheSurCetteLigne: { valeur: string; distance: number; position: number } | null = null;
       for (const correspondanceNombre of lignes[j].matchAll(new RegExp(MOTIF_NOMBRE, "g"))) {
         const position = correspondanceNombre.index ?? 0;
         if (position < colonne) continue;
         const distance = position - colonne;
-        if (distance <= 160 && (!meilleur || distance < meilleur.distance)) {
-          meilleur = { valeur: correspondanceNombre[0], distance };
+        if (colonneReference != null && Math.abs(position - colonneReference) > 20) continue;
+        if (distance <= 160 && (!plusProcheSurCetteLigne || distance < plusProcheSurCetteLigne.distance)) {
+          plusProcheSurCetteLigne = { valeur: correspondanceNombre[0], distance, position };
         }
       }
-      if (meilleur) {
-        dernierTrouve = normaliserMontant(meilleur.valeur);
-        break;
-      }
-      // Sinon : cette ligne n'a pas de nombre exploitable dans la colonne
-      // attendue - continue vers la ligne suivante de la fenetre plutot que
-      // d'abandonner immediatement (bug reel constate en production, vraie
-      // facture Darty : en-tete de tableau sur deux lignes, "Total HT" /
-      // "Total TTC" suivis d'une ligne de continuation d'en-tete sans le
-      // moindre chiffre avant la vraie ligne de donnees).
+      if (!plusProcheSurCetteLigne) continue;
+      if (colonneReference == null) colonneReference = plusProcheSurCetteLigne.position;
+      const valeurNumerique = normaliserMontant(plusProcheSurCetteLigne.valeur);
+      if (meilleurFenetre == null || valeurNumerique > meilleurFenetre) meilleurFenetre = valeurNumerique;
+      // Pas de "break" des qu'une ligne reussit : continue a parcourir
+      // toute la fenetre (jusqu'au signal d'arret ci-dessus ou sa limite)
+      // pour ne jamais rater un total general plus loin.
     }
+    if (meilleurFenetre != null) dernierTrouve = meilleurFenetre;
   }
 
   return dernierTrouve;
