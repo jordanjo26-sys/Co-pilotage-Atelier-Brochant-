@@ -56,7 +56,7 @@ const MIME_IMAGES_FACTURE = new Set(["image/jpeg", "image/png"]);
  * (section 14, "jamais deviner") : un montant toujours introuvable apres
  * les trois niveaux reste explicitement "non renseigne".
  */
-async function resoudreMontantsFacture(
+export async function resoudreMontantsFacture(
   prisma: PrismaClient,
   mimeType: string,
   donnees: Buffer,
@@ -65,6 +65,23 @@ async function resoudreMontantsFacture(
   let montantTTC = contenuExtrait ? extraireMontantTTCFacture(contenuExtrait) : null;
   let montantHT = contenuExtrait ? extraireMontantHTFacture(contenuExtrait) : null;
   let fournisseurNomIA: string | null = null;
+
+  // Garde-fou de plausibilite (bug reel constate en production, novembre
+  // 2026 : facture Chardon Automobiles, TTC extrait a 191,26 alors que le
+  // HT valait 956,28). Cause reelle : le tableau de totaux imprime "...
+  // Base TVA / % TVA / TVA / Montant TTC" en colonnes, mais la ligne de
+  // valeurs ne respecte pas le MEME espacement que son en-tete des que l'une
+  // des cellules precedentes (ici "Total HT (€): 956,28") est plus large que
+  // son en-tete - le montant de TVA seul se retrouve alors plus proche, en
+  // alignement de colonne, du libelle "Montant TTC" que le vrai TTC. Un TTC
+  // strictement inferieur au HT est pourtant TOUJOURS impossible sur une
+  // facture normale (TTC = HT + TVA, TVA >= 0) : annule un tel TTC plutot
+  // que de le presenter avec une fausse certitude, pour laisser la chance au
+  // filet IA ci-dessous (ou a la saisie manuelle) de trouver la vraie
+  // valeur.
+  if (montantHT != null && montantTTC != null && montantTTC < montantHT) {
+    montantTTC = null;
+  }
 
   if (montantHT == null || montantTTC == null) {
     let champsIA = null;

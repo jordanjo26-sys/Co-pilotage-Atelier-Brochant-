@@ -4,7 +4,8 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import dotenv from "dotenv";
 import { gmail_v1 } from "googleapis";
-import { extrairePiecesJointes, resumerErreurs } from "../src/services/gmailSync";
+import { extrairePiecesJointes, resumerErreurs, resoudreMontantsFacture } from "../src/services/gmailSync";
+import { PrismaClient } from "@prisma/client";
 
 function part(overrides: Partial<gmail_v1.Schema$MessagePart> & { headers?: gmail_v1.Schema$MessagePartHeader[] }): gmail_v1.Schema$MessagePart {
   return {
@@ -121,6 +122,36 @@ test("resumerErreurs : plusieurs types d'erreurs distincts -> une ligne par type
   const resume = resumerErreurs(erreurs);
   assert.match(resume, /15 document\(s\)\/message\(s\) : Quota exceeded/);
   assert.match(resume, /a\.pdf : Insufficient Permission/);
+});
+
+// Garde-fou de plausibilite dans resoudreMontantsFacture (bug reel constate
+// en production, novembre 2026 : facture Chardon Automobiles). Le tableau de
+// totaux imprime "MO HT / PR HT / Base TVA / % TVA / TVA / MONTANT TTC" en
+// colonnes, mais la cellule "TOTAL HT (€): 956,28" (fusion visuelle de 3
+// colonnes d'en-tete) decale toute la ligne de valeurs vers la droite par
+// rapport a son en-tete : le montant de TVA seul (191,26) se retrouve alors,
+// en alignement de colonne, plus proche du libelle "MONTANT TTC" que le vrai
+// TTC (1.147,54) - lequel apparait plus loin encore a droite. Desactive la
+// cle Anthropic (comme gmailClassifyIA.test.ts) : verifie uniquement que la
+// valeur implausible (TTC < HT) est rejetee avant le filet IA, jamais qu'une
+// extraction IA reelle est appelee.
+test("resoudreMontantsFacture : rejette un TTC extrait inferieur au HT (implausible) plutot que de le garder tel quel", async (t) => {
+  const cleOriginale = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  t.after(() => {
+    if (cleOriginale) process.env.ANTHROPIC_API_KEY = cleOriginale;
+  });
+
+  const texteFacture = `
+                      MO HT (€)          PR HT (€)           Base TVA (€)       % TVA      TVA (€)         MONTANT TTC (€)
+                                                                      TOTAL HT (€): 956,28                           191,26                          1.147,54
+`;
+  const resultat = await resoudreMontantsFacture({} as PrismaClient, "application/pdf", Buffer.from(""), texteFacture);
+  // Sans cle Anthropic, le filet IA ne trouve rien : repli sur le calcul a
+  // partir du HT (mention de TVA presente, taux standard 20%) - jamais le
+  // 191,26 implausible extrait par la premiere passe.
+  assert.equal(resultat.montantHT, 956.28);
+  assert.equal(resultat.montantTTC, 1147.54);
 });
 
 // Les cas ci-dessous ne testent que les gardes-fous d'envoyerDocumentFournisseurVersDext
