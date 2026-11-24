@@ -618,8 +618,20 @@
     <div class="onglet-panneau" data-panneau="systeme" hidden>
       <div class="cab-page-entete">
         <h1>Système &amp; Paramètres</h1>
-        <p class="aide">Mémoire de Morgane (décisions) et journal des événements de l'application.</p>
+        <p class="aide">Centre de synchronisation, mémoire de Morgane (décisions) et journal des événements de l'application.</p>
       </div>
+      <section class="carte accent-teal">
+        <h2>Centre de synchronisation</h2>
+        <p class="aide">Vue d'ensemble de toutes les connexions automatiques — les commandes de synchronisation, paramètres et historiques détaillés restent dans l'écran de chaque service (accessible en cliquant sur une ligne).</p>
+        <div class="table-scroll cab-desktop-seul">
+          <table>
+            <thead><tr><th>Service</th><th>Statut</th><th>Dernière synchronisation</th></tr></thead>
+            <tbody id="centre-sync-tbody"></tbody>
+          </table>
+        </div>
+        <div id="centre-sync-cartes" class="cab-cartes-liste"></div>
+      </section>
+
       <section class="carte accent-violet">
         <h2>Mémoire de Morgane</h2>
         <p class="aide">Décisions retenues durablement (délai accordé, exception...), consultées automatiquement par Morgane dans toutes ses conversations.</p>
@@ -915,6 +927,10 @@
 
   <div class="cab-feuille-bas" id="cab-feuille-plus" hidden>
     <div class="cab-feuille-bas-poignee"></div>
+    <button type="button" class="cab-feuille-bas-lien onglet" data-onglet="systeme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Système &amp; Paramètres
+    </button>
     <a class="cab-feuille-bas-lien" href="/accueil.html">Voir tous les pôles</a>
     <button type="button" class="cab-feuille-bas-lien" data-signaler-affichage>🐞 Signaler l'affichage</button>
   </div>

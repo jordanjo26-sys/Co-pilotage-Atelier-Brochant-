@@ -1623,6 +1623,94 @@ async function chargerStatutOvh() {
   });
 }
 
+// --- Centre de synchronisation ----------------------------------------------
+//
+// Regroupement ergonomique demande par l'utilisateur : une presentation
+// compacte commune a Stripe/Synec/OVHcloud/Gmail/Dext (nom, statut reel,
+// derniere synchronisation, acces aux details), sans dupliquer les
+// interfaces completes (commandes de synchronisation, parametres,
+// historiques techniques) qui restent chacune dans leur propre ecran -
+// un clic sur une ligne y renvoie directement. Jamais de fusion/
+// modification des automatisations elles-memes : simple lecture des
+// statuts deja exposes par chaque route /status existante, plus (pour
+// Dext, qui n'a aucune route de statut dediee) une info minimale deja
+// disponible dans les donnees des factures envoyees.
+
+function syncRenduStatutPoint(ok, motif) {
+  return ok
+    ? `<span class="cab-statut-point cab-statut-validee">Connecté</span>`
+    : `<span class="cab-statut-point cab-statut-a_corriger">${echapper(motif || "Non connecté")}</span>`;
+}
+
+const CIBLES_CENTRE_SYNC = {
+  gmail: { onglet: "fournisseurs", elementId: "gmail-statut" },
+  stripe: { onglet: "tresorerie", sousnav: "connexions", elementId: "stripe-statut" },
+  synec: { onglet: "tresorerie", sousnav: "connexions", elementId: "synec-statut" },
+  ovh: { onglet: "tresorerie", sousnav: "connexions", elementId: "ovh-statut" },
+  dext: { onglet: "factures", sousnav: "dext", elementId: "dextenv-tbody" },
+};
+
+function syncOuvrirDetailService(service) {
+  const cible = CIBLES_CENTRE_SYNC[service];
+  if (!cible) return;
+  basculerOnglet(cible.onglet);
+  if (cible.sousnav) {
+    document.querySelector(`.cab-sousnav[data-sousnav="${cible.onglet}"] .cab-segment[data-souspanneau="${cible.sousnav}"]`)?.click();
+  }
+  document.getElementById(cible.elementId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.syncOuvrirDetailService = syncOuvrirDetailService;
+
+async function chargerCentreSynchronisation() {
+  const tbody = document.getElementById("centre-sync-tbody");
+  if (!tbody) return;
+
+  const [gmail, stripe, synec, ovh, documentsEnvoyes] = await Promise.all([
+    fetch("/api/gmail/status").then((r) => r.json()).catch(() => ({ connecte: false, motif: "Indisponible" })),
+    fetch("/api/stripe/status").then((r) => r.json()).catch(() => ({ connecte: false, motif: "Indisponible" })),
+    fetch("/api/synec/status").then((r) => r.json()).catch(() => ({ connecte: false, motif: "Indisponible" })),
+    fetch("/api/ovh/status").then((r) => r.json()).catch(() => ({ connecte: false, motif: "Indisponible" })),
+    fetch("/api/documents-fournisseurs?type=facture&statutDext=envoye").then((r) => r.json()).catch(() => []),
+  ]);
+
+  const dernierEnvoiDext = documentsEnvoyes.length
+    ? documentsEnvoyes.reduce((plusRecent, d) => (new Date(d.createdAt) > new Date(plusRecent.createdAt) ? d : plusRecent)).createdAt
+    : null;
+
+  const services = [
+    { cle: "gmail", nom: "Gmail", connecte: gmail.connecte, motif: gmail.motif, derniereSynchro: gmail.derniereSynchro },
+    { cle: "stripe", nom: "Stripe", connecte: stripe.connecte, motif: stripe.motif, derniereSynchro: stripe.derniereSynchro },
+    { cle: "synec", nom: "Synec", connecte: synec.connecte, motif: synec.motif, derniereSynchro: synec.derniereSynchro },
+    { cle: "ovh", nom: "OVHcloud", connecte: ovh.connecte, motif: ovh.motif, derniereSynchro: ovh.derniereSynchro },
+    { cle: "dext", nom: "Dext (envoi des factures)", connecte: !!dernierEnvoiDext, motif: "Aucun envoi pour le moment", derniereSynchro: dernierEnvoiDext },
+  ];
+
+  tbody.innerHTML = services
+    .map(
+      (s) => `
+    <tr class="cab-ligne-cliquable" onclick="syncOuvrirDetailService('${s.cle}')">
+      <td>${echapper(s.nom)}</td>
+      <td>${syncRenduStatutPoint(s.connecte, s.motif)}</td>
+      <td>${s.derniereSynchro ? echapper(fmtDate(s.derniereSynchro)) : "—"}</td>
+    </tr>`
+    )
+    .join("");
+
+  const cartes = document.getElementById("centre-sync-cartes");
+  if (cartes) {
+    cartes.innerHTML = services
+      .map((s) =>
+        construireCarteLigne({
+          titre: echapper(s.nom),
+          metaGauche: s.derniereSynchro ? `Dernière sync. : ${echapper(fmtDate(s.derniereSynchro))}` : "Jamais synchronisé",
+          statutHtml: syncRenduStatutPoint(s.connecte, s.motif),
+          onclick: `syncOuvrirDetailService('${s.cle}')`,
+        })
+      )
+      .join("");
+  }
+}
+
 // --- Google Ads (import manuel, en attendant l'acces API) ------------------
 
 async function chargerStatutGoogleAds() {
@@ -5648,7 +5736,7 @@ async function rafraichirTout() {
   initialiserSousNav("factures");
   initialiserSousNav("tresorerie");
   initialiserSousNav("marketing");
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerTresorerieSynthese(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerTresorerieSynthese(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerCentreSynchronisation(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
   requestAnimationFrame(forcerNouveauCalqueAffichage);
 }
 
