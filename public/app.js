@@ -204,6 +204,29 @@ try {
   // ignore
 }
 
+// "Fondu" assombri persistant signale par l'utilisateur sur Accueil et
+// Factures fournisseurs - trouve par bisection apres de tres nombreuses
+// tentatives infructueuses (voir l'historique git de ce fichier et de
+// styles.css) : chaque fois que ce bloc de tuiles est (re)injecte via
+// innerHTML, .tuile::before (la teinte de fond a faible opacite par
+// tuile, voir styles.css) peut se peindre une premiere fois avec un calque
+// incorrect, reste ensuite fige ainsi meme si une mise en page ulterieure
+// recalculerait correctement sa geometrie - getComputedStyle ne montre
+// jamais rien d'anormal (d'ou l'echec de tout diagnostic base sur le DOM :
+// un ::before n'est meme pas visible par querySelectorAll), seul le rendu
+// a l'ecran est fige. Constate de facon reproductible que re-appliquer
+// explicitement "contain" sur chaque tuile juste apres sa creation (deja
+// vrai via la feuille de style, mais le simple fait de le re-ecrire ici
+// force Chromium/WebKit a refaire cette etape de mise en page/peinture
+// correctement) corrige le rendu de facon fiable.
+function corrigerRenduTuiles(conteneur) {
+  if (!conteneur) return;
+  conteneur.querySelectorAll(".tuile").forEach((tuile) => {
+    tuile.style.contain = "layout paint";
+    void tuile.offsetHeight;
+  });
+}
+
 async function chargerCockpit() {
   const res = await fetch("/api/dashboard/summary");
   const data = await res.json();
@@ -214,6 +237,7 @@ async function chargerCockpit() {
     <div class="tuile tuile-imports"><div class="tuile-icone">${ICONES_TUILE.imports}</div><div class="valeur">${data.aValiderImports}</div><div class="label">Imports à vérifier</div></div>
     <div class="tuile tuile-anomalies${data.anomaliesOuvertes > 0 ? " alerte" : ""}"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${data.anomaliesOuvertes}</div><div class="label">Anomalies ouvertes</div></div>
   `;
+  corrigerRenduTuiles(cockpit);
   etatIndicateurs.aValiderImports = data.aValiderImports;
   mettreAJourBadges();
 }
@@ -2881,6 +2905,7 @@ async function chargerFacturesFournisseursUnifiees() {
       <div class="tuile" style="--tuile-couleur: var(--good);"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${resultat.compteurs.validees}</div><div class="label">Validées</div></div>
       <div class="tuile" style="--tuile-couleur: var(--warning);"><div class="tuile-icone">${ICONES_TUILE.anomalies}</div><div class="valeur">${resultat.compteurs.aCorriger}</div><div class="label">À corriger</div></div>
       <div class="tuile" style="--tuile-couleur: var(--brand-violet);"><div class="tuile-icone">${ICONES_TUILE.ca}</div><div class="valeur">${fmtMontant(resultat.montantTotalTTC)}</div><div class="label">Montant total</div></div>`;
+    corrigerRenduTuiles(kpis);
   }
 
   document.getElementById("ff-compte-toutes").textContent = `(${resultat.compteurs.toutes})`;
