@@ -193,14 +193,15 @@
           <button type="button" class="cab-segment actif" data-statut="" role="tab" aria-selected="true">Toutes <span id="ff-compte-toutes">(0)</span></button>
           <button type="button" class="cab-segment" data-statut="a_traiter" role="tab" aria-selected="false">À traiter <span id="ff-compte-a_traiter">(0)</span></button>
           <button type="button" class="cab-segment" data-statut="validee" role="tab" aria-selected="false">Validées <span id="ff-compte-validee">(0)</span></button>
-          <button type="button" class="cab-segment" data-statut="a_corriger" role="tab" aria-selected="false">À corriger <span id="ff-compte-a_corriger">(0)</span></button>
+          <button type="button" class="cab-segment" data-statut="a_corriger" role="tab" aria-selected="false">À corriger <span id="ff-compte-a_corriger">(0)</span><span class="aide-inline">(toutes périodes)</span></button>
         </div>
 
         <div class="cab-toolbar">
           <label class="cab-toolbar-recherche">
             <input type="search" id="ff-recherche" placeholder="Rechercher (fournisseur, n°, montant)..." />
           </label>
-          <input type="month" id="ff-filtre-mois" title="Filtrer par mois" />
+          <select id="ff-periode-type" title="Période" aria-label="Choisir la période"></select>
+          <span id="ff-periode-secondaire" class="cab-periode-secondaire"></span>
           <select id="ff-filtre-fournisseur"><option value="">Tous les fournisseurs</option></select>
         </div>
 

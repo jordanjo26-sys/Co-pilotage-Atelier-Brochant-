@@ -1618,6 +1618,15 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2);
 }
 .cab-toolbar-spacer { flex: 1 1 auto; }
+/* Conteneur des controles secondaires du selecteur de periode commun
+   (creerSelecteurPeriode) - vide la plupart du temps (Mois en cours/
+   precedent/Annee en cours/Toutes les periodes n'en ont pas besoin),
+   affiche un ou deux champs selon le type choisi. */
+.cab-periode-secondaire { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cab-periode-secondaire input[type="date"], .cab-periode-secondaire input[type="month"] {
+  font: inherit; font-size: 12.5px; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2);
+}
 
 /* ---------- Tableau "flagship" (avatar fournisseur + puce de statut) ---------- */
 .cab-avatar-cercle {

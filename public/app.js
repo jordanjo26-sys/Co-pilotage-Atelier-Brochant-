@@ -3120,7 +3120,8 @@ function creerSelecteurPeriode(prefixe, { onChange, defaut = "mois_courant" } = 
   };
 }
 
-const ffEtat = { page: 1, parPage: 25, statut: "", recherche: "", fournisseurNom: "", anneeMois: "", detailId: null, detailOnglet: "details" };
+const ffEtat = { page: 1, parPage: 25, statut: "", recherche: "", fournisseurNom: "", dateDebut: "", dateFin: "", detailId: null, detailOnglet: "details" };
+let ffPeriodeSelecteur = null;
 let ffFournisseursChoixCharges = false;
 
 const LIBELLES_STATUT_FACTURE_UNIFIEE = { a_traiter: "À traiter", validee: "Validée", a_corriger: "À corriger" };
@@ -3150,7 +3151,8 @@ async function chargerFacturesFournisseursUnifiees() {
   if (ffEtat.statut) params.set("statut", ffEtat.statut);
   if (ffEtat.recherche) params.set("recherche", ffEtat.recherche);
   if (ffEtat.fournisseurNom) params.set("fournisseurNom", ffEtat.fournisseurNom);
-  if (ffEtat.anneeMois) params.set("anneeMois", ffEtat.anneeMois);
+  if (ffEtat.dateDebut) params.set("dateDebut", ffEtat.dateDebut);
+  if (ffEtat.dateFin) params.set("dateFin", ffEtat.dateFin);
   params.set("page", String(ffEtat.page));
   params.set("parPage", String(ffEtat.parPage));
 
@@ -3263,14 +3265,21 @@ function ffInitialiserControles() {
     recherche.dataset.initialise = "1";
   }
 
-  const filtreMois = document.getElementById("ff-filtre-mois");
-  if (filtreMois && !filtreMois.dataset.initialise) {
-    filtreMois.addEventListener("change", () => {
-      ffEtat.anneeMois = filtreMois.value;
-      ffEtat.page = 1;
-      chargerFacturesFournisseursUnifiees();
+  const periodeType = document.getElementById("ff-periode-type");
+  if (periodeType && !periodeType.dataset.initialise) {
+    ffPeriodeSelecteur = creerSelecteurPeriode("ff", {
+      defaut: "mois_courant",
+      onChange: (bornes) => {
+        ffEtat.dateDebut = bornes?.dateDebut || "";
+        ffEtat.dateFin = bornes?.dateFin || "";
+        ffEtat.page = 1;
+        chargerFacturesFournisseursUnifiees();
+      },
     });
-    filtreMois.dataset.initialise = "1";
+    const bornesInitiales = ffPeriodeSelecteur?.resoudre();
+    ffEtat.dateDebut = bornesInitiales?.dateDebut || "";
+    ffEtat.dateFin = bornesInitiales?.dateFin || "";
+    periodeType.dataset.initialise = "1";
   }
 
   const filtreFournisseur = document.getElementById("ff-filtre-fournisseur");
