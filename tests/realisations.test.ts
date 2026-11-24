@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import fs from "node:fs/promises";
+import os from "node:os";
+import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 import dotenv from "dotenv";
 
@@ -40,6 +42,17 @@ test("Module Réalisations", async (t) => {
   } = await import("../src/services/realisations");
   const prisma = new PrismaClient();
   const fichiersEcrits: string[] = [];
+  const fichiersTemporaires: string[] = [];
+
+  // ajouterPhotosRealisation attend maintenant des fichiers deja sur disque
+  // (voir buildRealisationsRouter - diskStorage, plus memoryStorage), pas
+  // des buffers en memoire : simule ici ce que multer aurait ecrit.
+  async function ecrireFichierTemp(contenu: string): Promise<string> {
+    const p = path.join(os.tmpdir(), `test-realisation-${crypto.randomUUID()}`);
+    await fs.writeFile(p, contenu);
+    fichiersTemporaires.push(p);
+    return p;
+  }
 
   await t.test("assurerActivitesRealisations : crée les deux activités une seule fois, avec les bonnes adresses", async () => {
     await assurerActivitesRealisations(prisma);
@@ -72,8 +85,8 @@ test("Module Réalisations", async (t) => {
       prisma,
       activite.id,
       [
-        { buffer: Buffer.from("fausse-image-1"), mimetype: "image/jpeg" },
-        { buffer: Buffer.from("fausse-image-2"), mimetype: "image/png" },
+        { path: await ecrireFichierTemp("fausse-image-1"), mimetype: "image/jpeg" },
+        { path: await ecrireFichierTemp("fausse-image-2"), mimetype: "image/png" },
       ],
       "  Chantier Rue de la Paix  "
     );
@@ -101,7 +114,7 @@ test("Module Réalisations", async (t) => {
   });
 
   await t.test("ajouterPhotosRealisation : activité inexistante ou aucun fichier -> erreur", async () => {
-    await assert.rejects(ajouterPhotosRealisation(prisma, "inexistant", [{ buffer: Buffer.from("x"), mimetype: "image/jpeg" }]), ActiviteRealisationError);
+    await assert.rejects(ajouterPhotosRealisation(prisma, "inexistant", [{ path: await ecrireFichierTemp("x"), mimetype: "image/jpeg" }]), ActiviteRealisationError);
     const [activite] = await listerActivitesRealisations(prisma);
     await assert.rejects(ajouterPhotosRealisation(prisma, activite.id, []), ActiviteRealisationError);
   });
@@ -138,7 +151,7 @@ test("Module Réalisations", async (t) => {
   await t.test("envoyerDigestHebdomadaireRealisations : nouvelle photo sans Gmail connecté -> ignoré, jamais une erreur qui interrompt les autres activités", async () => {
     const activites = await listerActivitesRealisations(prisma);
     const degorgement = activites.find((a) => a.nom === "France Dégorgement")!;
-    const photo = await ajouterPhotosRealisation(prisma, degorgement.id, [{ buffer: Buffer.from("fausse-image-3"), mimetype: "image/webp" }]);
+    const photo = await ajouterPhotosRealisation(prisma, degorgement.id, [{ path: await ecrireFichierTemp("fausse-image-3"), mimetype: "image/webp" }]);
     fichiersEcrits.push(path.join(DOSSIER_REALISATIONS, photo[0].fichierNom));
 
     await envoyerDigestHebdomadaireRealisations(prisma, new Date());
@@ -152,4 +165,5 @@ test("Module Réalisations", async (t) => {
 
   await prisma.$disconnect();
   await Promise.all(fichiersEcrits.map((f) => fs.unlink(f).catch(() => {})));
+  await Promise.all(fichiersTemporaires.map((f) => fs.unlink(f).catch(() => {})));
 });

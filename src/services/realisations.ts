@@ -72,7 +72,11 @@ const DOSSIER_REALISATIONS = path.join(process.cwd(), "public", "media-publics",
 export async function ajouterPhotosRealisation(
   prisma: PrismaClient,
   activiteId: string,
-  fichiers: { buffer: Buffer; mimetype: string }[],
+  // "path" (fichier deja ecrit sur disque par multer, voir
+  // buildRealisationsRouter - diskStorage, pas memoryStorage) plutot qu'un
+  // buffer en memoire : evite d'accumuler potentiellement plusieurs
+  // centaines de Mo en RAM sur un lot de photos de telephone.
+  fichiers: { path: string; mimetype: string }[],
   chantierNom?: string
 ): Promise<PhotoRealisation[]> {
   const activite = await prisma.activiteRealisation.findUnique({ where: { id: activiteId } });
@@ -84,9 +88,21 @@ export async function ajouterPhotosRealisation(
   const crees: PhotoRealisation[] = [];
   for (const fichier of fichiers) {
     const extension = TYPES_IMAGE_REALISATIONS[fichier.mimetype];
-    if (!extension) continue; // deja filtre par multer en amont (voir buildRealisationsRouter) - defensif ici seulement
+    if (!extension) {
+      await fs.unlink(fichier.path).catch(() => {});
+      continue; // deja filtre par multer en amont (voir buildRealisationsRouter) - defensif ici seulement
+    }
     const nomFichier = `${crypto.randomUUID()}.${extension}`;
-    await fs.writeFile(path.join(DOSSIER_REALISATIONS, nomFichier), fichier.buffer);
+    const destination = path.join(DOSSIER_REALISATIONS, nomFichier);
+    try {
+      await fs.rename(fichier.path, destination);
+    } catch {
+      // Repertoire temporaire sur un autre point de montage que
+      // DOSSIER_REALISATIONS (rename impossible entre volumes) : repli sur
+      // une copie, puis nettoyage du temporaire.
+      await fs.copyFile(fichier.path, destination);
+      await fs.unlink(fichier.path).catch(() => {});
+    }
     crees.push(await prisma.photoRealisation.create({ data: { activiteId, fichierNom: nomFichier, chantierNom: chantier } }));
   }
   return crees;

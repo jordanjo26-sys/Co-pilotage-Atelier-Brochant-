@@ -1,5 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
+import os from "node:os";
+import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import {
   listerActivitesRealisations,
@@ -21,9 +23,22 @@ import {
  * site comme le reste de l'app.
  */
 
+// Stockage sur disque (repertoire temporaire), pas en memoire : la demande
+// reelle de l'utilisateur ("Ajouter des photos", 31 fichiers d'un coup
+// depuis un chantier) peut representer plusieurs centaines de Mo en photos
+// de telephone haute resolution - les accumuler en RAM (memoryStorage)
+// aurait exige soit un serveur bien plus consequent, soit une limite trop
+// basse pour un usage reel (bug constate en production : "File too large"
+// avec l'ancienne limite de 8 Mo/fichier, insuffisante pour une vraie
+// photo de telephone recente). Ecrits directement sur disque au fil de
+// l'upload, puis deplaces vers leur dossier final par
+// ajouterPhotosRealisation (simple renommage, pas une recopie).
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 }, // meme limite que le module Reseaux sociaux
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+    filename: (_req, _file, cb) => cb(null, `realisation-${crypto.randomUUID()}`),
+  }),
+  limits: { fileSize: 20 * 1024 * 1024, files: 50 },
   fileFilter: (_req, file, cb) => {
     if (!TYPES_IMAGE_REALISATIONS[file.mimetype]) {
       return cb(new Error(`Type de fichier non autorisé : "${file.mimetype}" (JPEG, PNG ou WebP uniquement).`));
@@ -52,10 +67,11 @@ export function buildRealisationsRouter(prisma: PrismaClient): Router {
   });
 
   router.post("/", (req, res) => {
-    // "photos" (pluriel) : plusieurs fichiers en un seul envoi, jusqu'a 20 -
+    // "photos" (pluriel) : plusieurs fichiers en un seul envoi, jusqu'a 50 -
     // demande explicite de l'utilisateur ("choisir les photos" une seule
-    // fois, pas une par une).
-    upload.array("photos", 20)(req, res, async (err) => {
+    // fois, pas une par une - un chantier reel en a fait remonter jusqu'a
+    // une trentaine d'un coup).
+    upload.array("photos", 50)(req, res, async (err) => {
       if (err) return res.status(400).json({ erreur: (err as Error).message });
       const fichiers = (req.files as Express.Multer.File[]) || [];
       if (fichiers.length === 0) return res.status(400).json({ erreur: "Aucune photo reçue (champ 'photos' attendu)." });
