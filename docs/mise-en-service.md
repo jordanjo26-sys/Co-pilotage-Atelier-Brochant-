@@ -227,6 +227,30 @@ change son interface), mais évite le dépôt manuel de CSV.
    toujours possible en complément (les deux voies ne se dupliquent
    jamais, même mécanique de rapprochement que pour Stripe).
 
+## 6 bis. CEDEO (BatiPrix IA, pilote) — à configurer
+
+Connecteur pilote du projet BatiPrix IA (voir le document d'audit Phase 0) :
+recherche de prix professionnels par navigateur headless, CEDEO n'offrant
+aucune API. **Compte professionnel de Jordan directement** (aucun compte
+dédié en lecture seule possible chez ce fournisseur, confirmé par
+l'utilisateur) — le connecteur reste volontairement en lecture seule dans
+son code (jamais d'ajout au panier ni de commande), malgré l'accès complet
+du compte utilisé.
+
+1. Ajouter ces secrets GitHub (même écran que les précédents) :
+
+   | Nom du secret | Valeur |
+   |---|---|
+   | `CEDEO_URL` | L'adresse de la page de connexion du compte professionnel CEDEO |
+   | `CEDEO_IDENTIFIANT` | L'identifiant de connexion CEDEO habituel |
+   | `CEDEO_MOT_DE_PASSE` | Le mot de passe correspondant |
+
+2. Redéployer : le connecteur devient utilisable via
+   `npx tsx scripts/cedeo-test-recherche.ts "<recherche>"` (à exécuter sur
+   le serveur). Rien n'est automatique ni planifié à ce stade (pilote
+   manuel, Phase 1) — pas d'intégration dans l'interface ni dans Morgane
+   tant que le pilote n'est pas validé sur 2 semaines d'usage réel.
+
 ## 7. Standard téléphonique IA — à configurer
 
 Assistante vocale qui répond aux appels quand vous ne décrochez pas :

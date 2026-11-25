@@ -91,6 +91,16 @@ OVH_ENDPOINT_ARG="${24:-}"
 OVH_APPLICATION_KEY_ARG="${25:-}"
 OVH_APPLICATION_SECRET_ARG="${26:-}"
 OVH_CONSUMER_KEY_ARG="${27:-}"
+# Identifiants CEDEO (compte professionnel de Jordan - aucun compte dedie
+# en lecture seule possible chez ce fournisseur, confirme par l'utilisateur)
+# pour le connecteur pilote de recherche de prix par navigateur headless
+# (BatiPrix IA, Phase 1 - CEDEO ne propose aucune API publique). Memes
+# garanties que les secrets ci-dessus : jamais commis, jamais ecrits dans
+# un journal. Le connecteur reste volontairement en LECTURE SEULE (aucune
+# action panier/commande) malgre l'acces complet du compte.
+CEDEO_URL_ARG="${28:-}"
+CEDEO_IDENTIFIANT_ARG="${29:-}"
+CEDEO_MOT_DE_PASSE_ARG="${30:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -281,6 +291,9 @@ definir_variable OVH_ENDPOINT "$OVH_ENDPOINT_ARG"
 definir_variable OVH_APPLICATION_KEY "$OVH_APPLICATION_KEY_ARG"
 definir_variable OVH_APPLICATION_SECRET "$OVH_APPLICATION_SECRET_ARG"
 definir_variable OVH_CONSUMER_KEY "$OVH_CONSUMER_KEY_ARG"
+definir_variable CEDEO_URL "$CEDEO_URL_ARG"
+definir_variable CEDEO_IDENTIFIANT "$CEDEO_IDENTIFIANT_ARG"
+definir_variable CEDEO_MOT_DE_PASSE "$CEDEO_MOT_DE_PASSE_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
