@@ -26,8 +26,8 @@ window.justificationBasculerTexte = function (bouton) {
 // par une carte compacte - fournisseur/tiers, montant, puis une ligne meta
 // (date + statut). Reutilisee par tous les ecrans de factures/mouvements
 // pour ne jamais reconstruire ce rendu plusieurs fois independamment.
-function construireCarteLigne({ titre, avatarTexte, avatarCouleur, montant, metaGauche, statutHtml, onclick }) {
-  return `
+function construireCarteLigne({ titre, avatarTexte, avatarCouleur, montant, metaGauche, statutHtml, onclick, supprimer }) {
+  const carte = `
     <div class="cab-carte-ligne${onclick ? " cab-ligne-cliquable" : ""}"${onclick ? ` onclick="${onclick}"` : ""}>
       <div class="cab-carte-ligne-entete">
         <span class="cab-carte-ligne-titre">
@@ -41,7 +41,122 @@ function construireCarteLigne({ titre, avatarTexte, avatarCouleur, montant, meta
         <span class="cab-carte-ligne-meta-droite">${statutHtml || ""}</span>
       </div>
     </div>`;
+  // "supprimer" (facultatif, demande explicite de l'utilisateur : "tourner
+  // a droite ou a gauche pour supprimer") : balaie la carte vers la gauche
+  // pour reveler une action "Supprimer", sur le modele iOS - voir
+  // initialiserSwipeSuppression. Jamais actif par defaut (les 8 autres
+  // usages de construireCarteLigne n'en passent pas), seulement la ou un
+  // appelant le demande explicitement.
+  if (!supprimer) return carte;
+  return `
+    <div class="cab-carte-swipe-conteneur">
+      <button type="button" class="cab-carte-swipe-action" onclick="${supprimer}">Supprimer</button>
+      <div class="cab-carte-swipe-contenu">${carte}</div>
+    </div>`;
 }
+
+// --- Balayage (swipe) pour supprimer une carte, sur le modele iOS ----------
+//
+// Demande explicite de l'utilisateur ("tourner a droite ou a gauche pour
+// supprimer" sur Factures fournisseurs) : la carte glisse vers la gauche au
+// doigt pour reveler un bouton "Supprimer" derriere elle, sans avoir a ouvrir
+// le detail au prealable.
+//
+// Pointer Events (pas des evenements tactiles classiques) + "touch-action:
+// pan-y" en CSS sur .cab-carte-swipe-contenu : le navigateur gere alors
+// nativement le defilement vertical de la liste, le JS ne traitant que le
+// deplacement horizontal - evite d'avoir a deviner a la main un seuil
+// scroll-vs-swipe (fragile, source classique de bugs sur ce genre de geste).
+// Fonctionne aussi a la souris (utile pour tester sur desktop).
+//
+// Delegation d'evenements sur le CONTENEUR (jamais sur chaque carte) : les
+// listes de ce type sont entierement reconstruites (innerHTML) a chaque
+// rafraichissement - une liaison carte par carte serait perdue a chaque
+// rendu. Un seul appel par conteneur de liste (voir initialiserSwipeSuppression).
+const SWIPE_LARGEUR_ACTION = 84; // doit correspondre a la largeur CSS de .cab-carte-swipe-action
+const SWIPE_SEUIL_OUVERTURE = SWIPE_LARGEUR_ACTION / 2;
+
+function initialiserSwipeSuppression(conteneurListe) {
+  if (!conteneurListe) return;
+  let elementActif = null;
+  let xDepart = 0;
+  let translateDepart = 0;
+  let aGlisse = false;
+
+  const translateActuel = (el) => new DOMMatrix(getComputedStyle(el).transform).m41;
+
+  const fermerAutres = (sauf) => {
+    conteneurListe.querySelectorAll(".cab-carte-swipe-contenu.cab-carte-swipe-ouverte").forEach((el) => {
+      if (el !== sauf) {
+        el.classList.remove("cab-carte-swipe-ouverte");
+        el.style.transform = "";
+      }
+    });
+  };
+
+  conteneurListe.addEventListener("pointerdown", (e) => {
+    const contenu = e.target.closest(".cab-carte-swipe-contenu");
+    if (!contenu || e.target.closest(".cab-carte-swipe-action")) return;
+    fermerAutres(contenu);
+    elementActif = contenu;
+    aGlisse = false;
+    xDepart = e.clientX;
+    translateDepart = contenu.classList.contains("cab-carte-swipe-ouverte") ? -SWIPE_LARGEUR_ACTION : 0;
+    contenu.style.transition = "none";
+  });
+
+  conteneurListe.addEventListener("pointermove", (e) => {
+    if (!elementActif) return;
+    const delta = e.clientX - xDepart;
+    if (Math.abs(delta) > 6) aGlisse = true;
+    if (!aGlisse) return;
+    const translate = Math.min(0, Math.max(-SWIPE_LARGEUR_ACTION, translateDepart + delta));
+    elementActif.style.transform = `translateX(${translate}px)`;
+  });
+
+  const terminerGlissement = () => {
+    if (!elementActif) return;
+    elementActif.style.transition = "";
+    const ouvre = translateActuel(elementActif) <= -SWIPE_SEUIL_OUVERTURE;
+    elementActif.style.transform = ouvre ? `translateX(-${SWIPE_LARGEUR_ACTION}px)` : "";
+    elementActif.classList.toggle("cab-carte-swipe-ouverte", ouvre);
+    elementActif = null;
+    // Filet de securite : le "click" fantome qui suit normalement un vrai
+    // glissement (declenche par le navigateur juste apres pointerup) arrive
+    // de façon synchrone, donc AVANT ce setTimeout(0) - il reste bien
+    // intercepte par le gestionnaire de clic ci-dessous. Si, pour une raison
+    // quelconque, aucun clic ne suit jamais (pointeur relache hors de la
+    // fenetre, pointercancel...), aGlisse ne doit jamais rester bloque a
+    // "true" indefiniment : ça avalerait silencieusement le PROCHAIN clic
+    // sans rapport (ex. sur le bouton Supprimer revele) - bug reel trouve en
+    // testant ce module.
+    setTimeout(() => {
+      aGlisse = false;
+    }, 0);
+  };
+  conteneurListe.addEventListener("pointerup", terminerGlissement);
+  conteneurListe.addEventListener("pointercancel", terminerGlissement);
+
+  // Empeche le clic d'ouverture du detail de se declencher juste apres un
+  // vrai glissement (un "click" peut malgre tout suivre un pointerup, meme
+  // apres un deplacement significatif) - capture pour intercepter avant le
+  // onclick du contenu lui-meme.
+  conteneurListe.addEventListener(
+    "click",
+    (e) => {
+      if (!aGlisse) return;
+      e.stopPropagation();
+      e.preventDefault();
+      aGlisse = false;
+    },
+    true
+  );
+}
+// Un seul appel par conteneur, au chargement du script (le conteneur existe
+// deja dans index.html, seul son contenu est reconstruit a chaque
+// rafraichissement) - jamais depuis le rendu de la liste lui-meme, pour ne
+// jamais rattacher les ecouteurs en double.
+initialiserSwipeSuppression(document.getElementById("ff-cartes"));
 
 const ICONES_TUILE = {
   ca: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
@@ -3491,6 +3606,7 @@ async function chargerFacturesFournisseursUnifiees() {
           metaGauche: `${echapper(fmtDate(f.date))}${f.numero ? ` · ${echapper(f.numero)}` : ""}`,
           statutHtml: ffRenduStatutPoint(f.statut, f.statutDetail),
           onclick: `ffOuvrirDetail('${f.id}')`,
+          supprimer: f.source === "document_fournisseur" ? `ffSupprimerDocument('${f.sourceId}', ${f.statut === "validee"}, this)` : undefined,
         })
       )
       .join("");

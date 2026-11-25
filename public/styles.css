@@ -1728,6 +1728,22 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .cab-carte-ligne-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink-muted); flex-wrap: wrap; }
 .cab-carte-ligne-meta-droite { margin-left: auto; }
 
+/* Balayage (swipe) pour supprimer une carte - demande explicite de
+   l'utilisateur ("tourner a droite ou a gauche pour supprimer"), voir
+   initialiserSwipeSuppression dans app.js. Largeur de .cab-carte-swipe-action
+   alignee sur SWIPE_LARGEUR_ACTION cote JS. */
+.cab-carte-swipe-conteneur { position: relative; overflow: hidden; border-radius: 12px; }
+.cab-carte-swipe-action {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 84px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--critical); color: #fff; font-weight: 700; font-size: 13.5px;
+  border: none; cursor: pointer;
+}
+.cab-carte-swipe-contenu {
+  position: relative; transform: translateX(0);
+  touch-action: pan-y; /* laisse le navigateur gerer le defilement vertical, voir app.js */
+}
+
 /* ---------- Sous-navigation interne a un panneau (ex. Factures/Tresorerie/Marketing
    decoupes en vues focalisees plutot qu'une longue page) - reutilise exactement le
    style .cab-segments/.cab-segment deja construit pour les statuts, car c'est le
