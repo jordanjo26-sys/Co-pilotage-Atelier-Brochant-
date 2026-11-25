@@ -181,6 +181,16 @@ interface PieceJointeExtraite extends PieceJointe {
  * choix technique, mais n'integre jamais un PDF de facture comme simple
  * ressource de mise en forme - ce risque n'existe que pour les images.
  */
+/**
+ * Vrai si cet en-tete "From" est la boite Gmail CONNECTEE elle-meme (ex.
+ * Atelier Brochant s'envoyant une copie d'une facture de VENTE, ou un
+ * accuse de reception automatique de sa propre adresse) - jamais un
+ * document fournisseur a router, voir son usage dans synchroniserGmail.
+ */
+export function estExpediteurLaBoiteConnectee(expediteur: string, compteEmail: string): boolean {
+  return extraireIdentiteExpediteur(expediteur).email === compteEmail.trim().toLowerCase();
+}
+
 export function extrairePiecesJointes(payload: gmail_v1.Schema$MessagePart | undefined): PieceJointeExtraite[] {
   if (!payload) return [];
   const pieces: PieceJointeExtraite[] = [];
@@ -430,6 +440,21 @@ export async function synchroniserGmail(prisma: PrismaClient, depuis?: Date): Pr
       // (au cas ou Dext changerait un jour de sous-domaine d'envoi) :
       // jamais retraiter un e-mail dont l'expediteur est Dext.
       if (expediteur.toLowerCase().includes("dext.cc")) {
+        await marquerMessageTraite(prisma, ref.id);
+        continue;
+      }
+
+      // Jamais traiter un e-mail envoye par la boite CONNECTEE elle-meme
+      // (ex. une facture de VENTE emise par Atelier Brochant a un client,
+      // dont une copie reste dans la meme boite) comme un document
+      // fournisseur : bug reel signale par l'utilisateur (factures Encpb,
+      // Leongrosse - des clients factures par Atelier Brochant, jamais des
+      // achats - routees a tort vers le centre de validation/Dext). La
+      // recherche Gmail (has:attachment) ne filtre que sur la presence
+      // d'une piece jointe, pas sur le sens (achat recu vs vente envoyee) :
+      // seul l'expediteur permet de trancher simplement, sans analyser le
+      // contenu du document (section 14, jamais deviner un format non vu).
+      if (estExpediteurLaBoiteConnectee(expediteur, connexion.compteEmail)) {
         await marquerMessageTraite(prisma, ref.id);
         continue;
       }

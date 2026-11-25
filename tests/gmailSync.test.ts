@@ -4,7 +4,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import dotenv from "dotenv";
 import { gmail_v1 } from "googleapis";
-import { extrairePiecesJointes, resumerErreurs, resoudreMontantsFacture } from "../src/services/gmailSync";
+import { extrairePiecesJointes, resumerErreurs, resoudreMontantsFacture, estExpediteurLaBoiteConnectee } from "../src/services/gmailSync";
 import { PrismaClient } from "@prisma/client";
 
 function part(overrides: Partial<gmail_v1.Schema$MessagePart> & { headers?: gmail_v1.Schema$MessagePartHeader[] }): gmail_v1.Schema$MessagePart {
@@ -21,6 +21,25 @@ test("retient une vraie piece jointe (sans Content-ID ni disposition inline)", (
   const pieces = extrairePiecesJointes(part({}));
   assert.equal(pieces.length, 1);
   assert.equal(pieces[0].nomFichier, "piece.pdf");
+});
+
+// Bug reel signale par l'utilisateur (factures Encpb, Leongrosse - des
+// clients factures par Atelier Brochant, jamais des achats - routees a
+// tort vers le centre de validation/Dext, l'e-mail ayant ete envoye par
+// la boite connectee elle-meme : atelier.brochant@gmail.com).
+test("reconnait un e-mail envoye par la boite connectee elle-meme (facture de vente, pas un achat)", () => {
+  assert.equal(
+    estExpediteurLaBoiteConnectee('"Atelier Brochant" <atelier.brochant@gmail.com>', "atelier.brochant@gmail.com"),
+    true
+  );
+});
+
+test("insensible a la casse entre l'expediteur et le compte connecte", () => {
+  assert.equal(estExpediteurLaBoiteConnectee("Atelier.Brochant@Gmail.com", "atelier.brochant@gmail.com"), true);
+});
+
+test("ne confond pas un vrai fournisseur externe avec la boite connectee", () => {
+  assert.equal(estExpediteurLaBoiteConnectee('"Leroy Merlin" <facturation@leroymerlin.fr>', "atelier.brochant@gmail.com"), false);
 });
 
 test("exclut une ressource integree via Content-ID (logo de signature)", () => {
