@@ -1009,6 +1009,16 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 .suivi-mensuel-barre-remplissage.suivi-mensuel-progression-ok { background: var(--good); }
 .suivi-mensuel-barre-remplissage.suivi-mensuel-progression-attention { background: var(--warning); }
 .suivi-mensuel-pourcentage { font-size: 11.5px; color: var(--ink-muted); align-self: flex-end; }
+
+/* Barre de progression generique (envoi de fichiers) - meme patron visuel
+   que .suivi-mensuel-barre, demande explicite de l'utilisateur : l'envoi de
+   plusieurs photos (Realisations) n'affichait qu'un texte fixe "Envoi en
+   cours…", sans aucune indication de duree ou d'avancement reel. */
+.barre-progression-upload {
+  width: 100%; height: 8px; border-radius: 999px; background: var(--surface-2);
+  overflow: hidden; margin-top: 6px;
+}
+.barre-progression-upload-remplissage { height: 100%; border-radius: 999px; background: var(--brand-blue); transition: width .15s ease; }
 .suivi-mensuel-carte-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 /* Carte mensuelle entierement cliquable (ouvre le panneau de detail du
    mois) - demande explicite de l'utilisateur, remplace les boutons

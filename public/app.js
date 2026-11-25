@@ -3667,8 +3667,47 @@ function ffRenduDetail(detail) {
     actions.innerHTML = `<button type="button" class="ghost" onclick="ffBasculerOngletDetail('document')">Voir le document</button>`;
   }
 
+  // "Supprimer" : uniquement pour un document issu de Gmail (source
+  // "document_fournisseur") - jamais une archive comptable, qui a son
+  // propre circuit de suppression dedie. Demande explicite de
+  // l'utilisateur : des factures de VENTE (emises par Atelier Brochant a
+  // ses propres clients, pas des achats) se retrouvaient a tort dans cette
+  // liste sans aucun moyen de les retirer (voir estExpediteurLaBoiteConnectee
+  // cote serveur, qui evite que ca se reproduise a l'avenir - ceci permet de
+  // nettoyer les fiches deja creees avant ce correctif).
+  if (detail.source === "document_fournisseur") {
+    actions.innerHTML += `<button type="button" class="ghost" onclick="ffSupprimerDocument('${detail.sourceId}', ${detail.statut === "validee"}, this)">Supprimer</button>`;
+  }
+
   if (ffEtat.detailOnglet === "document") ffChargerDocumentDetail();
 }
+
+async function ffSupprimerDocument(documentId, dejaEnvoye, bouton) {
+  const message = dejaEnvoye
+    ? "Cette facture a deja ete envoyee a Dext. Cette suppression retire uniquement le suivi dans Copilote Atelier Brochant, PAS la facture dans Dext (l'application n'a pas d'acces direct a Dext, seulement a son adresse e-mail d'import) : si elle y a ete ajoutee par erreur, supprimez-la aussi directement dans Dext. Continuer ?"
+    : "Supprimer ce document ? Cette action est definitive.";
+  if (!confirm(message)) return;
+  if (bouton) {
+    bouton.disabled = true;
+    bouton.textContent = "Suppression…";
+  }
+  try {
+    const res = await fetch(`/api/documents-fournisseurs/${documentId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erreur || "Suppression impossible.");
+    }
+    ffFermerDetail();
+    await chargerFacturesFournisseursUnifiees();
+  } catch (err) {
+    if (bouton) {
+      bouton.disabled = false;
+      bouton.textContent = "Supprimer";
+    }
+    alert(err.message);
+  }
+}
+window.ffSupprimerDocument = ffSupprimerDocument;
 
 function ffChargerDocumentDetail() {
   if (!ffDetailCourant) return;
@@ -4746,11 +4785,35 @@ if (formRealisations) {
     if (chantierNom) donnees.append("chantierNom", chantierNom);
     for (const fichier of champFichiers.files) donnees.append("photos", fichier);
 
-    resultatDiv.textContent = "Envoi en cours…";
+    // XMLHttpRequest plutot que fetch (demande explicite de l'utilisateur :
+    // aucune indication de duree/avancement pendant l'envoi de plusieurs
+    // photos, "extremement long" sans le moindre repere) - fetch n'expose
+    // aucun evenement de progression sur l'envoi d'un corps de requete,
+    // contrairement a XMLHttpRequest.upload.onprogress.
     try {
-      const res = await fetch("/api/realisations", { method: "POST", body: donnees });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.erreur || "Échec de l'envoi.");
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/realisations");
+        xhr.upload.addEventListener("progress", (e) => {
+          if (!e.lengthComputable) return;
+          const pourcentage = Math.round((e.loaded / e.total) * 100);
+          resultatDiv.innerHTML = `
+            <div>Envoi en cours… ${pourcentage}% (${champFichiers.files.length} photo(s))</div>
+            <div class="barre-progression-upload"><div class="barre-progression-upload-remplissage" style="width:${pourcentage}%"></div></div>`;
+        });
+        xhr.addEventListener("load", () => {
+          let reponse;
+          try {
+            reponse = JSON.parse(xhr.responseText);
+          } catch {
+            return reject(new Error("Réponse invalide du serveur."));
+          }
+          if (xhr.status >= 200 && xhr.status < 300) resolve(reponse);
+          else reject(new Error(reponse.erreur || "Échec de l'envoi."));
+        });
+        xhr.addEventListener("error", () => reject(new Error("Échec de l'envoi (connexion interrompue).")));
+        xhr.send(donnees);
+      });
       resultatDiv.innerHTML = `${data.length} photo(s) ajoutée(s).`;
       formRealisations.reset();
       await Promise.all([chargerActivitesRealisations(), chargerPhotosRealisations()]);
