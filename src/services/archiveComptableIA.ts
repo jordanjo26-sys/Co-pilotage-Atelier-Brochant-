@@ -54,6 +54,51 @@ export const CATEGORIES_FACTURE = [
 
 export type CategorieFacture = (typeof CATEGORIES_FACTURE)[number];
 
+// Filet deterministe (section 14 : les regles metier deterministes priment
+// sur l'IA) : bug reel constate en production (facture Leroy Merlin reelle,
+// signalee par l'utilisateur) ou fournisseurNom valait litteralement
+// "Facture" - le gros titre du document, pas le nom de l'entreprise emettrice
+// (voir le rappel ajoute a PROMPT_SYSTEME ci-dessous). Plutot que de compter
+// uniquement sur le prompt pour eviter cette confusion a l'avenir, ce filtre
+// rejette purement et simplement ces mots generiques s'ils reviennent malgre
+// tout comme fournisseurNom - comparaison sur le mot ENTIER normalise (jamais
+// une sous-chaine), pour ne jamais rejeter a tort une vraie entreprise dont
+// le nom contiendrait l'un de ces mots (ex. "Facture Pro SARL").
+const MOTS_GENERIQUES_NON_FOURNISSEUR = new Set([
+  "facture",
+  "factures",
+  "devis",
+  "avoir",
+  "avoirs",
+  "ticket",
+  "ticket de caisse",
+  "reçu",
+  "recu",
+  "bon",
+  "bon de commande",
+  "bon de livraison",
+  "justificatif",
+  "justificatif de paiement",
+  "note",
+  "relevé",
+  "releve",
+]);
+
+function estMotGeneriqueNonFournisseur(nom: string): boolean {
+  return MOTS_GENERIQUES_NON_FOURNISSEUR.has(nom.trim().toLowerCase());
+}
+
+// Meme filet, pour le champ "numero" : bug reel constate en production
+// (facture Anthropic Ireland Limited, numero renvoye comme "number" -
+// l'intitule anglais du champ, pas une vraie valeur lue sur le document).
+// Comparaison sur le mot ENTIER normalise, jamais une sous-chaine, pour ne
+// jamais rejeter un vrai numero qui contiendrait l'un de ces mots.
+const MOTS_GENERIQUES_NON_NUMERO = new Set(["number", "numero", "numéro", "n°", "no", "n", "invoice number", "reference", "référence"]);
+
+function estMotGeneriqueNonNumero(valeur: string): boolean {
+  return MOTS_GENERIQUES_NON_NUMERO.has(valeur.trim().toLowerCase());
+}
+
 export interface ChampsFacture {
   fournisseurNom?: string;
   numero?: string;
@@ -92,6 +137,22 @@ montantHT/montantTTC. Si une de ces informations est absente, illisible ou ambig
 et simplement - ne devine JAMAIS une valeur pour completer une reponse plus "utile". Une information \
 omise n'a aucune consequence (l'utilisateur la completera a la main), alors qu'une valeur inventee \
 presentee comme certaine serait une fausse preuve en cas de controle.
+
+Piege general a eviter pour TOUS les champs (constate en production : un champ "numero" renvoye avec \
+la valeur litterale "number", recopiant l'intitule anglais du champ sur un document Anthropic au lieu \
+du vrai numero ecrit dessus) : un intitule/etiquette de champ ("numero"/"number"/"N°"/"invoice \
+number"/"montant"/"date"/"total") n'est JAMAIS une valeur en soi - c'est uniquement la VALEUR REELLE \
+qui suit ou accompagne cette etiquette sur le document qui compte. Si tu ne trouves que l'etiquette \
+sans valeur distincte a cote, omets purement et simplement le champ plutot que de renvoyer l'etiquette \
+elle-meme.
+
+Pour fournisseurNom specifiquement : c'est le nom de l'ENTREPRISE qui a emis le document (raison \
+sociale, enseigne ou marque), jamais le TYPE de document lui-meme. Un gros titre "FACTURE"/"DEVIS"/ \
+"AVOIR"/"TICKET DE CAISSE"/"JUSTIFICATIF DE PAIEMENT"/"BON DE COMMANDE" en haut de page n'est JAMAIS un \
+nom de fournisseur, meme si c'est le texte le plus visible - cherche plutot l'en-tete, le pied de page, \
+les mentions legales (SIRET/SAS/SARL) ou le logo pour trouver le vrai nom de l'entreprise. Si ce titre \
+est la SEULE chose lisible et qu'aucun nom d'entreprise distinct n'apparait nulle part, omets \
+fournisseurNom plutot que de renvoyer le titre du document.
 
 Pour le champ categorie en revanche, c'est different : ce n'est pas une donnee ecrite sur le document \
 mais un classement, donc fournis-le TOUJOURS meme si tu dois deduire la categorie la plus probable a \
@@ -153,8 +214,12 @@ async function appelerExtraction(client: Anthropic, contenu: Anthropic.MessagePa
     if (!appel) return null;
     const entree = appel.input as ChampsFacture;
     const resultat: ChampsFacture = {};
-    if (typeof entree.fournisseurNom === "string" && entree.fournisseurNom.trim()) resultat.fournisseurNom = entree.fournisseurNom.trim();
-    if (typeof entree.numero === "string" && entree.numero.trim()) resultat.numero = entree.numero.trim();
+    if (typeof entree.fournisseurNom === "string" && entree.fournisseurNom.trim() && !estMotGeneriqueNonFournisseur(entree.fournisseurNom)) {
+      resultat.fournisseurNom = entree.fournisseurNom.trim();
+    }
+    if (typeof entree.numero === "string" && entree.numero.trim() && !estMotGeneriqueNonNumero(entree.numero)) {
+      resultat.numero = entree.numero.trim();
+    }
     if (typeof entree.dateFacture === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entree.dateFacture)) resultat.dateFacture = entree.dateFacture;
     if (typeof entree.montantHT === "number" && entree.montantHT > 0) resultat.montantHT = entree.montantHT;
     if (typeof entree.montantTTC === "number" && entree.montantTTC > 0) resultat.montantTTC = entree.montantTTC;

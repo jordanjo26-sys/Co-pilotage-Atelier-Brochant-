@@ -343,6 +343,16 @@ const MOTIFS_MONTANT_TTC_PAR_PRIORITE = [
   /à\s*payer/i,
   /amount\s*due/i,
   /montant\s*d[ûu]/i,
+  // "montant final" : vu sur un vrai ticket de carte bancaire (station
+  // TotalEnergies/SAS Garage Oja, paiement par carte) qui n'ecrit jamais
+  // "TTC" accole a un montant - seulement "Total" (isole, sur sa propre
+  // ligne, trop ambigu pour etre un motif general) et "Montant final"
+  // juste avant le recu de paiement, terme explicite et non ambigu de
+  // station-service/terminal de paiement, place au meme rang que "montant
+  // dû" (ci-dessus) plutot que dans le filet generique ci-dessous (qui, lui,
+  // sert uniquement aux documents sans aucune mention de TVA - ce ticket en
+  // mentionne une, voir MOTIFS_MONTANT_HT_PAR_PRIORITE).
+  /montant\s*final/i,
   // Documents reels sans aucune notion de TVA (ni "ht"/"ttc", ni "tva"/"vat"
   // nulle part) : une quittance de loyer ("Montant total : 940,00 €", vraie
   // facture Sci Dov - le bailleur, pas de TVA sur un loyer), un justificatif
@@ -395,7 +405,14 @@ const MOTIFS_MONTANT_HT_PAR_PRIORITE = [
   /total\s*de\s*la\s*facture\s*ht/i,
   /total\s*\(\s*ht\s*\)/i,
   /total\s*€?\s*ht/i,
+  // "h.t." avec points (abreviation d'imprimante de caisse) : vu sur un
+  // vrai ticket de carte bancaire (station TotalEnergies/SAS Garage Oja,
+  // "Total H.T.         90,75") - aucun motif "ht" existant ne matchait,
+  // le point entre H et T empechant toute correspondance litterale sur
+  // "ht" (contrairement a "Total (HT)"/"Total HT" sans points).
+  /total\s*h\.\s*t\.?/i,
   /montant\s*ht/i,
+  /montant\s*h\.\s*t\.?/i,
   /montant\s*hors\s*tva/i,
   /hors\s*tva/i,
   /total\s*excl\.?\s*(?:of\s*)?tax/i,
