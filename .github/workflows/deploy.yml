@@ -11,6 +11,10 @@ on:
         description: "Branche ou commit a deployer (vide = branche par defaut)"
         required: false
         default: ""
+      cedeo_test_requete:
+        description: "Facultatif : produit a rechercher chez CEDEO apres ce deploiement (pilote BatiPrix IA), pour tester sans acces SSH"
+        required: false
+        default: ""
   push:
     branches: [main]
 
@@ -122,3 +126,20 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
             "sudo bash /opt/copilote-brochant/scripts/deploy/bootstrap.sh '${{ secrets.GOOGLE_CLIENT_ID }}' '${{ secrets.GOOGLE_CLIENT_SECRET }}' '${{ secrets.SITE_AUTH_USER }}' '${{ secrets.SITE_AUTH_PASSWORD }}' '${{ secrets.ANTHROPIC_API_KEY }}' '${{ secrets.STRIPE_API_KEY }}' '${{ secrets.SYNEC_URL }}' '${{ secrets.SYNEC_IDENTIFIANT }}' '${{ secrets.SYNEC_MOT_DE_PASSE }}' '${{ secrets.TWILIO_AUTH_TOKEN }}' '${{ secrets.TWILIO_ACCOUNT_SID }}' '${{ secrets.TWILIO_SMS_EXPEDITEUR }}' '${{ secrets.TELEPHONE_SMS_DESTINATAIRE }}' '${{ secrets.TELEPHONE_NUMERO_SECOURS }}' '${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}' '${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}' '${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}' '${{ secrets.META_APP_ID }}' '${{ secrets.META_APP_SECRET }}' '${{ secrets.OPENAI_API_KEY }}' '${{ secrets.META_CONFIG_ID }}' '${{ secrets.ATELIER_BROCHANT_ADMIN_EMAIL }}' '${{ secrets.ATELIER_BROCHANT_ADMIN_MOT_DE_PASSE }}' '${{ secrets.OVH_ENDPOINT }}' '${{ secrets.OVH_APPLICATION_KEY }}' '${{ secrets.OVH_APPLICATION_SECRET }}' '${{ secrets.OVH_CONSUMER_KEY }}' '${{ secrets.CEDEO_URL }}' '${{ secrets.CEDEO_IDENTIFIANT }}' '${{ secrets.CEDEO_MOT_DE_PASSE }}'"
+
+      - name: Tester le connecteur CEDEO (pilote BatiPrix IA, facultatif)
+        # Uniquement si l'entree "cedeo_test_requete" est renseignee au
+        # declenchement manuel - permet de lancer une recherche reelle sur
+        # le serveur et d'en lire le resultat dans les logs de ce run, sans
+        # que l'utilisateur ait besoin d'un acces SSH (qu'il n'a pas) pour
+        # executer scripts/cedeo-test-recherche.ts lui-meme.
+        if: ${{ github.event.inputs.cedeo_test_requete != '' }}
+        run: |
+          # Base64 pour transmettre la requete sans risque lie aux
+          # guillemets/apostrophes qu'un nom de produit peut contenir (ex.
+          # "tube d'evacuation"), plutot que de l'interpoler telle quelle a
+          # travers deux sauts shell (local -> ssh -> serveur distant).
+          REQUETE_B64=$(printf '%s' "${{ github.event.inputs.cedeo_test_requete }}" | base64 -w0)
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
+            "cd /opt/copilote-brochant && sudo -u copilote node dist/scripts/cedeo-test-recherche.js \"\$(echo '$REQUETE_B64' | base64 -d)\""
