@@ -413,8 +413,13 @@ export function construireVisioClientPageHtml(token: string): string {
         room = new LivekitClient.Room();
         try {
           await room.connect(donnees.livekitUrl, donnees.jetonClient);
-          await room.localParticipant.publishTrack(fluxLocal.getVideoTracks()[0]);
-          await room.localParticipant.publishTrack(fluxLocal.getAudioTracks()[0]);
+          // "source" explicite obligatoire : sans lui, publishTrack() d'une
+          // MediaStreamTrack brute (contrairement a une piste creee via
+          // setCameraEnabled) publie une source "unknown" - rejetee par
+          // LiveKit ("insufficient permissions") puisque le jeton client
+          // restreint volontairement canPublishSources a camera/microphone.
+          await room.localParticipant.publishTrack(fluxLocal.getVideoTracks()[0], { source: LivekitClient.Track.Source.Camera });
+          await room.localParticipant.publishTrack(fluxLocal.getAudioTracks()[0], { source: LivekitClient.Track.Source.Microphone });
         } catch (e) {
           etat.textContent = "Connexion impossible. Réessayez.";
           btnRejoindre.disabled = false;
