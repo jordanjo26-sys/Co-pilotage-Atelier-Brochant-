@@ -5,7 +5,6 @@
 # installes, base deja creee, .env deja present...). Execute par
 # .github/workflows/deploy.yml apres synchronisation du code par rsync.
 set -euo pipefail
-set -x # diagnostic temporaire (erreur sed "unterminated 's' command" non identifiee) - a retirer une fois la cause trouvee
 
 # Identifiants OAuth Google, transmis en argument (jamais commis dans le
 # depot ni ecrits dans les journaux) : voir .github/workflows/deploy.yml,
@@ -267,6 +266,16 @@ fi
 definir_variable() {
   # "ajouter si absente, sinon remplacer", uniquement si une valeur est transmise.
   local nom="$1" valeur="$2"
+  # Retire tout retour chariot/saut de ligne final : un secret GitHub colle
+  # depuis un navigateur/clavier mobile peut contenir un saut de ligne
+  # invisible en fin de valeur (constate en production, secret CEDEO_URL) -
+  # une valeur multi-lignes casse la commande sed ci-dessous ("unterminated
+  # 's' command"), le caractere de saut de ligne terminant prematurement
+  # l'expression avant son delimiteur fermant.
+  while [[ "$valeur" == *$'\n' || "$valeur" == *$'\r' ]]; do
+    valeur="${valeur%$'\n'}"
+    valeur="${valeur%$'\r'}"
+  done
   [ -n "$valeur" ] || return 0
   if grep -q "^${nom}=" "$ENV_FILE" 2>/dev/null; then
     sed -i "s#^${nom}=.*#${nom}=${valeur}#" "$ENV_FILE"
