@@ -5,6 +5,7 @@
 # installes, base deja creee, .env deja present...). Execute par
 # .github/workflows/deploy.yml apres synchronisation du code par rsync.
 set -euo pipefail
+set -x # diagnostic temporaire (erreur sed "unterminated 's' command" non identifiee) - a retirer une fois la cause trouvee
 
 # Identifiants OAuth Google, transmis en argument (jamais commis dans le
 # depot ni ecrits dans les journaux) : voir .github/workflows/deploy.yml,
