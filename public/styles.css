@@ -1924,6 +1924,12 @@ tr.cab-ligne-cliquable { cursor: pointer; }
   padding: 12px; background: var(--surface); border-radius: 14px;
   box-shadow: var(--shadow); margin-bottom: 16px;
 }
+/* [hidden] a la meme specificite qu'une classe : sans cette regle explicite,
+   .visio-appel-plein { display:flex } gagnerait quand meme sur [hidden] car
+   un style d'auteur l'emporte toujours sur le style par defaut du navigateur,
+   peu importe l'ordre - meme bug deja rencontre sur #controles/#video-locale
+   (voir visio.ts, page client). */
+.visio-appel-plein[hidden] { display: none; }
 .visio-appel-rappel { margin: 0; }
 .visio-appel-video-conteneur { width: 100%; max-height: 70vh; }
 .visio-video-plein {
