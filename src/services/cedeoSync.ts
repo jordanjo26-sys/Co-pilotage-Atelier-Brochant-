@@ -25,6 +25,24 @@ import { capturerDiagnostic } from "./synecSync";
  * doit donc etre affinee a partir des VRAIS echecs observes apres
  * deploiement (capturerDiagnostic + capture d'ecran ci-dessous), jamais en
  * devinant une structure jamais verifiee.
+ *
+ * BLOCAGE CONFIRME (deux tests reels, captures d'ecran recuperees via les
+ * logs du run de deploiement) : CEDEO utilise une protection anti-robot de
+ * type Imperva/Incapsula qui bloque systematiquement l'IP du serveur OVH
+ * avant meme d'atteindre la page de connexion ("Accès temporairement
+ * restreint" ... "un robot est sur le même réseau (IP ...) que vous").
+ * Premier essai (UA par defaut "HeadlessChrome/...") : blocage generique
+ * immediat ({"message":"Please contact the site owner for access."}).
+ * Deuxieme essai (UA Chrome desktop realiste + --disable-blink-features=
+ * AutomationControlled) : blocage plus detaille mais de meme nature,
+ * explicitement attribue a la reputation de l'IP partagee du datacenter,
+ * pas au comportement du navigateur. Ce n'est PAS un probleme de
+ * selecteurs ni de user-agent : c'est un blocage au niveau reseau/IP, qui
+ * ne peut pas se resoudre par du code cote navigateur. Voie a explorer
+ * avec Jordan : demander a CEDEO (lien "Contacter le support" present sur
+ * la page de blocage) de lister en exception l'IP sortante du serveur, ou
+ * accepter que ce pilote ne soit pas viable techniquement avec cette
+ * architecture (navigateur headless depuis un datacenter).
  */
 
 export const CHEMIN_CAPTURE_ECHEC_CEDEO = path.join(process.cwd(), "cedeo-derniere-capture.png");
