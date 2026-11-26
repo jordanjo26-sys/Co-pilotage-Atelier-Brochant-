@@ -155,8 +155,70 @@ export async function obtenirSession(prisma: PrismaClient, id: string) {
   return prisma.sessionVisio.findUnique({ where: { id }, include: { captures: { orderBy: { createdAt: "asc" } } } });
 }
 
-export async function listerSessions(prisma: PrismaClient) {
-  return prisma.sessionVisio.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
+const PAR_PAGE_DEFAUT_VISIO = 25;
+
+export interface FiltresSessionsVisio {
+  statut?: "en_attente" | "en_cours" | "terminee";
+  recherche?: string;
+  dateDebut?: string;
+  dateFin?: string;
+  archive?: boolean;
+  page?: number;
+  parPage?: number;
+}
+
+export interface ResultatSessionsVisio {
+  sessions: Awaited<ReturnType<PrismaClient["sessionVisio"]["findMany"]>>;
+  total: number;
+  compteurs: { enAttente: number; enCours: number; terminees: number };
+  page: number;
+  parPage: number;
+}
+
+/**
+ * Historique des sessions visio, avec recherche/filtres/pagination - meme
+ * convention que listerFacturesFournisseursUnifiees (facturesFournisseursUnifiees.ts) :
+ * `archive` bascule entre l'historique actif (defaut, archivee=false) et la
+ * corbeille (archivee=true), jamais les deux melanges. Les compteurs sont
+ * toujours calcules sur l'ensemble actif (non-archive), independamment de la
+ * pagination/recherche en cours, pour que les tuiles cliquables du tableau
+ * de bord restent stables pendant qu'on filtre la liste.
+ */
+export async function listerSessions(
+  prisma: PrismaClient,
+  filtres: FiltresSessionsVisio = {}
+): Promise<ResultatSessionsVisio> {
+  const archive = Boolean(filtres.archive);
+
+  const ou: Record<string, unknown> = { archivee: archive };
+  if (filtres.statut) ou.statut = filtres.statut;
+  if (filtres.recherche?.trim()) {
+    ou.clientNom = { contains: filtres.recherche.trim(), mode: "insensitive" };
+  }
+  if (filtres.dateDebut || filtres.dateFin) {
+    ou.createdAt = {
+      ...(filtres.dateDebut ? { gte: new Date(`${filtres.dateDebut}T00:00:00`) } : {}),
+      ...(filtres.dateFin ? { lte: new Date(`${filtres.dateFin}T23:59:59.999`) } : {}),
+    };
+  }
+
+  const parPage = filtres.parPage && filtres.parPage > 0 ? filtres.parPage : PAR_PAGE_DEFAUT_VISIO;
+  const page = filtres.page && filtres.page > 0 ? filtres.page : 1;
+
+  const [sessions, total, enAttente, enCours, terminees] = await Promise.all([
+    prisma.sessionVisio.findMany({
+      where: ou,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * parPage,
+      take: parPage,
+    }),
+    prisma.sessionVisio.count({ where: ou }),
+    prisma.sessionVisio.count({ where: { archivee: archive, statut: "en_attente" } }),
+    prisma.sessionVisio.count({ where: { archivee: archive, statut: "en_cours" } }),
+    prisma.sessionVisio.count({ where: { archivee: archive, statut: "terminee" } }),
+  ]);
+
+  return { sessions, total, compteurs: { enAttente, enCours, terminees }, page, parPage };
 }
 
 export async function changerStatutSession(prisma: PrismaClient, id: string, statut: string) {
@@ -168,6 +230,78 @@ export async function changerStatutSession(prisma: PrismaClient, id: string, sta
   if (statut === "en_cours") data.dateDebut = new Date();
   if (statut === "terminee") data.dateFin = new Date();
   return prisma.sessionVisio.update({ where: { id }, data });
+}
+
+export async function mettreAJourNotes(prisma: PrismaClient, id: string, notes: string) {
+  const session = await prisma.sessionVisio.findUnique({ where: { id } });
+  if (!session) throw new VisioError("Session visio introuvable.");
+  return prisma.sessionVisio.update({ where: { id }, data: { notes: notes.trim() || null } });
+}
+
+/**
+ * Archivage = corbeille : masque la session de l'historique actif sans rien
+ * supprimer (demande explicite de l'utilisateur, "suppression réversible").
+ * Autorise a tout statut sauf en_cours (un appel en cours ne doit jamais
+ * disparaitre de la liste active).
+ */
+export async function archiverSession(prisma: PrismaClient, id: string) {
+  const session = await prisma.sessionVisio.findUnique({ where: { id } });
+  if (!session) throw new VisioError("Session visio introuvable.");
+  if (session.statut === "en_cours") {
+    throw new VisioError("Impossible d'archiver une visite en cours.");
+  }
+  if (session.archivee) return session;
+  return prisma.sessionVisio.update({ where: { id }, data: { archivee: true, archivedAt: new Date() } });
+}
+
+export async function restaurerSession(prisma: PrismaClient, id: string) {
+  const session = await prisma.sessionVisio.findUnique({ where: { id } });
+  if (!session) throw new VisioError("Session visio introuvable.");
+  if (!session.archivee) return session;
+  return prisma.sessionVisio.update({ where: { id }, data: { archivee: false, archivedAt: null } });
+}
+
+/**
+ * Annulation d'une visite encore en_attente (jamais rejointe par le client,
+ * donc jamais de capture ni de PDF a perdre) : suppression directe, sans
+ * passer par l'archive - ce n'est pas une "suppression de donnees" puisqu'il
+ * n'y en a pas encore.
+ *
+ * Suppression definitive (toute autre visite, uniquement si deja archivee) :
+ * verifie les dependances (CaptureVisio porte une contrainte ON DELETE
+ * RESTRICT vers SessionVisio, voir migration initiale) en supprimant d'abord
+ * chaque fichier image sur disque puis chaque ligne CaptureVisio, avant de
+ * supprimer la session elle-meme. Jamais autorisee sur une session en_cours.
+ */
+export async function supprimerSessionDefinitivement(prisma: PrismaClient, id: string) {
+  const session = await prisma.sessionVisio.findUnique({
+    where: { id },
+    include: { captures: true },
+  });
+  if (!session) throw new VisioError("Session visio introuvable.");
+  if (session.statut === "en_cours") {
+    throw new VisioError("Impossible de supprimer une visite en cours.");
+  }
+
+  if (session.statut === "en_attente" && !session.archivee) {
+    // Annulation directe : par construction, une session en_attente n'a
+    // jamais de capture (elles ne sont prises que pendant un appel en_cours).
+    return prisma.sessionVisio.delete({ where: { id } });
+  }
+
+  if (!session.archivee) {
+    throw new VisioError("Cette visite doit d'abord être archivée avant suppression définitive.");
+  }
+
+  for (const capture of session.captures) {
+    try {
+      await fs.unlink(cheminCaptureVisio(capture.fichierNom));
+    } catch {
+      // Fichier deja absent du disque : on continue quand meme la suppression en base.
+    }
+  }
+  await prisma.captureVisio.deleteMany({ where: { sessionId: id } });
+  return prisma.sessionVisio.delete({ where: { id } });
 }
 
 /**
