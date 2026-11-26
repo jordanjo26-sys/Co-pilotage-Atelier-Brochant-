@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import PDFDocument from "pdfkit";
 import { PrismaClient } from "@prisma/client";
-import { AccessToken } from "livekit-server-sdk";
+import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
 import { TrackSource } from "@livekit/protocol";
 import { envoyerSmsA } from "./twilio";
 import { logEvenement } from "./journalService";
@@ -105,6 +105,27 @@ export async function creerSession(
   });
 
   return { session, lienClient, smsEnvoye };
+}
+
+/**
+ * Diagnostic : verifie que LIVEKIT_API_KEY/LIVEKIT_API_SECRET tels que
+ * charges par CE processus correspondent bien a une paire valide pour le
+ * projet LIVEKIT_URL, en appelant l'API REST d'administration (signee par
+ * la paire cle/secret, aucun navigateur/WebRTC requis). Isole precisement
+ * "la paire stockee est-elle correcte" de "la connexion WebRTC d'un client
+ * particulier marche-t-elle" - utile pour diagnostiquer un probleme de
+ * transport du secret (GitHub -> SSH -> bootstrap.sh -> .env) independamment
+ * de tout test de visio reel.
+ */
+export async function diagnostiquerLivekit(): Promise<{ ok: boolean; message: string }> {
+  const { url, apiKey, apiSecret } = obtenirConfigLivekit();
+  const client = new RoomServiceClient(url.replace(/^wss:/, "https:"), apiKey, apiSecret);
+  try {
+    const rooms = await client.listRooms();
+    return { ok: true, message: `Cle/secret valides pour ce projet LiveKit (${rooms.length} room(s) actuellement).` };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
 }
 
 export async function obtenirSessionParToken(prisma: PrismaClient, token: string) {

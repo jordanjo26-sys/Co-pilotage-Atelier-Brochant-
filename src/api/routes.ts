@@ -48,6 +48,7 @@ import {
   genererPdfRecapitulatif as genererPdfRecapitulatifVisio,
   mettreAJourMesuresCapture,
   cheminCaptureVisio,
+  diagnostiquerLivekit,
   VisioError,
   MesuresCapture,
 } from "../services/visio";
@@ -1652,6 +1653,20 @@ export function buildRouter(prisma: PrismaClient): Router {
   // capturer l'ecran et mesurer occasionnellement. Routes cote utilisateur
   // (protegees comme le reste du site) ; la partie publique (page que le
   // client ouvre) est servie par src/server.ts (/visio-client/:token).
+
+  // Diagnostic (voir diagnostiquerLivekit) : verifie independamment que
+  // LIVEKIT_API_KEY/LIVEKIT_API_SECRET tels que charges par ce processus
+  // forment bien une paire valide pour LIVEKIT_URL, sans passer par une
+  // connexion WebRTC/navigateur.
+  router.get("/visio/diagnostic", async (req, res) => {
+    try {
+      const resultat = await diagnostiquerLivekit();
+      res.json(resultat);
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(400).json({ ok: false, message: err.message });
+      res.status(500).json({ ok: false, message: (err as Error).message });
+    }
+  });
 
   router.post("/visio/sessions", async (req, res) => {
     const clientNom = typeof req.body?.clientNom === "string" ? req.body.clientNom : "";
