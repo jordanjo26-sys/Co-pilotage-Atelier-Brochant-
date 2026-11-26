@@ -284,11 +284,22 @@ definir_variable() {
     valeur="${valeur%$'\r'}"
   done
   [ -n "$valeur" ] || return 0
+  # grep -v puis echo plutot que sed s/// : une valeur de secret peut
+  # contenir des caracteres qui ont un sens special dans le REMPLACEMENT
+  # d'une commande sed (& insere le texte trouve, \ est interprete comme
+  # echappement) - ca corrompt silencieusement la valeur stockee, sans la
+  # moindre erreur visible (contrairement au bug du saut de ligne ci-dessus,
+  # qui faisait echouer sed bruyamment). Constate en production : un
+  # LIVEKIT_API_SECRET re-genere donnait encore "invalid token" cote
+  # LiveKit apres redeploiement, alors que la cle venait d'etre recreee -
+  # c'est la valeur stockee qui etait fausse, pas la cle elle-meme. echo
+  # n'interprete jamais le contenu de "valeur" : aucune de ces deux
+  # commandes ne le traite comme un pattern ou un remplacement.
   if grep -q "^${nom}=" "$ENV_FILE" 2>/dev/null; then
-    sed -i "s#^${nom}=.*#${nom}=${valeur}#" "$ENV_FILE"
-  else
-    echo "${nom}=${valeur}" >> "$ENV_FILE"
+    grep -v "^${nom}=" "$ENV_FILE" > "${ENV_FILE}.tmp"
+    mv "${ENV_FILE}.tmp" "$ENV_FILE"
   fi
+  echo "${nom}=${valeur}" >> "$ENV_FILE"
 }
 definir_variable TWILIO_ACCOUNT_SID "$TWILIO_ACCOUNT_SID_ARG"
 definir_variable TWILIO_SMS_EXPEDITEUR "$TWILIO_SMS_EXPEDITEUR_ARG"
