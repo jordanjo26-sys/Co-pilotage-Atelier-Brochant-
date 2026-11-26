@@ -140,6 +140,22 @@ jobs:
           # "tube d'evacuation"), plutot que de l'interpoler telle quelle a
           # travers deux sauts shell (local -> ssh -> serveur distant).
           REQUETE_B64=$(printf '%s' "${{ github.event.inputs.cedeo_test_requete }}" | base64 -w0)
+          set +e
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
             "cd /opt/copilote-brochant && sudo -u copilote node dist/scripts/cedeo-test-recherche.js \"\$(echo '$REQUETE_B64' | base64 -d)\""
+          CODE=$?
+          # Recupere la capture d'ecran (succes ou echec, selon laquelle
+          # existe) en base64 dans les logs de ce run : aucun autre moyen de
+          # la consulter sans acces SSH (que l'utilisateur n'a pas, et que
+          # Claude Code ne peut pas utiliser directement non plus - voir
+          # docs/architecture.md). Utilisee pour corriger precisement les
+          # selecteurs du connecteur a partir de la VRAIE page CEDEO, jamais
+          # a l'aveugle (meme methode que pour Synec a l'origine).
+          echo "===== CAPTURE D'ECRAN (PNG en base64, a decoder) ====="
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" \
+            "cd /opt/copilote-brochant && cat cedeo-derniere-capture.png cedeo-dernier-resultat.png 2>/dev/null | base64 -w0"
+          echo
+          echo "===== FIN CAPTURE ====="
+          exit $CODE
