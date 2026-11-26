@@ -1,0 +1,11 @@
+{
+  "name": "cedeo-poste-local",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Test CEDEO depuis un poste local (pilote BatiPrix IA) - contourne le blocage anti-robot sur l'IP du serveur OVH",
+  "main": "cedeo-recherche-locale.js",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright": "^1.63.0"
+  }
+}

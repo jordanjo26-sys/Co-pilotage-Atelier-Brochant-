@@ -1,0 +1,78 @@
+TEST CEDEO DEPUIS TON PC (pilote BatiPrix IA)
+===============================================
+
+Pourquoi ce dossier ?
+----------------------
+Le serveur qui héberge l'outil est bloqué par CEDEO (protection anti-robot
+qui refuse les connexions venant d'un serveur de datacenter). Ce petit
+script fait exactement la même recherche, mais depuis ton PC, sur ta
+connexion internet habituelle — qui n'est pas bloquée.
+
+Ce que ça fait : ça se connecte à ton compte CEDEO et ça cherche UN produit
+que tu lui donnes, en lecture seule (jamais d'ajout au panier, jamais de
+commande). Ça affiche le résultat dans la fenêtre, et ça garde deux images
+(cedeo-dernier-resultat.png ou cedeo-derniere-capture.png) dans ce même
+dossier pour qu'on puisse vérifier ensemble ce qui s'est passé.
+
+Étape 1 — Installer Node.js (une seule fois)
+----------------------------------------------
+1. Va sur https://nodejs.org
+2. Télécharge la version "LTS" (recommandée) pour Windows.
+3. Installe-la en cliquant "Suivant" à chaque étape (valeurs par défaut).
+
+Étape 2 — Préparer le dossier (une seule fois)
+-------------------------------------------------
+1. Récupère ce dossier "cedeo-poste-local" entier (celui où se trouve ce
+   fichier) et mets-le où tu veux sur ton PC (ex. le Bureau).
+2. Ouvre une invite de commandes dans ce dossier :
+   - Ouvre le dossier dans l'Explorateur Windows.
+   - Dans la barre d'adresse en haut (celle qui affiche le chemin du
+     dossier), tape "cmd" puis appuie sur Entrée — une fenêtre noire
+     s'ouvre, déjà positionnée dans ce dossier.
+3. Tape cette commande et appuie sur Entrée (ça télécharge ce qu'il faut,
+   peut prendre quelques minutes la première fois) :
+
+   npm install
+
+4. Puis cette commande (télécharge le navigateur utilisé pour se
+   connecter, environ 150-300 Mo, une seule fois) :
+
+   npx playwright install chromium
+
+Étape 3 — Renseigner tes identifiants CEDEO (une seule fois)
+----------------------------------------------------------------
+1. Fais une copie du fichier ".env.example" dans ce même dossier.
+2. Renomme la copie en ".env" (juste ".env", sans rien avant).
+   Si Windows n'affiche pas les extensions de fichiers, le fichier peut
+   s'appeler ".env.txt" — dans ce cas renomme-le pour enlever le ".txt"
+   final.
+3. Ouvre ".env" avec le Bloc-notes et remplis les deux lignes vides avec
+   ton identifiant et ton mot de passe CEDEO (les mêmes que pour te
+   connecter sur cedeo.fr) :
+
+   CEDEO_IDENTIFIANT=ton-identifiant-ici
+   CEDEO_MOT_DE_PASSE=ton-mot-de-passe-ici
+
+4. Enregistre et ferme.
+
+Étape 4 — Lancer une recherche test
+--------------------------------------
+Dans la même fenêtre d'invite de commandes (ou en en rouvrant une comme à
+l'étape 2.2), tape par exemple :
+
+   node cedeo-recherche-locale.js "tube multicouche 16"
+
+Remplace "tube multicouche 16" par n'importe quel produit que tu veux
+chercher, en gardant les guillemets.
+
+Ce qui doit s'afficher
+--------------------------
+- "Succes. X produit(s) reconnu(s)." suivi d'une liste : ça a marché, le
+  blocage CEDEO est bien contourné depuis ton PC.
+- "Échec : ..." : envoie-moi simplement le message affiché et l'image
+  cedeo-derniere-capture.png créée dans ce dossier, je regarde ce qui
+  bloque.
+
+Une fois que ça marche de façon fiable, on mettra en place un
+fonctionnement automatique (plus besoin de taper la commande à la main à
+chaque fois) — étape suivante une fois ce test validé.
