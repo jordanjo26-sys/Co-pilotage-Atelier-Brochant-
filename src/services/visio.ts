@@ -346,14 +346,16 @@ export function construireVisioClientPageHtml(token: string): string {
     #etat { font-size:15px; text-align:center; max-width:420px; }
     #video-locale { width:100%; max-width:420px; border-radius:12px; background:#000; aspect-ratio:4/3; object-fit:cover; }
     #controles { display:flex; gap:12px; }
-    #controles[hidden], #video-locale[hidden] { display:none; }
+    #btn-rejoindre[hidden], #controles[hidden], #video-locale[hidden] { display:none; }
     button { font-size:15px; padding:12px 20px; border-radius:10px; border:none; background:#3D6BFF; color:#fff; }
+    button:disabled { opacity:0.6; }
     button#btn-raccrocher { background:#D64545; }
   </style>
 </head>
 <body>
-  <div id="etat">Connexion en cours…</div>
+  <div id="etat">Appuyez pour rejoindre l'appel.</div>
   <video id="video-locale" autoplay playsinline muted hidden></video>
+  <button type="button" id="btn-rejoindre">Rejoindre l'appel</button>
   <div id="controles" hidden>
     <button type="button" id="btn-micro">Couper le micro</button>
     <button type="button" id="btn-raccrocher">Raccrocher</button>
@@ -365,56 +367,79 @@ export function construireVisioClientPageHtml(token: string): string {
       var etat = document.getElementById("etat");
       var videoLocale = document.getElementById("video-locale");
       var controles = document.getElementById("controles");
+      var btnRejoindre = document.getElementById("btn-rejoindre");
       var btnMicro = document.getElementById("btn-micro");
       var btnRaccrocher = document.getElementById("btn-raccrocher");
       var room = null;
+      var fluxLocal = null;
 
-      async function demarrer() {
+      // Safari iOS (et la plupart des navigateurs mobiles) n'accorde la
+      // camera/le micro que si getUserMedia est appele en reaction directe
+      // a un geste de l'utilisateur (un tap) - un appel automatique au
+      // chargement de la page echoue silencieusement, sans la moindre
+      // invite de permission (constate en conditions reelles : "Caméra/
+      // micro refusés ou indisponibles" systematique sur iPhone malgre un
+      // appareil fonctionnel). D'ou le bouton "Rejoindre l'appel" : la
+      // demande de camera/micro est la toute premiere chose faite dans son
+      // gestionnaire de clic, avant tout autre traitement asynchrone.
+      btnRejoindre.addEventListener("click", async function () {
+        btnRejoindre.disabled = true;
+        etat.textContent = "Connexion en cours…";
+
+        try {
+          fluxLocal = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch (e) {
+          etat.textContent = "Caméra/micro refusés ou indisponibles : autorisez-les puis rechargez la page.";
+          btnRejoindre.disabled = false;
+          return;
+        }
+        videoLocale.srcObject = fluxLocal;
+        videoLocale.hidden = false;
+
         var reponse;
         try {
           reponse = await fetch("/visio-client/" + token + "/jeton");
         } catch (e) {
           etat.textContent = "Connexion impossible (réseau).";
+          btnRejoindre.disabled = false;
           return;
         }
         if (!reponse.ok) {
           etat.textContent = "Lien invalide ou appel déjà terminé.";
+          btnRejoindre.disabled = false;
           return;
         }
         var donnees = await reponse.json();
         room = new LivekitClient.Room();
         try {
           await room.connect(donnees.livekitUrl, donnees.jetonClient);
-          await room.localParticipant.setMicrophoneEnabled(true);
-          await room.localParticipant.setCameraEnabled(true);
+          await room.localParticipant.publishTrack(fluxLocal.getVideoTracks()[0]);
+          await room.localParticipant.publishTrack(fluxLocal.getAudioTracks()[0]);
         } catch (e) {
-          etat.textContent = "Caméra/micro refusés ou indisponibles : autorisez-les puis rechargez la page.";
+          etat.textContent = "Connexion impossible. Réessayez.";
+          btnRejoindre.disabled = false;
           return;
         }
-        var publicationVideo = Array.from(room.localParticipant.videoTrackPublications.values())[0];
-        if (publicationVideo && publicationVideo.videoTrack) {
-          publicationVideo.videoTrack.attach(videoLocale);
-          videoLocale.hidden = false;
-        }
+
         etat.textContent = "Vous êtes en relation avec Atelier Brochant.";
+        btnRejoindre.hidden = true;
         controles.hidden = false;
-      }
+      });
 
       btnMicro.addEventListener("click", function () {
-        if (!room) return;
-        var actif = room.localParticipant.isMicrophoneEnabled;
-        room.localParticipant.setMicrophoneEnabled(!actif);
-        btnMicro.textContent = actif ? "Activer le micro" : "Couper le micro";
+        if (!fluxLocal) return;
+        var piste = fluxLocal.getAudioTracks()[0];
+        piste.enabled = !piste.enabled;
+        btnMicro.textContent = piste.enabled ? "Couper le micro" : "Activer le micro";
       });
 
       btnRaccrocher.addEventListener("click", function () {
         if (room) room.disconnect();
+        if (fluxLocal) fluxLocal.getTracks().forEach(function (t) { t.stop(); });
         etat.textContent = "Appel terminé. Vous pouvez fermer cette page.";
         controles.hidden = true;
         videoLocale.hidden = true;
       });
-
-      demarrer();
     })();
   </script>
 </body>
