@@ -1682,6 +1682,9 @@ tr.rapprochement-detail-ligne[hidden] { display: none; }
 .cab-statut-validee::before, .cab-statut-rapproche::before, .cab-statut-payee::before { background: var(--good); }
 .cab-statut-a_corriger::before, .cab-statut-a_verifier::before, .cab-statut-partiellement_payee::before { background: var(--warning); }
 .cab-statut-impayee::before { background: var(--critical); }
+.cab-statut-en_attente::before { background: var(--warning); }
+.cab-statut-en_cours::before { background: var(--brand-blue); }
+.cab-statut-terminee::before { background: var(--good); }
 
 tr.cab-ligne-selectionnee { background: var(--brand-blue-soft); }
 tr.cab-ligne-cliquable { cursor: pointer; }
@@ -1903,10 +1906,6 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .cab-page-entete p { margin: 4px 0 0; }
 
 /* ---------- Module Visio (devis a distance) ---------- */
-.visio-video {
-  width: 100%; max-width: 480px; border-radius: 12px; background: #000;
-  aspect-ratio: 4 / 3; object-fit: cover; display: block;
-}
 .visio-captures-grille {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 10px; margin-top: 12px;
@@ -1914,6 +1913,48 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .visio-captures-grille img {
   width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px;
   border: 1px solid var(--line); cursor: pointer;
+}
+
+/* Interface d'appel en cours : la video du client occupe la majorite de
+   l'espace, commandes regroupees dans une barre compacte en bas d'ecran
+   (adaptee iPhone) - la nav mobile basse et la bulle Morgane sont masquees
+   le temps de l'appel (voir body.visio-appel-actif) pour ne jamais gener. */
+.visio-appel-plein {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px; background: var(--surface); border-radius: 14px;
+  box-shadow: var(--shadow); margin-bottom: 16px;
+}
+.visio-appel-rappel { margin: 0; }
+.visio-appel-video-conteneur { width: 100%; max-height: 70vh; }
+.visio-video-plein {
+  width: 100%; height: 100%; max-height: 70vh; border-radius: 12px; background: #000;
+  aspect-ratio: 4 / 3; object-fit: cover; display: block;
+}
+.visio-captures-bande {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px;
+}
+.visio-captures-bande img {
+  width: 72px; height: 72px; flex: 0 0 auto; object-fit: cover; border-radius: 8px;
+  border: 1px solid var(--line); cursor: pointer;
+}
+.visio-appel-barre {
+  display: flex; gap: 10px; justify-content: center;
+  position: sticky; bottom: 0; background: var(--surface);
+  padding: 10px 0 2px; border-top: 1px solid var(--line);
+}
+.visio-appel-bouton {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-size: 12px; min-width: 76px; padding: 10px 8px; border-radius: 12px;
+  background: var(--brand-blue); color: #fff; border: none;
+}
+.visio-appel-bouton svg { width: 20px; height: 20px; }
+.visio-appel-bouton-fin { background: var(--critical); }
+#visio-btn-notes.visio-appel-bouton { background: var(--surface-muted, #eef1f8); color: var(--ink); }
+
+body.visio-appel-actif .cab-bottomnav,
+body.visio-appel-actif .morgane-bulle-ouvrir,
+body.visio-appel-actif #morgane-panneau-flottant {
+  display: none !important;
 }
 .visio-mesure-overlay {
   position: fixed; inset: 0; background: rgba(10,16,30,0.5); z-index: 60;

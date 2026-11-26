@@ -4957,30 +4957,361 @@ let visioSessionActuelle = null;
 let visioConteneurAudio = null;
 let visioMesureEtat = null;
 
+const visioEtat = { page: 1, parPage: 25, statut: "", recherche: "", dateDebut: "", dateFin: "", archive: false, detailId: null, detailOnglet: "details" };
+let visioPeriodeSelecteur = null;
+let visioDetailCourant = null;
+
+const LIBELLES_STATUT_VISIO = { en_attente: "En attente", en_cours: "En cours", terminee: "Terminée" };
+
+function visioRenduStatutPoint(statut) {
+  return `<span class="cab-statut-point cab-statut-${statut}">${echapper(LIBELLES_STATUT_VISIO[statut] || statut)}</span>`;
+}
+
 async function chargerSessionsVisio() {
-  const conteneur = document.getElementById("visio-liste-sessions");
-  if (!conteneur) return;
-  try {
-    const res = await fetch("/api/visio/sessions");
-    const sessions = await res.json();
-    if (!res.ok) throw new Error(sessions.erreur || "Chargement impossible.");
-    conteneur.innerHTML =
-      sessions
-        .map(
-          (s) => `
-      <div class="depense-ligne">
-        <span class="depense-nom">${echapper(s.clientNom)} <span class="depense-montant-ht">· ${fmtDate(s.createdAt)}</span></span>
-        <span class="depense-montants" style="align-items:flex-end">
-          <span class="badge badge-palier-neutre">${echapper(s.statut)}</span>
-          <a class="ghost bouton-lien" href="/api/visio/sessions/${s.id}/pdf" target="_blank" rel="noopener">Récapitulatif PDF</a>
-        </span>
-      </div>`
-        )
-        .join("") || `<p class="aide-inline">Aucun appel pour le moment.</p>`;
-  } catch (err) {
-    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  if (!document.getElementById("visio-tbody")) return;
+  const params = new URLSearchParams();
+  if (visioEtat.statut) params.set("statut", visioEtat.statut);
+  if (visioEtat.recherche) params.set("recherche", visioEtat.recherche);
+  if (visioEtat.dateDebut) params.set("dateDebut", visioEtat.dateDebut);
+  if (visioEtat.dateFin) params.set("dateFin", visioEtat.dateFin);
+  if (visioEtat.archive) params.set("archive", "1");
+  params.set("page", String(visioEtat.page));
+  params.set("parPage", String(visioEtat.parPage));
+
+  const res = await fetch(`/api/visio/sessions?${params.toString()}`);
+  const resultat = await res.json();
+
+  document.getElementById("visio-compte-toutes").textContent = `(${resultat.compteurs.enAttente + resultat.compteurs.enCours + resultat.compteurs.terminees})`;
+  document.getElementById("visio-compte-en_attente").textContent = `(${resultat.compteurs.enAttente})`;
+  document.getElementById("visio-compte-en_cours").textContent = `(${resultat.compteurs.enCours})`;
+  document.getElementById("visio-compte-terminee").textContent = `(${resultat.compteurs.terminees})`;
+
+  document.getElementById("visio-btn-archives").textContent = visioEtat.archive ? "← Historique actif" : "Archives";
+  document.getElementById("visio-etat-vide-titre").textContent = visioEtat.archive ? "Aucune visite archivée" : "Aucune visite";
+
+  const tbody = document.getElementById("visio-tbody");
+  const cartes = document.getElementById("visio-cartes");
+  const etatVide = document.getElementById("visio-etat-vide");
+  if (resultat.sessions.length === 0) {
+    tbody.innerHTML = "";
+    cartes.innerHTML = "";
+    etatVide.hidden = false;
+  } else {
+    etatVide.hidden = true;
+    tbody.innerHTML = resultat.sessions
+      .map(
+        (s) => `
+      <tr class="cab-ligne-cliquable${visioEtat.detailId === s.id ? " cab-ligne-selectionnee" : ""}" onclick="visioOuvrirDetail('${s.id}')">
+        <td>${echapper(s.clientNom)}</td>
+        <td>${fmtDate(s.createdAt)}</td>
+        <td>${visioRenduStatutPoint(s.statut)}</td>
+      </tr>`
+      )
+      .join("");
+    cartes.innerHTML = resultat.sessions
+      .map((s) =>
+        construireCarteLigne({
+          titre: echapper(s.clientNom),
+          metaGauche: echapper(fmtDate(s.createdAt)),
+          statutHtml: visioRenduStatutPoint(s.statut),
+          onclick: `visioOuvrirDetail('${s.id}')`,
+        })
+      )
+      .join("");
+  }
+
+  const pagination = document.getElementById("visio-pagination");
+  const nbPages = Math.max(1, Math.ceil(resultat.total / resultat.parPage));
+  if (resultat.total === 0) {
+    pagination.hidden = true;
+  } else {
+    pagination.hidden = false;
+    const debut = (resultat.page - 1) * resultat.parPage + 1;
+    const fin = Math.min(resultat.page * resultat.parPage, resultat.total);
+    document.getElementById("visio-pagination-info").textContent = `${debut}–${fin} sur ${resultat.total}`;
+    const pagesHtml = [];
+    pagesHtml.push(`<button type="button" ${resultat.page <= 1 ? "disabled" : ""} onclick="visioChangerPage(${resultat.page - 1})">‹</button>`);
+    for (let p = 1; p <= nbPages; p++) {
+      pagesHtml.push(`<button type="button" class="${p === resultat.page ? "actif" : ""}" onclick="visioChangerPage(${p})">${p}</button>`);
+    }
+    pagesHtml.push(`<button type="button" ${resultat.page >= nbPages ? "disabled" : ""} onclick="visioChangerPage(${resultat.page + 1})">›</button>`);
+    document.getElementById("visio-pagination-pages").innerHTML = pagesHtml.join("");
   }
 }
+window.visioChangerPage = (page) => {
+  visioEtat.page = page;
+  chargerSessionsVisio();
+};
+
+function visioInitialiserControles() {
+  const segments = document.getElementById("visio-segments");
+  if (segments && !segments.dataset.initialise) {
+    segments.querySelectorAll(".cab-segment").forEach((bouton) => {
+      bouton.addEventListener("click", () => {
+        segments.querySelectorAll(".cab-segment").forEach((b) => {
+          b.classList.toggle("actif", b === bouton);
+          b.setAttribute("aria-selected", b === bouton ? "true" : "false");
+        });
+        visioEtat.statut = bouton.dataset.statut;
+        visioEtat.page = 1;
+        chargerSessionsVisio();
+      });
+    });
+    segments.dataset.initialise = "1";
+  }
+
+  const recherche = document.getElementById("visio-recherche");
+  if (recherche && !recherche.dataset.initialise) {
+    let minuteur;
+    recherche.addEventListener("input", () => {
+      clearTimeout(minuteur);
+      minuteur = setTimeout(() => {
+        visioEtat.recherche = recherche.value.trim();
+        visioEtat.page = 1;
+        chargerSessionsVisio();
+      }, 300);
+    });
+    recherche.dataset.initialise = "1";
+  }
+
+  const periodeType = document.getElementById("visio-periode-type");
+  if (periodeType && !periodeType.dataset.initialise) {
+    visioPeriodeSelecteur = creerSelecteurPeriode("visio", {
+      defaut: "toutes",
+      onChange: (bornes) => {
+        visioEtat.dateDebut = bornes?.dateDebut || "";
+        visioEtat.dateFin = bornes?.dateFin || "";
+        visioEtat.page = 1;
+        chargerSessionsVisio();
+      },
+    });
+    const bornesInitiales = visioPeriodeSelecteur?.resoudre();
+    visioEtat.dateDebut = bornesInitiales?.dateDebut || "";
+    visioEtat.dateFin = bornesInitiales?.dateFin || "";
+    periodeType.dataset.initialise = "1";
+  }
+
+  const btnArchives = document.getElementById("visio-btn-archives");
+  if (btnArchives && !btnArchives.dataset.initialise) {
+    btnArchives.addEventListener("click", () => {
+      visioEtat.archive = !visioEtat.archive;
+      visioEtat.statut = "";
+      visioEtat.page = 1;
+      segments?.querySelectorAll(".cab-segment").forEach((b) => {
+        b.classList.toggle("actif", b.dataset.statut === "");
+        b.setAttribute("aria-selected", b.dataset.statut === "" ? "true" : "false");
+      });
+      chargerSessionsVisio();
+    });
+    btnArchives.dataset.initialise = "1";
+  }
+
+  visioPanneau.initialiserFermeture();
+  const panneauVisio = document.getElementById("visio-detail-panneau");
+  if (panneauVisio) {
+    panneauVisio.querySelectorAll(".cab-detail-onglet").forEach((bouton) => {
+      if (bouton.dataset.initialise) return;
+      bouton.addEventListener("click", () => visioBasculerOngletDetail(bouton.dataset.detailOnglet));
+      bouton.dataset.initialise = "1";
+    });
+  }
+
+  document.getElementById("visio-btn-nouvelle")?.addEventListener("click", () => {
+    document.getElementById("visio-nouvelle-modal").hidden = false;
+  });
+  document.getElementById("visio-nouvelle-fermer")?.addEventListener("click", () => {
+    document.getElementById("visio-nouvelle-modal").hidden = true;
+  });
+  document.getElementById("visio-aide-ouvrir")?.addEventListener("click", () => {
+    document.getElementById("visio-aide-modal").hidden = false;
+  });
+  document.getElementById("visio-aide-fermer")?.addEventListener("click", () => {
+    document.getElementById("visio-aide-modal").hidden = true;
+  });
+}
+
+// --- Visio : fiche détail (panneau latéral, comme Factures fournisseurs) --
+
+const visioPanneau = creerPanneauDetail("visio", {
+  chargerDetail: async (id) => {
+    const res = await fetch(`/api/visio/sessions/${encodeURIComponent(id)}`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Visite introuvable.");
+    const detail = await res.json();
+    visioDetailCourant = detail;
+    return detail;
+  },
+  rendu: (detail) => visioRenduDetail(detail),
+  chargerDocument: () => visioChargerDocumentDetail(),
+});
+
+function visioBasculerOngletDetail(nom) {
+  visioEtat.detailOnglet = nom;
+  visioPanneau.basculerOnglet(nom);
+}
+
+function visioOuvrirDetail(id) {
+  visioEtat.detailId = id;
+  visioEtat.detailOnglet = "details";
+  visioPanneau.ouvrir(id);
+}
+window.visioOuvrirDetail = visioOuvrirDetail;
+
+function visioFermerDetail() {
+  visioEtat.detailId = null;
+  visioDetailCourant = null;
+  visioPanneau.fermer();
+}
+window.visioFermerDetail = visioFermerDetail;
+
+function visioRenduDetail(detail) {
+  document.getElementById("visio-detail-titre").textContent = detail.clientNom;
+  const statutSpan = document.getElementById("visio-detail-statut");
+  statutSpan.className = `cab-statut-point cab-statut-${detail.statut}`;
+  statutSpan.textContent = LIBELLES_STATUT_VISIO[detail.statut] || detail.statut;
+
+  const lignes = [
+    ["Client", echapper(detail.clientNom)],
+    ["Téléphone", echapper(detail.clientTelephone || "—")],
+    ["Date", echapper(fmtDate(detail.createdAt))],
+  ];
+  const capturesHtml = detail.captures.length
+    ? `<div class="visio-captures-grille">${detail.captures
+        .map((c) => {
+          const mesure = c.mesures ? (() => { try { return JSON.parse(c.mesures); } catch { return null; } })() : null;
+          return `<div><img src="/api/visio/captures/${c.id}/image" alt="Capture" style="width:100%;border-radius:8px;border:1px solid var(--line);" />${mesure ? `<p class="aide-inline">${mesure.distanceCalculeeCm.toFixed(1)} cm</p>` : ""}</div>`;
+        })
+        .join("")}</div>`
+    : `<p class="liste-vide">Aucune capture pour cette visite.</p>`;
+
+  document.getElementById("visio-detail-details").innerHTML = `
+    ${lignes.map(([label, valeur]) => `<div class="cab-detail-ligne"><span>${label}</span><span>${valeur}</span></div>`).join("")}
+    ${detail.archivee ? `<div class="cab-detail-ligne"><span>Archivée</span><span>${echapper(fmtDate(detail.archivedAt))}</span></div>` : ""}
+    <h3 style="margin-top:16px">Captures</h3>
+    ${capturesHtml}
+    <h3 style="margin-top:16px">Notes</h3>
+    <textarea id="visio-detail-notes" rows="3" style="width:100%" placeholder="Notes libres sur cette visite...">${echapper(detail.notes || "")}</textarea>
+    <div class="cab-actions" style="margin-top:8px">
+      <button type="button" class="ghost" id="visio-detail-btn-notes">Enregistrer les notes</button>
+    </div>`;
+  document.getElementById("visio-detail-btn-notes")?.addEventListener("click", () => visioEnregistrerNotes(detail.id));
+
+  document.getElementById("visio-detail-historique").innerHTML = `
+    <ul class="rapprochement-historique">
+      <li>${echapper(fmtDate(detail.createdAt))} — Visite créée</li>
+      ${detail.dateDebut ? `<li>${echapper(fmtDate(detail.dateDebut))} — Appel rejoint</li>` : ""}
+      ${detail.dateFin ? `<li>${echapper(fmtDate(detail.dateFin))} — Appel terminé</li>` : ""}
+      ${detail.archivee ? `<li>${echapper(fmtDate(detail.archivedAt))} — Archivée</li>` : ""}
+    </ul>`;
+
+  const actions = document.getElementById("visio-detail-actions");
+  const boutons = [];
+  if (detail.captures.length > 0) {
+    boutons.push(`<button type="button" class="ghost" onclick="visioBasculerOngletDetail('document')">Voir le document</button>`);
+  }
+  if (detail.statut === "en_attente" && !detail.archivee) {
+    boutons.push(`<button type="button" class="ghost" onclick="visioAnnuler('${detail.id}', this)">Annuler la visite</button>`);
+  } else if (detail.statut === "terminee" && !detail.archivee) {
+    boutons.push(`<button type="button" class="ghost" onclick="visioArchiver('${detail.id}', this)">Archiver</button>`);
+  } else if (detail.archivee) {
+    boutons.push(`<button type="button" class="ghost" onclick="visioRestaurer('${detail.id}', this)">Restaurer</button>`);
+    boutons.push(`<button type="button" class="ghost" onclick="visioSupprimer('${detail.id}', this)">Supprimer définitivement</button>`);
+  } else if (detail.statut === "en_cours") {
+    boutons.push(`<span class="aide-inline">Appel en cours — terminez-le avant d'archiver.</span>`);
+  }
+  actions.innerHTML = boutons.join("");
+
+  if (visioEtat.detailOnglet === "document") visioChargerDocumentDetail();
+}
+
+async function visioEnregistrerNotes(id) {
+  const bouton = document.getElementById("visio-detail-btn-notes");
+  const notes = document.getElementById("visio-detail-notes").value;
+  if (bouton) {
+    bouton.disabled = true;
+    bouton.textContent = "Enregistrement…";
+  }
+  try {
+    const res = await fetch(`/api/visio/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
+    if (!res.ok) throw new Error();
+    if (bouton) bouton.textContent = "Enregistré ✓";
+  } catch {
+    if (bouton) bouton.textContent = "Erreur, réessayez";
+  } finally {
+    if (bouton) setTimeout(() => { bouton.disabled = false; bouton.textContent = "Enregistrer les notes"; }, 1500);
+  }
+}
+
+function visioChargerDocumentDetail() {
+  if (!visioDetailCourant) return;
+  const conteneur = document.getElementById("visio-detail-document");
+  if (!visioDetailCourant.captures.length) {
+    conteneur.innerHTML = `<p class="liste-vide">Aucun document disponible (aucune capture prise pendant cette visite).</p>`;
+    return;
+  }
+  afficherPdfDansConteneur(conteneur, `/api/visio/sessions/${visioDetailCourant.id}/pdf`, `visio-${visioDetailCourant.clientNom}.pdf`);
+}
+
+async function visioAnnuler(id, bouton) {
+  if (!confirm("Annuler cette visite ? Elle n'a pas encore été rejointe par le client, elle sera définitivement supprimée.")) return;
+  if (bouton) { bouton.disabled = true; bouton.textContent = "Annulation…"; }
+  try {
+    const res = await fetch(`/api/visio/sessions/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Annulation impossible.");
+    visioFermerDetail();
+    await chargerSessionsVisio();
+  } catch (err) {
+    if (bouton) { bouton.disabled = false; bouton.textContent = "Annuler la visite"; }
+    alert(err.message);
+  }
+}
+window.visioAnnuler = visioAnnuler;
+
+async function visioArchiver(id, bouton) {
+  if (bouton) { bouton.disabled = true; bouton.textContent = "Archivage…"; }
+  try {
+    const res = await fetch(`/api/visio/sessions/${id}/archiver`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Archivage impossible.");
+    visioFermerDetail();
+    await chargerSessionsVisio();
+  } catch (err) {
+    if (bouton) { bouton.disabled = false; bouton.textContent = "Archiver"; }
+    alert(err.message);
+  }
+}
+window.visioArchiver = visioArchiver;
+
+async function visioRestaurer(id, bouton) {
+  if (bouton) { bouton.disabled = true; bouton.textContent = "Restauration…"; }
+  try {
+    const res = await fetch(`/api/visio/sessions/${id}/restaurer`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Restauration impossible.");
+    visioFermerDetail();
+    await chargerSessionsVisio();
+  } catch (err) {
+    if (bouton) { bouton.disabled = false; bouton.textContent = "Restaurer"; }
+    alert(err.message);
+  }
+}
+window.visioRestaurer = visioRestaurer;
+
+async function visioSupprimer(id, bouton) {
+  if (!confirm("Supprimer définitivement cette visite ? Les captures et le récapitulatif associés seront perdus. Cette action est irréversible.")) return;
+  if (bouton) { bouton.disabled = true; bouton.textContent = "Suppression…"; }
+  try {
+    const res = await fetch(`/api/visio/sessions/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.erreur || "Suppression impossible.");
+    visioFermerDetail();
+    await chargerSessionsVisio();
+  } catch (err) {
+    if (bouton) { bouton.disabled = false; bouton.textContent = "Supprimer définitivement"; }
+    alert(err.message);
+  }
+}
+window.visioSupprimer = visioSupprimer;
 
 function visioAttacherPistesDistantes(room) {
   const videoEl = document.getElementById("visio-video-distante");
@@ -5011,6 +5342,7 @@ async function visioDemarrerAppel(session, jetonUtilisateur, livekitUrl) {
   visioRoomActuelle = room;
   document.getElementById("visio-appel-en-cours").hidden = false;
   document.getElementById("visio-captures-liste").innerHTML = "";
+  document.body.classList.add("visio-appel-actif");
 }
 
 async function visioTerminerAppel() {
@@ -5030,9 +5362,44 @@ async function visioTerminerAppel() {
     }
   }
   document.getElementById("visio-appel-en-cours").hidden = true;
+  document.getElementById("visio-appel-notes-modal").hidden = true;
+  document.body.classList.remove("visio-appel-actif");
   visioSessionActuelle = null;
   await chargerSessionsVisio();
 }
+
+document.getElementById("visio-btn-notes")?.addEventListener("click", () => {
+  if (!visioSessionActuelle) return;
+  document.getElementById("visio-appel-notes-texte").value = visioSessionActuelle.notes || "";
+  document.getElementById("visio-appel-notes-modal").hidden = false;
+});
+document.getElementById("visio-appel-notes-fermer")?.addEventListener("click", () => {
+  document.getElementById("visio-appel-notes-modal").hidden = true;
+});
+document.getElementById("visio-appel-notes-enregistrer")?.addEventListener("click", async () => {
+  if (!visioSessionActuelle) return;
+  const bouton = document.getElementById("visio-appel-notes-enregistrer");
+  const notes = document.getElementById("visio-appel-notes-texte").value;
+  bouton.disabled = true;
+  bouton.textContent = "Enregistrement…";
+  try {
+    const res = await fetch(`/api/visio/sessions/${visioSessionActuelle.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
+    if (!res.ok) throw new Error();
+    visioSessionActuelle.notes = notes;
+    bouton.textContent = "Enregistré ✓";
+  } catch {
+    bouton.textContent = "Erreur, réessayez";
+  } finally {
+    setTimeout(() => {
+      bouton.disabled = false;
+      bouton.textContent = "Enregistrer";
+    }, 1200);
+  }
+});
 
 function visioAjouterCaptureAffichage(capture) {
   const conteneur = document.getElementById("visio-captures-liste");
@@ -5097,6 +5464,9 @@ if (formVisioDemarrer) {
       });
       await visioDemarrerAppel(data.session, data.jetonUtilisateur, data.livekitUrl);
       formVisioDemarrer.reset();
+      document.getElementById("visio-nouvelle-modal").hidden = true;
+      resultatDiv.innerHTML = "";
+      await chargerSessionsVisio();
     } catch (err) {
       resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
     }
@@ -6240,6 +6610,7 @@ function forcerNouveauCalqueAffichage() {
 
 async function rafraichirTout() {
   ffInitialiserControles();
+  visioInitialiserControles();
   trInitialiserSynthesePeriode();
   mouvInitialiserPeriode();
   mouvPanneau.initialiserFermeture();

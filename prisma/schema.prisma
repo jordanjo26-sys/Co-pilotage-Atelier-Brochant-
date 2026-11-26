@@ -933,6 +933,13 @@ model SessionVisio {
   livekitRoom     String         @unique
   dateDebut       DateTime?
   dateFin         DateTime?
+  // Archivage = corbeille (masque de l'historique actif sans supprimer),
+  // orthogonal a `statut` qui decrit la progression de l'appel lui-meme.
+  // Suppression definitive uniquement autorisee quand archivee=true (sauf
+  // annulation d'une visite encore en_attente, qui n'a jamais de capture).
+  archivee        Boolean        @default(false)
+  archivedAt      DateTime?
+  notes           String?
   captures        CaptureVisio[]
   createdAt       DateTime       @default(now())
 }

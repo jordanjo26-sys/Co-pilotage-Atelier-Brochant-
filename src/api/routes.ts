@@ -49,6 +49,10 @@ import {
   mettreAJourMesuresCapture,
   cheminCaptureVisio,
   diagnostiquerLivekit,
+  mettreAJourNotes as mettreAJourNotesVisio,
+  archiverSession as archiverSessionVisio,
+  restaurerSession as restaurerSessionVisio,
+  supprimerSessionDefinitivement as supprimerSessionVisioDefinitivement,
   VisioError,
   MesuresCapture,
 } from "../services/visio";
@@ -1682,7 +1686,20 @@ export function buildRouter(prisma: PrismaClient): Router {
   });
 
   router.get("/visio/sessions", async (req, res) => {
-    res.json(await listerSessionsVisio(prisma));
+    const statutsValides = ["en_attente", "en_cours", "terminee"];
+    const statut = typeof req.query.statut === "string" && statutsValides.includes(req.query.statut)
+      ? (req.query.statut as "en_attente" | "en_cours" | "terminee")
+      : undefined;
+    const resultat = await listerSessionsVisio(prisma, {
+      statut,
+      recherche: typeof req.query.recherche === "string" ? req.query.recherche : undefined,
+      dateDebut: typeof req.query.dateDebut === "string" ? req.query.dateDebut : undefined,
+      dateFin: typeof req.query.dateFin === "string" ? req.query.dateFin : undefined,
+      archive: req.query.archive === "1" || req.query.archive === "true",
+      page: req.query.page ? Number(req.query.page) : undefined,
+      parPage: req.query.parPage ? Number(req.query.parPage) : undefined,
+    });
+    res.json(resultat);
   });
 
   router.get("/visio/sessions/:id", async (req, res) => {
@@ -1706,12 +1723,47 @@ export function buildRouter(prisma: PrismaClient): Router {
   });
 
   router.patch("/visio/sessions/:id", async (req, res) => {
-    const statut = typeof req.body?.statut === "string" ? req.body.statut : "";
     try {
+      if (typeof req.body?.notes === "string") {
+        const session = await mettreAJourNotesVisio(prisma, req.params.id, req.body.notes);
+        return res.json(session);
+      }
+      const statut = typeof req.body?.statut === "string" ? req.body.statut : "";
       const session = await changerStatutSessionVisio(prisma, req.params.id, statut);
       res.json(session);
     } catch (err) {
       if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+      res.status(404).json({ erreur: "Session visio introuvable." });
+    }
+  });
+
+  router.post("/visio/sessions/:id/archiver", async (req, res) => {
+    try {
+      res.json(await archiverSessionVisio(prisma, req.params.id));
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+      res.status(404).json({ erreur: "Session visio introuvable." });
+    }
+  });
+
+  router.post("/visio/sessions/:id/restaurer", async (req, res) => {
+    try {
+      res.json(await restaurerSessionVisio(prisma, req.params.id));
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+      res.status(404).json({ erreur: "Session visio introuvable." });
+    }
+  });
+
+  // Annulation directe (visite en_attente) ou suppression definitive (visite
+  // deja archivee) selon l'etat courant - voir supprimerSessionDefinitivement
+  // dans services/visio.ts pour le detail des verifications de dependances.
+  router.delete("/visio/sessions/:id", async (req, res) => {
+    try {
+      await supprimerSessionVisioDefinitivement(prisma, req.params.id);
+      res.status(204).end();
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(409).json({ erreur: err.message });
       res.status(404).json({ erreur: "Session visio introuvable." });
     }
   });
