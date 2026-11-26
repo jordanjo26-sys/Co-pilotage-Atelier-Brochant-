@@ -150,10 +150,27 @@ async function extraireProduits(page: import("playwright").Page): Promise<Produi
 export async function rechercherPrixCedeo(prisma: PrismaClient, requete: string): Promise<ResultatRechercheCedeo> {
   const { url, identifiant, motDePasse } = obtenirIdentifiantsCedeo();
 
-  const navigateur = await chromium.launch({ headless: true });
+  // Le user-agent par defaut de Chromium headless s'annonce litteralement
+  // comme "HeadlessChrome/..." : la premiere tentative reelle (capture
+  // d'ecran recuperee via les logs du run de deploiement) a montre que
+  // CEDEO renvoie un blocage anti-robot generique ({"message":"Please
+  // contact the site owner for access."}) avant meme d'atteindre le
+  // formulaire de connexion - cause la plus probable, un UA headless etant
+  // le signal de blocage le plus simple et le plus repandu cote WAF. On se
+  // presente donc comme un vrai Chrome desktop, sans quoi que ce soit
+  // d'autre destine a masquer l'automatisation.
+  const navigateur = await chromium.launch({
+    headless: true,
+    args: ["--disable-blink-features=AutomationControlled"],
+  });
   let page: import("playwright").Page | undefined;
   try {
-    page = await navigateur.newPage({ viewport: { width: 1280, height: 900 } });
+    page = await navigateur.newPage({
+      viewport: { width: 1280, height: 900 },
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      locale: "fr-FR",
+    });
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
 
     await seConnecterCedeo(page, identifiant, motDePasse);
