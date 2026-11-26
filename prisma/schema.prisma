@@ -909,3 +909,45 @@ model ArchiveComptable {
   // Pas une vraie relation Prisma (meme principe que mouvementBancaireId).
   documentFournisseurId String?
 }
+
+// --- Module Visio (devis a distance) -------------------------------------
+// Demande explicite de l'utilisateur : un client appelle sans rendez-vous
+// sur place et veut un devis a distance. Visio a sens unique (l'utilisateur
+// voit le client, jamais l'inverse - garanti par construction cote code,
+// aucune piste camera n'est jamais publiee pour l'utilisateur, voir
+// src/services/visio.ts), avec capture d'ecran a la demande et mesure
+// optionnelle par calibration manuelle sur une capture. Aucun modele
+// "Devis" n'existe dans cette base (les devis sont crees directement dans
+// Synec, logiciel tiers sans API) : une session visio est donc autonome,
+// son seul resultat durable est le PDF recapitulatif genere a partir des
+// captures. Meme principe de jeton public imprevisible que
+// ActiviteRealisation/tokenGalerie ci-dessus (page /visio-client/:token,
+// sans mot de passe site - exception nginx dediee dans bootstrap.sh).
+model SessionVisio {
+  id              String         @id @default(cuid())
+  clientNom       String
+  clientTelephone String?
+  token           String         @unique
+  // "en_attente" (creee, personne connecte) | "en_cours" | "terminee"
+  statut          String         @default("en_attente")
+  livekitRoom     String         @unique
+  dateDebut       DateTime?
+  dateFin         DateTime?
+  captures        CaptureVisio[]
+  createdAt       DateTime       @default(now())
+}
+
+model CaptureVisio {
+  id        String       @id @default(cuid())
+  sessionId String
+  session   SessionVisio @relation(fields: [sessionId], references: [id])
+  // Chemin relatif sous uploads/visio/ (hors depot git, comme
+  // uploads/scans - voir documentsScannes.ts).
+  fichierNom String
+  // JSON {referencePoints, referenceLongueurCm, mesurePoints,
+  // distanceCalculeeCm} si une mesure a ete faite sur cette capture, sinon
+  // absent (la mesure est occasionnelle, pas systematique - demande
+  // explicite de l'utilisateur).
+  mesures   String?
+  createdAt DateTime     @default(now())
+}

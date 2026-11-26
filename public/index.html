@@ -98,6 +98,11 @@
           Réalisations
         </button>
 
+        <button type="button" class="cab-sidebar-lien onglet" data-onglet="visio">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10 6-3.2v10.4l-6-3.2"/></svg>
+          Visio
+        </button>
+
         <button type="button" class="cab-sidebar-lien onglet" data-onglet="systeme">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
           Système &amp; Paramètres
@@ -745,6 +750,59 @@
       </section>
     </div>
 
+    <!-- ===== Visio (devis a distance) ===== -->
+    <div class="onglet-panneau" data-panneau="visio" hidden>
+      <div class="cab-page-entete">
+        <h1>Visio</h1>
+        <p class="aide">Un client appelle sans rendez-vous sur place ? Démarrez un appel : vous le voyez en direct, il ne vous voit jamais. Capturez l'écran à la demande, mesurez si besoin, puis téléchargez le récapitulatif PDF pour faire le devis dans Synec.</p>
+      </div>
+
+      <section class="carte accent-violet">
+        <h2>Démarrer un appel</h2>
+        <form id="form-visio-demarrer" class="form-grille">
+          <input type="text" id="visio-client-nom" placeholder="Nom du client" required />
+          <input type="tel" id="visio-client-telephone" placeholder="Téléphone (optionnel, pour envoyer le lien par SMS)" />
+          <button type="submit">Démarrer la visio</button>
+        </form>
+        <div id="visio-resultat-demarrage"></div>
+      </section>
+
+      <section class="carte accent-teal" id="visio-appel-en-cours" hidden>
+        <h2>Appel en cours</h2>
+        <p class="aide">Vous voyez le client ; il ne vous voit jamais (votre caméra n'est jamais activée, ni même autorisée techniquement pour cet appel).</p>
+        <video id="visio-video-distante" autoplay playsinline class="visio-video"></video>
+        <div class="cab-actions" style="margin-top:12px">
+          <button type="button" id="visio-btn-capturer">Capturer l'écran</button>
+          <button type="button" class="ghost" id="visio-btn-terminer">Terminer l'appel</button>
+        </div>
+        <div id="visio-captures-liste" class="visio-captures-grille"></div>
+      </section>
+
+      <section class="carte accent-ambre">
+        <h2>Historique</h2>
+        <div id="visio-liste-sessions"></div>
+      </section>
+    </div>
+
+    <!-- Overlay de mesure (calibration manuelle sur une capture de visio) -->
+    <div id="visio-mesure-overlay" class="visio-mesure-overlay" hidden>
+      <div class="visio-mesure-contenu">
+        <h3>Mesurer sur la capture</h3>
+        <p class="aide" id="visio-mesure-instruction">Cliquez les 2 extrémités d'un objet de taille connue sur la photo (une porte, un carreau...).</p>
+        <div class="visio-mesure-image-conteneur">
+          <img id="visio-mesure-image" alt="Capture à mesurer" />
+          <canvas id="visio-mesure-canvas"></canvas>
+        </div>
+        <div id="visio-mesure-saisie-longueur" class="form-grille" hidden>
+          <input type="number" id="visio-mesure-longueur-cm" placeholder="Longueur réelle (cm)" step="0.1" min="0.1" />
+          <button type="button" id="visio-mesure-valider-longueur">Valider la référence</button>
+        </div>
+        <div id="visio-mesure-resultat"></div>
+        <button type="button" class="ghost" id="visio-mesure-fermer">Fermer</button>
+      </div>
+    </div>
+    <canvas id="visio-canvas-capture" hidden></canvas>
+
     <!-- ===== Comptabilité (archive de secours, independante de Factures fournisseurs/Dext) ===== -->
     <div class="onglet-panneau" data-panneau="comptabilite" hidden>
       <div class="cab-page-entete cab-page-entete-avec-action">
@@ -931,6 +989,10 @@
 
   <div class="cab-feuille-bas" id="cab-feuille-plus" hidden>
     <div class="cab-feuille-bas-poignee"></div>
+    <button type="button" class="cab-feuille-bas-lien onglet" data-onglet="visio">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10 6-3.2v10.4l-6-3.2"/></svg>
+      Visio
+    </button>
     <button type="button" class="cab-feuille-bas-lien onglet" data-onglet="systeme">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Système &amp; Paramètres
@@ -1071,7 +1133,11 @@
   <footer class="pied">Copilote de gestion Atelier Brochant</footer>
 
   <script src="/lecteur-pdf.js?v=1"></script>
-  <script src="/app.js?v=79"></script>
+  <!-- Module Visio (devis a distance) : version pinnee du build UMD, meme
+       raison que dans construireVisioClientPageHtml (src/services/visio.ts) -
+       jamais "latest", pas de bundler cote front. -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.24.1/dist/livekit-client.umd.min.js"></script>
+  <script src="/app.js?v=80"></script>
   <script src="/navigation.js?v=5"></script>
   <script src="/morgane.js?v=4"></script>
 </body>

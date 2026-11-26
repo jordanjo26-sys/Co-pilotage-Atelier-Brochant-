@@ -4939,6 +4939,294 @@ if (formRealisations) {
   });
 }
 
+// --- Visio (devis a distance) ----------------------------------------------
+//
+// Demande explicite de l'utilisateur : un client appelle sans rendez-vous
+// sur place et veut un devis a distance, en voyant le client sans jamais
+// etre vu. La video a sens unique n'est pas une simple convention de ce
+// code : le jeton LiveKit de l'utilisateur ne PEUT publier que son micro
+// (restriction posee cote serveur, voir genererJetonUtilisateur dans
+// src/services/visio.ts) - ce fichier n'essaie donc jamais d'activer une
+// camera locale, meme par erreur ca serait refuse par LiveKit. Aucun modele
+// "Devis" n'existe dans cette base (les devis se font dans Synec,
+// logiciel tiers) : le seul resultat durable d'un appel est le PDF
+// recapitulatif des captures, telechargeable depuis l'historique.
+
+let visioRoomActuelle = null;
+let visioSessionActuelle = null;
+let visioConteneurAudio = null;
+let visioMesureEtat = null;
+
+async function chargerSessionsVisio() {
+  const conteneur = document.getElementById("visio-liste-sessions");
+  if (!conteneur) return;
+  try {
+    const res = await fetch("/api/visio/sessions");
+    const sessions = await res.json();
+    if (!res.ok) throw new Error(sessions.erreur || "Chargement impossible.");
+    conteneur.innerHTML =
+      sessions
+        .map(
+          (s) => `
+      <div class="depense-ligne">
+        <span class="depense-nom">${echapper(s.clientNom)} <span class="depense-montant-ht">· ${fmtDate(s.createdAt)}</span></span>
+        <span class="depense-montants" style="align-items:flex-end">
+          <span class="badge badge-palier-neutre">${echapper(s.statut)}</span>
+          <a class="ghost bouton-lien" href="/api/visio/sessions/${s.id}/pdf" target="_blank" rel="noopener">Récapitulatif PDF</a>
+        </span>
+      </div>`
+        )
+        .join("") || `<p class="aide-inline">Aucun appel pour le moment.</p>`;
+  } catch (err) {
+    conteneur.innerHTML = `<p class="aide-inline">Erreur : ${echapper(err.message)}</p>`;
+  }
+}
+
+function visioAttacherPistesDistantes(room) {
+  const videoEl = document.getElementById("visio-video-distante");
+  room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === "video") {
+      track.attach(videoEl);
+    } else if (track.kind === "audio") {
+      const audioEl = track.attach();
+      audioEl.hidden = true;
+      visioConteneurAudio.appendChild(audioEl);
+    }
+  });
+}
+
+async function visioDemarrerAppel(session, jetonUtilisateur, livekitUrl) {
+  visioSessionActuelle = session;
+  if (!visioConteneurAudio) {
+    visioConteneurAudio = document.createElement("div");
+    visioConteneurAudio.hidden = true;
+    document.body.appendChild(visioConteneurAudio);
+  }
+  const room = new LivekitClient.Room();
+  visioAttacherPistesDistantes(room);
+  await room.connect(livekitUrl, jetonUtilisateur);
+  // Jamais setCameraEnabled : seul le micro est active cote utilisateur
+  // (voir note en tete de section).
+  await room.localParticipant.setMicrophoneEnabled(true);
+  visioRoomActuelle = room;
+  document.getElementById("visio-appel-en-cours").hidden = false;
+  document.getElementById("visio-captures-liste").innerHTML = "";
+}
+
+async function visioTerminerAppel() {
+  if (visioRoomActuelle) {
+    visioRoomActuelle.disconnect();
+    visioRoomActuelle = null;
+  }
+  if (visioSessionActuelle) {
+    try {
+      await fetch(`/api/visio/sessions/${visioSessionActuelle.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statut: "terminee" }),
+      });
+    } catch {
+      // Echec non bloquant : l'appel est de toute facon deja raccroche cote navigateur.
+    }
+  }
+  document.getElementById("visio-appel-en-cours").hidden = true;
+  visioSessionActuelle = null;
+  await chargerSessionsVisio();
+}
+
+function visioAjouterCaptureAffichage(capture) {
+  const conteneur = document.getElementById("visio-captures-liste");
+  const img = document.createElement("img");
+  img.src = `/api/visio/captures/${capture.id}/image`;
+  img.alt = "Capture de l'appel";
+  img.title = "Cliquer pour mesurer";
+  img.addEventListener("click", () => visioOuvrirMesure(capture.id));
+  conteneur.appendChild(img);
+}
+
+function visioCapturer() {
+  const videoEl = document.getElementById("visio-video-distante");
+  const canvas = document.getElementById("visio-canvas-capture");
+  if (!videoEl.videoWidth) {
+    alert("Aucune vidéo du client à capturer pour le moment.");
+    return;
+  }
+  canvas.width = videoEl.videoWidth;
+  canvas.height = videoEl.videoHeight;
+  canvas.getContext("2d").drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(async (blob) => {
+    const donnees = new FormData();
+    donnees.append("image", blob, "capture.png");
+    try {
+      const res = await fetch(`/api/visio/sessions/${visioSessionActuelle.id}/captures`, { method: "POST", body: donnees });
+      const capture = await res.json();
+      if (!res.ok) throw new Error(capture.erreur || "Capture impossible.");
+      visioAjouterCaptureAffichage(capture);
+    } catch (err) {
+      alert(err.message);
+    }
+  }, "image/png");
+}
+
+document.getElementById("visio-btn-capturer")?.addEventListener("click", visioCapturer);
+document.getElementById("visio-btn-terminer")?.addEventListener("click", visioTerminerAppel);
+
+const formVisioDemarrer = document.getElementById("form-visio-demarrer");
+if (formVisioDemarrer) {
+  formVisioDemarrer.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const resultatDiv = document.getElementById("visio-resultat-demarrage");
+    const clientNom = document.getElementById("visio-client-nom").value.trim();
+    const clientTelephone = document.getElementById("visio-client-telephone").value.trim();
+    if (!clientNom) return;
+    resultatDiv.innerHTML = "Démarrage…";
+    try {
+      const res = await fetch("/api/visio/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientNom, clientTelephone: clientTelephone || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.erreur || "Démarrage impossible.");
+      resultatDiv.innerHTML = `
+        <p>Lien à transmettre au client : <a id="visio-lien-client" href="${echapper(data.lienClient)}" target="_blank" rel="noopener">${echapper(data.lienClient)}</a></p>
+        <button type="button" class="ghost" id="visio-btn-copier-lien">Copier le lien</button>
+        <p class="aide-inline">${data.smsEnvoye ? "Lien envoyé par SMS." : "SMS non envoyé (numéro absent ou échec) : transmettez le lien vous-même."}</p>`;
+      document.getElementById("visio-btn-copier-lien")?.addEventListener("click", () => {
+        navigator.clipboard.writeText(data.lienClient).catch(() => prompt("Copiez ce lien :", data.lienClient));
+      });
+      await visioDemarrerAppel(data.session, data.jetonUtilisateur, data.livekitUrl);
+      formVisioDemarrer.reset();
+    } catch (err) {
+      resultatDiv.innerHTML = `<span class="badge badge-echec">Erreur</span> ${echapper(err.message)}`;
+    }
+  });
+}
+
+// --- Visio : mesure par calibration manuelle sur une capture --------------
+//
+// Occasionnelle, pas systematique (demande explicite de l'utilisateur) :
+// clic sur 2 points d'une reference de taille connue, saisie de sa
+// longueur reelle, puis 2 points a mesurer - distance calculee par simple
+// ratio de pixels (pas d'AR, peu fiable sur un telephone quelconque).
+
+function visioDistance(p1, p2) {
+  return Math.hypot(p2.x - p1.x, p2.y - p1.y);
+}
+
+function visioDessinerPoint(x, y, couleur) {
+  const ctx = document.getElementById("visio-mesure-canvas").getContext("2d");
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = couleur;
+  ctx.fill();
+}
+
+function visioDessinerLigne(p1, p2, couleur) {
+  const ctx = document.getElementById("visio-mesure-canvas").getContext("2d");
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.strokeStyle = couleur;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function visioOuvrirMesure(captureId) {
+  const overlay = document.getElementById("visio-mesure-overlay");
+  const img = document.getElementById("visio-mesure-image");
+  const canvas = document.getElementById("visio-mesure-canvas");
+  const saisie = document.getElementById("visio-mesure-saisie-longueur");
+
+  visioMesureEtat = { captureId, phase: "reference", points: [], referencePoints: null, referenceLongueurCm: null, mesurePoints: null };
+  saisie.hidden = true;
+  document.getElementById("visio-mesure-resultat").innerHTML = "";
+  document.getElementById("visio-mesure-instruction").textContent =
+    "Cliquez les 2 extrémités d'un objet de taille connue sur la photo (une porte, un carreau...).";
+  document.getElementById("visio-mesure-longueur-cm").value = "";
+
+  img.onload = () => {
+    canvas.width = img.clientWidth;
+    canvas.height = img.clientHeight;
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  };
+  img.src = `/api/visio/captures/${captureId}/image`;
+  overlay.hidden = false;
+}
+
+async function visioMesureCalculerEtEnregistrer() {
+  const etat = visioMesureEtat;
+  const pixelsReference = visioDistance(etat.referencePoints[0], etat.referencePoints[1]);
+  const pixelsMesure = visioDistance(etat.mesurePoints[0], etat.mesurePoints[1]);
+  const cmParPixel = etat.referenceLongueurCm / pixelsReference;
+  const distanceCalculeeCm = pixelsMesure * cmParPixel;
+
+  const mesures = {
+    referencePoints: etat.referencePoints,
+    referenceLongueurCm: etat.referenceLongueurCm,
+    mesurePoints: etat.mesurePoints,
+    distanceCalculeeCm,
+  };
+
+  document.getElementById("visio-mesure-resultat").innerHTML = `
+    <strong>Mesure approximative : ${distanceCalculeeCm.toFixed(1)} cm</strong>
+    <p class="aide-inline">Suppose un plan similaire entre la référence et la zone mesurée.</p>`;
+
+  try {
+    const res = await fetch(`/api/visio/captures/${etat.captureId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mesures }),
+    });
+    if (!res.ok) throw new Error();
+  } catch {
+    document.getElementById("visio-mesure-resultat").innerHTML +=
+      `<p class="aide-inline">Non enregistrée (problème réseau) - la mesure reste affichée ici seulement.</p>`;
+  }
+  etat.phase = "terminee";
+}
+
+document.getElementById("visio-mesure-canvas")?.addEventListener("click", (e) => {
+  if (!visioMesureEtat || (visioMesureEtat.phase !== "reference" && visioMesureEtat.phase !== "mesure")) return;
+  const rect = e.target.getBoundingClientRect();
+  const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  const couleur = visioMesureEtat.phase === "reference" ? "#3E72CE" : "#C43B54";
+
+  visioMesureEtat.points.push(point);
+  visioDessinerPoint(point.x, point.y, couleur);
+  if (visioMesureEtat.points.length !== 2) return;
+  visioDessinerLigne(visioMesureEtat.points[0], visioMesureEtat.points[1], couleur);
+
+  if (visioMesureEtat.phase === "reference") {
+    visioMesureEtat.referencePoints = visioMesureEtat.points;
+    visioMesureEtat.points = [];
+    document.getElementById("visio-mesure-instruction").textContent =
+      "Indiquez la longueur réelle de cette référence, puis cliquez les 2 points à mesurer.";
+    document.getElementById("visio-mesure-saisie-longueur").hidden = false;
+    visioMesureEtat.phase = "attente-longueur";
+  } else {
+    visioMesureEtat.mesurePoints = visioMesureEtat.points;
+    visioMesureCalculerEtEnregistrer();
+  }
+});
+
+document.getElementById("visio-mesure-valider-longueur")?.addEventListener("click", () => {
+  const valeur = parseFloat(document.getElementById("visio-mesure-longueur-cm").value);
+  if (!valeur || valeur <= 0) {
+    alert("Indiquez une longueur valide.");
+    return;
+  }
+  visioMesureEtat.referenceLongueurCm = valeur;
+  document.getElementById("visio-mesure-saisie-longueur").hidden = true;
+  document.getElementById("visio-mesure-instruction").textContent = "Cliquez les 2 points à mesurer.";
+  visioMesureEtat.phase = "mesure";
+});
+
+document.getElementById("visio-mesure-fermer")?.addEventListener("click", () => {
+  document.getElementById("visio-mesure-overlay").hidden = true;
+  visioMesureEtat = null;
+});
+
 // --- Comptabilité : archive de factures (independante de Dext) ------------
 //
 // Module distinct du circuit "Factures fournisseurs" (demande explicite de
@@ -5961,7 +6249,7 @@ async function rafraichirTout() {
   initialiserSousNav("factures");
   initialiserSousNav("tresorerie");
   initialiserSousNav("marketing");
-  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerTresorerieSynthese(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerCentreSynchronisation(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
+  await Promise.all([chargerCockpit(), chargerGraphiqueCa(), chargerImports(), chargerMouvementsBancaires(), chargerTresorerieSynthese(), chargerFacturesImpayees(), chargerStatutGmail(), chargerStatutStripe(), chargerStatutSynec(), chargerStatutOvh(), chargerCentreSynchronisation(), chargerStatutGoogleAds(), chargerPropositionsAds(), chargerStatutReseauxSociaux(), chargerPropositionsReseauxSociaux(), chargerStatutGoogleBusiness(), chargerPropositionsPagesJaunes(), chargerAnomalies(), chargerRelances(), chargerFacturesFournisseurs(), chargerFacturesDextEnvoyees(), chargerFacturesFournisseursUnifiees(), chargerFournisseurs(), chargerDepensesFournisseurs(), chargerDecisions(), chargerJournal(), chargerActivitesRealisations(), chargerPhotosRealisations(), chargerSessionsVisio(), chargerArchivesComptables(), chargerArchivesMoisCourant(), chargerArchivesAnnees(), chargerArchivesAVerifier(), chargerSuiviMensuel()]);
   requestAnimationFrame(forcerNouveauCalqueAffichage);
 }
 

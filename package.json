@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
+    "@livekit/protocol": "^1.55.0",
     "@prisma/client": "^5.20.0",
     "csv-parse": "^5.5.6",
     "dayjs": "^1.11.13",
@@ -26,6 +27,7 @@
     "express": "^4.21.0",
     "google-ads-api": "^25.1.0",
     "googleapis": "^144.0.0",
+    "livekit-server-sdk": "^2.20.1",
     "multer": "^2.0.1",
     "nodemailer": "^6.9.15",
     "pdfjs-dist": "^6.5.438",

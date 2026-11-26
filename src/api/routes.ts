@@ -38,6 +38,19 @@ import {
   enregistrerFournisseur,
 } from "../services/fournisseurs";
 import { enregistrerDocumentScanne, DocumentScanneError } from "../services/documentsScannes";
+import {
+  creerSession as creerSessionVisio,
+  listerSessions as listerSessionsVisio,
+  obtenirSession as obtenirSessionVisio,
+  changerStatutSession as changerStatutSessionVisio,
+  genererJetonUtilisateur as genererJetonUtilisateurVisio,
+  enregistrerCapture as enregistrerCaptureVisio,
+  genererPdfRecapitulatif as genererPdfRecapitulatifVisio,
+  mettreAJourMesuresCapture,
+  cheminCaptureVisio,
+  VisioError,
+  MesuresCapture,
+} from "../services/visio";
 import { cheminDocumentGenere, nomFichierGenereValide } from "../services/documentsGeneres";
 import { listerDecisions, terminerDecision } from "../services/decisions";
 import {
@@ -1631,6 +1644,111 @@ export function buildRouter(prisma: PrismaClient): Router {
       res.json({ reponse });
     } catch (err) {
       res.status(400).json({ erreur: (err as Error).message });
+    }
+  });
+
+  // --- Module Visio (devis a distance) -------------------------------------
+  // Demande explicite de l'utilisateur : voir le client sans etre vu,
+  // capturer l'ecran et mesurer occasionnellement. Routes cote utilisateur
+  // (protegees comme le reste du site) ; la partie publique (page que le
+  // client ouvre) est servie par src/server.ts (/visio-client/:token).
+
+  router.post("/visio/sessions", async (req, res) => {
+    const clientNom = typeof req.body?.clientNom === "string" ? req.body.clientNom : "";
+    const clientTelephone = typeof req.body?.clientTelephone === "string" ? req.body.clientTelephone : undefined;
+    try {
+      const { session, lienClient, smsEnvoye } = await creerSessionVisio(prisma, { clientNom, clientTelephone });
+      const { jeton, url } = await genererJetonUtilisateurVisio(session);
+      res.status(201).json({ session, lienClient, smsEnvoye, jetonUtilisateur: jeton, livekitUrl: url });
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.get("/visio/sessions", async (req, res) => {
+    res.json(await listerSessionsVisio(prisma));
+  });
+
+  router.get("/visio/sessions/:id", async (req, res) => {
+    const session = await obtenirSessionVisio(prisma, req.params.id);
+    if (!session) return res.status(404).json({ erreur: "Session visio introuvable." });
+    res.json(session);
+  });
+
+  // Rejoindre a nouveau une session deja creee (ex. apres un rechargement
+  // de page) sans en recreer une nouvelle - redonne un jeton LiveKit frais.
+  router.post("/visio/sessions/:id/jeton", async (req, res) => {
+    const session = await obtenirSessionVisio(prisma, req.params.id);
+    if (!session) return res.status(404).json({ erreur: "Session visio introuvable." });
+    try {
+      const { jeton, url } = await genererJetonUtilisateurVisio(session);
+      res.json({ jetonUtilisateur: jeton, livekitUrl: url });
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.patch("/visio/sessions/:id", async (req, res) => {
+    const statut = typeof req.body?.statut === "string" ? req.body.statut : "";
+    try {
+      const session = await changerStatutSessionVisio(prisma, req.params.id, statut);
+      res.json(session);
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+      res.status(404).json({ erreur: "Session visio introuvable." });
+    }
+  });
+
+  router.post("/visio/sessions/:id/captures", upload.single("image"), async (req, res) => {
+    if (!req.file) return res.status(400).json({ erreur: "Aucune image recue (champ attendu : 'image')." });
+    let mesures: MesuresCapture | undefined;
+    if (typeof req.body?.mesures === "string" && req.body.mesures) {
+      try {
+        mesures = JSON.parse(req.body.mesures);
+      } catch {
+        return res.status(400).json({ erreur: "Champ 'mesures' invalide (JSON attendu)." });
+      }
+    }
+    try {
+      const capture = await enregistrerCaptureVisio(prisma, req.params.id, { image: req.file.buffer, mesures });
+      res.status(201).json(capture);
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.patch("/visio/captures/:captureId", async (req, res) => {
+    const mesures = req.body?.mesures;
+    if (!mesures || typeof mesures !== "object") {
+      return res.status(400).json({ erreur: "Champ 'mesures' requis." });
+    }
+    try {
+      const capture = await mettreAJourMesuresCapture(prisma, req.params.captureId, mesures as MesuresCapture);
+      res.json(capture);
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(404).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
+    }
+  });
+
+  router.get("/visio/captures/:captureId/image", async (req, res) => {
+    const capture = await prisma.captureVisio.findUnique({ where: { id: req.params.captureId } });
+    if (!capture) return res.status(404).json({ erreur: "Capture introuvable." });
+    res.sendFile(cheminCaptureVisio(capture.fichierNom));
+  });
+
+  router.get("/visio/sessions/:id/pdf", async (req, res) => {
+    try {
+      const pdf = await genererPdfRecapitulatifVisio(prisma, req.params.id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="visio-${req.params.id}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      if (err instanceof VisioError) return res.status(404).json({ erreur: err.message });
+      res.status(500).json({ erreur: (err as Error).message });
     }
   });
 

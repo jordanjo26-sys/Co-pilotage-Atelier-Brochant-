@@ -123,6 +123,31 @@ export async function envoyerSms(corps: string): Promise<void> {
   }
 }
 
+/**
+ * Variante de envoyerSms a destinataire arbitraire (pas
+ * TELEPHONE_SMS_DESTINATAIRE) : utilisee pour envoyer au client le lien de
+ * sa session de visio (module Visio, voir visio.ts). Meme compte/expediteur
+ * Twilio, seul le "To" change.
+ */
+export async function envoyerSmsA(destinataire: string, corps: string): Promise<void> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const expediteur = process.env.TWILIO_SMS_EXPEDITEUR;
+  if (!sid || !token || !expediteur) {
+    throw new Error("SMS non configure (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN et TWILIO_SMS_EXPEDITEUR requis).");
+  }
+  const reponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ To: destinataire, From: expediteur, Body: corps }),
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!reponse.ok) throw new Error(`Twilio SMS ${reponse.status} : ${(await reponse.text()).slice(0, 200)}`);
+}
+
 const API_TWILIO = "https://api.twilio.com/2010-04-01";
 
 export function identifiantsTwilio(): { sid: string; auth: string } | null {

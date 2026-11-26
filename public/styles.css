@@ -1901,3 +1901,29 @@ tr.cab-ligne-cliquable { cursor: pointer; }
 .cab-page-entete { margin-bottom: 2px; }
 .cab-page-entete h1 { font-size: 20px; }
 .cab-page-entete p { margin: 4px 0 0; }
+
+/* ---------- Module Visio (devis a distance) ---------- */
+.visio-video {
+  width: 100%; max-width: 480px; border-radius: 12px; background: #000;
+  aspect-ratio: 4 / 3; object-fit: cover; display: block;
+}
+.visio-captures-grille {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px; margin-top: 12px;
+}
+.visio-captures-grille img {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px;
+  border: 1px solid var(--line); cursor: pointer;
+}
+.visio-mesure-overlay {
+  position: fixed; inset: 0; background: rgba(10,16,30,0.5); z-index: 60;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.visio-mesure-overlay[hidden] { display: none; }
+.visio-mesure-contenu {
+  background: var(--surface); border-radius: 14px; padding: 20px; max-width: 560px;
+  width: 100%; max-height: 90vh; overflow: auto; box-shadow: var(--shadow);
+}
+.visio-mesure-image-conteneur { position: relative; display: inline-block; margin-top: 10px; max-width: 100%; }
+.visio-mesure-image-conteneur img { max-width: 100%; display: block; border-radius: 8px; }
+.visio-mesure-image-conteneur canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }

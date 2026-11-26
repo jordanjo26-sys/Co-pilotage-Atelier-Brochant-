@@ -101,6 +101,13 @@ OVH_CONSUMER_KEY_ARG="${27:-}"
 CEDEO_URL_ARG="${28:-}"
 CEDEO_IDENTIFIANT_ARG="${29:-}"
 CEDEO_MOT_DE_PASSE_ARG="${30:-}"
+# LiveKit (module Visio - devis a distance, voir src/services/visio.ts) :
+# compte LiveKit Cloud gratuit cree par Jordan. Absents, la section Visio
+# reste desactivee (erreur explicite, pas de plantage du reste de
+# l'application).
+LIVEKIT_URL_ARG="${31:-}"
+LIVEKIT_API_KEY_ARG="${32:-}"
+LIVEKIT_API_SECRET_ARG="${33:-}"
 
 APP_DIR="/opt/copilote-brochant"
 APP_USER="copilote"
@@ -304,6 +311,9 @@ definir_variable OVH_CONSUMER_KEY "$OVH_CONSUMER_KEY_ARG"
 definir_variable CEDEO_URL "$CEDEO_URL_ARG"
 definir_variable CEDEO_IDENTIFIANT "$CEDEO_IDENTIFIANT_ARG"
 definir_variable CEDEO_MOT_DE_PASSE "$CEDEO_MOT_DE_PASSE_ARG"
+definir_variable LIVEKIT_URL "$LIVEKIT_URL_ARG"
+definir_variable LIVEKIT_API_KEY "$LIVEKIT_API_KEY_ARG"
+definir_variable LIVEKIT_API_SECRET "$LIVEKIT_API_SECRET_ARG"
 if ! grep -q '^TELEPHONE_URL_PUBLIQUE=' "$ENV_FILE" 2>/dev/null; then
   echo "TELEPHONE_URL_PUBLIQUE=https://${DOMAIN}" >> "$ENV_FILE"
 fi
@@ -626,6 +636,24 @@ ${AUTH_BASIC_CONF}
     # Les images qu'elle affiche sont deja sous /media-publics/ ci-dessus,
     # donc deja exemptees.
     location /galerie-realisations/ {
+        auth_basic off;
+        proxy_pass http://copilote_app;
+        proxy_connect_timeout 2s;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Page de visio (module Visio, devis a distance) : le client ouvre ce
+    # lien recu par SMS sans avoir les identifiants du site - protegee
+    # uniquement par le jeton imprevisible dans l'URL (voir visio.ts), meme
+    # principe que /galerie-realisations/ ci-dessus. La connexion
+    # audio/video elle-meme ne passe pas par ce serveur (le navigateur du
+    # client se connecte directement a LiveKit Cloud) : seul l'appel pour
+    # obtenir son jeton (/visio-client/:token/jeton) transite ici.
+    location /visio-client/ {
         auth_basic off;
         proxy_pass http://copilote_app;
         proxy_connect_timeout 2s;

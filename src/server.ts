@@ -11,6 +11,7 @@ import { buildPagesJaunesRouter } from "./api/pagesJaunesRoutes";
 import { buildRealisationsRouter } from "./api/realisationsRoutes";
 import { buildArchiveComptableRouter } from "./api/archiveComptableRoutes";
 import { obtenirActiviteParToken, construireGaleriePageHtml } from "./services/realisations";
+import { construireVisioClientPageHtml, obtenirJetonPourClient } from "./services/visio";
 import { installerRelaisVocal } from "./services/relaisVocal";
 import {
   demarrerSurveillanceGmail,
@@ -54,6 +55,20 @@ app.get("/galerie-realisations/:token", async (req, res) => {
   const activite = await obtenirActiviteParToken(prisma, req.params.token);
   if (!activite) return res.status(404).send("Galerie introuvable.");
   res.set("Content-Type", "text/html; charset=utf-8").send(await construireGaleriePageHtml(prisma, activite));
+});
+// Page de visio publique (module Visio) : meme principe que la galerie de
+// realisations ci-dessus (jeton imprevisible dans l'URL, pas de mot de
+// passe - le client n'a evidemment pas celui du site). L'appel API que
+// cette page fait pour obtenir son jeton LiveKit (/visio-client/:token/jeton)
+// vit dans ce meme prefixe pour ne demander qu'une seule exception nginx
+// (voir bootstrap.sh).
+app.get("/visio-client/:token", (req, res) => {
+  res.set("Content-Type", "text/html; charset=utf-8").send(construireVisioClientPageHtml(req.params.token));
+});
+app.get("/visio-client/:token/jeton", async (req, res) => {
+  const resultat = await obtenirJetonPourClient(prisma, req.params.token);
+  if (!resultat) return res.status(404).json({ erreur: "Lien invalide." });
+  res.json(resultat);
 });
 // Webhooks Twilio du standard telephonique IA (authentifies par signature).
 app.use("/telephonie", buildTelephonieRouter(prisma));
