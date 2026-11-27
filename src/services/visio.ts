@@ -138,15 +138,46 @@ export async function obtenirSessionParToken(prisma: PrismaClient, token: string
  * et bascule la session en "en_cours" des sa premiere connexion (jamais a
  * la creation, qui ne garantit pas que le client ait effectivement rejoint).
  */
+export interface ConsentementVisio {
+  accepte: boolean;
+  cameraMicro: boolean;
+  photos: boolean;
+}
+
+/**
+ * Appelee par la page publique (/visio-client/:token/jeton, sans mot de
+ * passe du site) quand le client ouvre le lien : revalide le consentement
+ * RGPD cote serveur (jamais confiance seule a la case cochee cote client,
+ * voir construireVisioClientPageHtml) avant de generer son jeton LiveKit et
+ * de basculer la session en "en_cours" des sa premiere connexion (jamais a
+ * la creation, qui ne garantit pas que le client ait effectivement rejoint).
+ * Le consentement n'est enregistre qu'une fois (premiere connexion) - un
+ * rechargement de page ulterieur ne l'ecrase pas.
+ */
 export async function obtenirJetonPourClient(
   prisma: PrismaClient,
-  token: string
+  token: string,
+  consentement: ConsentementVisio
 ): Promise<{ livekitUrl: string; jetonClient: string; statut: string } | null> {
+  if (!consentement.accepte || !consentement.cameraMicro || !consentement.photos) {
+    throw new VisioError("Les 3 cases de consentement doivent être acceptées pour accéder à la visio.");
+  }
   const session = await prisma.sessionVisio.findUnique({ where: { token } });
   if (!session) return null;
   const { jeton, url } = await genererJetonClient(session);
+  const data: { statut?: string; dateDebut?: Date; consentAccepte?: boolean; consentCameraMicro?: boolean; consentPhotos?: boolean; consentDate?: Date } = {};
   if (session.statut === "en_attente") {
-    await prisma.sessionVisio.update({ where: { id: session.id }, data: { statut: "en_cours", dateDebut: new Date() } });
+    data.statut = "en_cours";
+    data.dateDebut = new Date();
+  }
+  if (!session.consentDate) {
+    data.consentAccepte = true;
+    data.consentCameraMicro = true;
+    data.consentPhotos = true;
+    data.consentDate = new Date();
+  }
+  if (Object.keys(data).length > 0) {
+    await prisma.sessionVisio.update({ where: { id: session.id }, data });
   }
   return { livekitUrl: url, jetonClient: jeton, statut: session.statut === "en_attente" ? "en_cours" : session.statut };
 }
@@ -262,16 +293,14 @@ export async function restaurerSession(prisma: PrismaClient, id: string) {
 }
 
 /**
- * Annulation d'une visite encore en_attente (jamais rejointe par le client,
- * donc jamais de capture ni de PDF a perdre) : suppression directe, sans
- * passer par l'archive - ce n'est pas une "suppression de donnees" puisqu'il
- * n'y en a pas encore.
- *
- * Suppression definitive (toute autre visite, uniquement si deja archivee) :
- * verifie les dependances (CaptureVisio porte une contrainte ON DELETE
- * RESTRICT vers SessionVisio, voir migration initiale) en supprimant d'abord
- * chaque fichier image sur disque puis chaque ligne CaptureVisio, avant de
- * supprimer la session elle-meme. Jamais autorisee sur une session en_cours.
+ * Suppression definitive d'une visite (demande explicite de l'utilisateur :
+ * suppression directe, l'archivage n'est qu'une option de rangement, jamais
+ * un prealable obligatoire) - autorisee pour tout statut sauf en_cours (un
+ * appel actif ne doit jamais pouvoir disparaitre). Verifie les dependances
+ * (CaptureVisio porte une contrainte ON DELETE RESTRICT vers SessionVisio,
+ * voir migration initiale) en supprimant d'abord chaque fichier image sur
+ * disque puis chaque ligne CaptureVisio, avant de supprimer la session
+ * elle-meme.
  */
 export async function supprimerSessionDefinitivement(prisma: PrismaClient, id: string) {
   const session = await prisma.sessionVisio.findUnique({
@@ -281,16 +310,6 @@ export async function supprimerSessionDefinitivement(prisma: PrismaClient, id: s
   if (!session) throw new VisioError("Session visio introuvable.");
   if (session.statut === "en_cours") {
     throw new VisioError("Impossible de supprimer une visite en cours.");
-  }
-
-  if (session.statut === "en_attente" && !session.archivee) {
-    // Annulation directe : par construction, une session en_attente n'a
-    // jamais de capture (elles ne sont prises que pendant un appel en_cours).
-    return prisma.sessionVisio.delete({ where: { id } });
-  }
-
-  if (!session.archivee) {
-    throw new VisioError("Cette visite doit d'abord être archivée avant suppression définitive.");
   }
 
   for (const capture of session.captures) {
@@ -480,16 +499,40 @@ export function construireVisioClientPageHtml(token: string): string {
     #etat { font-size:15px; text-align:center; max-width:420px; }
     #video-locale { width:100%; max-width:420px; border-radius:12px; background:#000; aspect-ratio:4/3; object-fit:cover; }
     #controles { display:flex; gap:12px; }
-    #btn-rejoindre[hidden], #controles[hidden], #video-locale[hidden] { display:none; }
+    #btn-rejoindre[hidden], #controles[hidden], #video-locale[hidden], #consentement[hidden] { display:none; }
     button { font-size:15px; padding:12px 20px; border-radius:10px; border:none; background:#3D6BFF; color:#fff; }
     button:disabled { opacity:0.6; }
     button#btn-raccrocher { background:#D64545; }
+    #consentement { max-width:420px; width:100%; background:rgba(255,255,255,0.06); border-radius:12px; padding:18px; box-sizing:border-box; }
+    #consentement h2 { margin:0 0 10px; font-size:16px; }
+    .case-consentement { display:flex; align-items:flex-start; gap:10px; margin-bottom:12px; font-size:13px; line-height:1.4; }
+    .case-consentement input { margin-top:3px; flex:none; width:18px; height:18px; }
+    .case-consentement a { color:#8FB2FF; }
+    .texte-legal { font-size:12px; line-height:1.5; color:#C7D1E8; background:rgba(0,0,0,0.2); border-radius:8px; padding:10px; margin:6px 0 10px; }
+    .texte-legal[hidden] { display:none; }
   </style>
 </head>
 <body>
-  <div id="etat">Appuyez pour rejoindre l'appel.</div>
+  <div id="consentement">
+    <h2>Avant de continuer</h2>
+    <label class="case-consentement">
+      <input type="checkbox" id="case-cgu" />
+      <span>J'accepte les <a href="#" id="lien-cgu">conditions générales</a> et la <a href="#" id="lien-charte">charte de confidentialité</a>.</span>
+    </label>
+    <p class="texte-legal" id="texte-cgu" hidden>Conditions générales (modèle standard) : ce service de visio est fourni par Atelier Brochant dans le cadre de la préparation d'un devis à distance. L'accès est strictement réservé à la personne ayant reçu ce lien. Toute utilisation frauduleuse ou détournée engage la responsabilité de son auteur.</p>
+    <p class="texte-legal" id="texte-charte" hidden>Charte de confidentialité (modèle standard) : vos données personnelles (nom, téléphone, images captées pendant l'échange) sont traitées par Atelier Brochant conformément au RGPD, uniquement pour la préparation de votre devis. Elles ne sont jamais transmises à un tiers sans votre accord et sont conservées le temps nécessaire au traitement de votre demande. Vous disposez d'un droit d'accès, de rectification et de suppression en contactant Atelier Brochant.</p>
+    <label class="case-consentement">
+      <input type="checkbox" id="case-camera" />
+      <span>Je consens à l'activation de ma caméra et de mon micro pour cet échange.</span>
+    </label>
+    <label class="case-consentement">
+      <input type="checkbox" id="case-photos" />
+      <span>Je consens à la prise de captures d'écran pendant la visio, utilisées pour la préparation de mon devis.</span>
+    </label>
+  </div>
+  <div id="etat">Acceptez les 3 conditions ci-dessus pour accéder à la visio.</div>
   <video id="video-locale" autoplay playsinline muted hidden></video>
-  <button type="button" id="btn-rejoindre">Rejoindre l'appel</button>
+  <button type="button" id="btn-rejoindre" disabled>J'accède à la visio</button>
   <div id="controles" hidden>
     <button type="button" id="btn-micro">Couper le micro</button>
     <button type="button" id="btn-raccrocher">Raccrocher</button>
@@ -501,11 +544,34 @@ export function construireVisioClientPageHtml(token: string): string {
       var etat = document.getElementById("etat");
       var videoLocale = document.getElementById("video-locale");
       var controles = document.getElementById("controles");
+      var consentement = document.getElementById("consentement");
       var btnRejoindre = document.getElementById("btn-rejoindre");
       var btnMicro = document.getElementById("btn-micro");
       var btnRaccrocher = document.getElementById("btn-raccrocher");
+      var caseCgu = document.getElementById("case-cgu");
+      var caseCamera = document.getElementById("case-camera");
+      var casePhotos = document.getElementById("case-photos");
       var room = null;
       var fluxLocal = null;
+
+      function majBoutonConsentement() {
+        var toutCoche = caseCgu.checked && caseCamera.checked && casePhotos.checked;
+        btnRejoindre.disabled = !toutCoche;
+        if (toutCoche) etat.textContent = "Appuyez pour accéder à la visio.";
+      }
+      [caseCgu, caseCamera, casePhotos].forEach(function (c) {
+        c.addEventListener("change", majBoutonConsentement);
+      });
+
+      function toggleTexteLegal(lienId, texteId) {
+        document.getElementById(lienId).addEventListener("click", function (e) {
+          e.preventDefault();
+          var el = document.getElementById(texteId);
+          el.hidden = !el.hidden;
+        });
+      }
+      toggleTexteLegal("lien-cgu", "texte-cgu");
+      toggleTexteLegal("lien-charte", "texte-charte");
 
       // Safari iOS (et la plupart des navigateurs mobiles) n'accorde la
       // camera/le micro que si getUserMedia est appele en reaction directe
@@ -529,18 +595,29 @@ export function construireVisioClientPageHtml(token: string): string {
         }
         videoLocale.srcObject = fluxLocal;
         videoLocale.hidden = false;
+        consentement.hidden = true;
 
         var reponse;
         try {
-          reponse = await fetch("/visio-client/" + token + "/jeton");
+          reponse = await fetch("/visio-client/" + token + "/jeton", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              consentAccepte: caseCgu.checked,
+              consentCameraMicro: caseCamera.checked,
+              consentPhotos: casePhotos.checked,
+            }),
+          });
         } catch (e) {
           etat.textContent = "Connexion impossible (réseau).";
           btnRejoindre.disabled = false;
+          consentement.hidden = false;
           return;
         }
         if (!reponse.ok) {
           etat.textContent = "Lien invalide ou appel déjà terminé.";
           btnRejoindre.disabled = false;
+          consentement.hidden = false;
           return;
         }
         var donnees = await reponse.json();

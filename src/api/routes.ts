@@ -1755,9 +1755,9 @@ export function buildRouter(prisma: PrismaClient): Router {
     }
   });
 
-  // Annulation directe (visite en_attente) ou suppression definitive (visite
-  // deja archivee) selon l'etat courant - voir supprimerSessionDefinitivement
-  // dans services/visio.ts pour le detail des verifications de dependances.
+  // Suppression definitive directe (tout statut sauf en_cours) - voir
+  // supprimerSessionDefinitivement dans services/visio.ts pour le detail
+  // des verifications de dependances.
   router.delete("/visio/sessions/:id", async (req, res) => {
     try {
       await supprimerSessionVisioDefinitivement(prisma, req.params.id);
