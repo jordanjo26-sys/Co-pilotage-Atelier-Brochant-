@@ -519,8 +519,8 @@ export function construireVisioClientPageHtml(token: string): string {
       <input type="checkbox" id="case-cgu" />
       <span>J'accepte les <a href="#" id="lien-cgu">conditions générales</a> et la <a href="#" id="lien-charte">charte de confidentialité</a>.</span>
     </label>
-    <p class="texte-legal" id="texte-cgu" hidden>Conditions générales (modèle standard) : ce service de visio est fourni par Atelier Brochant dans le cadre de la préparation d'un devis à distance. L'accès est strictement réservé à la personne ayant reçu ce lien. Toute utilisation frauduleuse ou détournée engage la responsabilité de son auteur.</p>
-    <p class="texte-legal" id="texte-charte" hidden>Charte de confidentialité (modèle standard) : vos données personnelles (nom, téléphone, images captées pendant l'échange) sont traitées par Atelier Brochant conformément au RGPD, uniquement pour la préparation de votre devis. Elles ne sont jamais transmises à un tiers sans votre accord et sont conservées le temps nécessaire au traitement de votre demande. Vous disposez d'un droit d'accès, de rectification et de suppression en contactant Atelier Brochant.</p>
+    <p class="texte-legal" id="texte-cgu" hidden>Ce service de visio est fourni par Atelier Brochant dans le cadre de la préparation d'un devis à distance. L'accès est strictement réservé à la personne ayant reçu ce lien. Toute utilisation frauduleuse ou détournée engage la responsabilité de son auteur.</p>
+    <p class="texte-legal" id="texte-charte" hidden>Vos données personnelles (nom, téléphone, images captées pendant l'échange) sont traitées par Atelier Brochant conformément au RGPD, uniquement pour la préparation de votre devis. Elles ne sont jamais transmises à un tiers sans votre accord et sont conservées le temps nécessaire au traitement de votre demande. Vous disposez d'un droit d'accès, de rectification et de suppression en contactant Atelier Brochant.</p>
     <label class="case-consentement">
       <input type="checkbox" id="case-camera" />
       <span>Je consens à l'activation de ma caméra et de mon micro pour cet échange.</span>
