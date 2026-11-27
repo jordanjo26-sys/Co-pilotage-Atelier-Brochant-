@@ -11,7 +11,7 @@ import { buildPagesJaunesRouter } from "./api/pagesJaunesRoutes";
 import { buildRealisationsRouter } from "./api/realisationsRoutes";
 import { buildArchiveComptableRouter } from "./api/archiveComptableRoutes";
 import { obtenirActiviteParToken, construireGaleriePageHtml } from "./services/realisations";
-import { construireVisioClientPageHtml, obtenirJetonPourClient } from "./services/visio";
+import { construireVisioClientPageHtml, obtenirJetonPourClient, VisioError } from "./services/visio";
 import { installerRelaisVocal } from "./services/relaisVocal";
 import {
   demarrerSurveillanceGmail,
@@ -65,10 +65,23 @@ app.get("/galerie-realisations/:token", async (req, res) => {
 app.get("/visio-client/:token", (req, res) => {
   res.set("Content-Type", "text/html; charset=utf-8").send(construireVisioClientPageHtml(req.params.token));
 });
-app.get("/visio-client/:token/jeton", async (req, res) => {
-  const resultat = await obtenirJetonPourClient(prisma, req.params.token);
-  if (!resultat) return res.status(404).json({ erreur: "Lien invalide." });
-  res.json(resultat);
+// POST (et non GET) : la requete porte le consentement RGPD du client
+// (CGU/RGPD, camera+micro, photos - voir obtenirJetonPourClient), revalide
+// cote serveur avant d'emettre le jeton LiveKit, jamais une simple lecture.
+app.post("/visio-client/:token/jeton", async (req, res) => {
+  const consentement = {
+    accepte: req.body?.consentAccepte === true,
+    cameraMicro: req.body?.consentCameraMicro === true,
+    photos: req.body?.consentPhotos === true,
+  };
+  try {
+    const resultat = await obtenirJetonPourClient(prisma, req.params.token, consentement);
+    if (!resultat) return res.status(404).json({ erreur: "Lien invalide." });
+    res.json(resultat);
+  } catch (err) {
+    if (err instanceof VisioError) return res.status(400).json({ erreur: err.message });
+    res.status(500).json({ erreur: (err as Error).message });
+  }
 });
 // Webhooks Twilio du standard telephonique IA (authentifies par signature).
 app.use("/telephonie", buildTelephonieRouter(prisma));

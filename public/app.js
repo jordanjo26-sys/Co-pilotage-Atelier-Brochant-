@@ -5211,12 +5211,17 @@ function visioRenduDetail(detail) {
   if (detail.statut === "en_attente" && !detail.archivee) {
     boutons.push(`<button type="button" class="ghost" onclick="visioAnnuler('${detail.id}', this)">Annuler la visite</button>`);
   } else if (detail.statut === "terminee" && !detail.archivee) {
+    // Archiver et Supprimer sont independants l'un de l'autre (demande
+    // explicite de l'utilisateur : la suppression directe ne doit plus
+    // passer obligatoirement par l'archive, qui reste juste un rangement
+    // optionnel).
     boutons.push(`<button type="button" class="ghost" onclick="visioArchiver('${detail.id}', this)">Archiver</button>`);
+    boutons.push(`<button type="button" class="ghost" onclick="visioSupprimer('${detail.id}', this)">Supprimer</button>`);
   } else if (detail.archivee) {
     boutons.push(`<button type="button" class="ghost" onclick="visioRestaurer('${detail.id}', this)">Restaurer</button>`);
     boutons.push(`<button type="button" class="ghost" onclick="visioSupprimer('${detail.id}', this)">Supprimer définitivement</button>`);
   } else if (detail.statut === "en_cours") {
-    boutons.push(`<span class="aide-inline">Appel en cours — terminez-le avant d'archiver.</span>`);
+    boutons.push(`<span class="aide-inline">Appel en cours — terminez-le avant d'archiver ou de supprimer.</span>`);
   }
   actions.innerHTML = boutons.join("");
 

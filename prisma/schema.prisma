@@ -935,11 +935,21 @@ model SessionVisio {
   dateFin         DateTime?
   // Archivage = corbeille (masque de l'historique actif sans supprimer),
   // orthogonal a `statut` qui decrit la progression de l'appel lui-meme.
-  // Suppression definitive uniquement autorisee quand archivee=true (sauf
-  // annulation d'une visite encore en_attente, qui n'a jamais de capture).
+  // Suppression definitive autorisee pour toute visite non en_cours (demande
+  // explicite de l'utilisateur : l'archivage n'est plus un prealable
+  // obligatoire, juste une option de rangement independante).
   archivee        Boolean        @default(false)
   archivedAt      DateTime?
   notes           String?
+  // Preuve de consentement RGPD du client avant l'acces a la visio (voir
+  // construireVisioClientPageHtml) : les 3 cases doivent toutes etre cochees
+  // cote client, revalide cote serveur avant d'emettre le jeton LiveKit.
+  // consentDate = horodatage de cet accord, conserve comme preuve en cas de
+  // controle (demande explicite de l'utilisateur).
+  consentAccepte      Boolean    @default(false)
+  consentCameraMicro  Boolean    @default(false)
+  consentPhotos       Boolean    @default(false)
+  consentDate         DateTime?
   captures        CaptureVisio[]
   createdAt       DateTime       @default(now())
 }
